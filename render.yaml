@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: coastal-view-mandarmani
+    env: node
+    plan: free
+    region: singapore
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: CAPTCHA_POLICY
+        value: smart
+      - key: TURNSTILE_SITE_KEY
+        value: 0x4AAAAAAFdzwcCkPwyd37mU
+      - key: TURNSTILE_SECRET_KEY
+        value: 0x4AAAAAAFdzwaPwK2How4KseNGzTcwxESo
+      - key: ADMIN_EMAIL
+        value: sandipanmajumder9339@gmail.com
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: TOTP_ISSUER
+        value: CoastalViewMandarmani
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        value: Coastal View Mandarmani <reservations@coastalviewmandarmani.com>

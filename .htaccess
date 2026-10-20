@@ -1,0 +1,84 @@
+# Hostinger Business Web Hosting Configuration for Coastal View Hotel
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Enforce HTTPS Redirect
+  RewriteCond %{HTTPS} !=on
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+  # Protect Database Files
+  RewriteRule ^data/ - [F,L]
+
+  # Clean page URLs for Gallery, Menu & Admin without 404 on refresh
+  RewriteRule ^gallery/?$ gallery.html [L,QSA]
+  RewriteRule ^menu/?$ menu.html [L,QSA]
+  RewriteRule ^admin/?$ admin/index.html [L,QSA]
+
+  # Rewrite Clean API URLs to PHP if running in standard Apache/PHP mode
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^api/settings$ api/settings.php [L,QSA]
+  RewriteRule ^api/rooms$ api/rooms.php [L,QSA]
+  RewriteRule ^api/rooms/([^/]+)/toggle-soldout$ api/rooms.php?id=$1&action=toggle-soldout [L,QSA]
+  RewriteRule ^api/rooms/([^/]+)$ api/rooms.php?id=$1 [L,QSA]
+  RewriteRule ^api/bookings$ api/bookings.php [L,QSA]
+  RewriteRule ^api/bookings/([^/]+)/status$ api/bookings.php?id=$1 [L,QSA]
+  RewriteRule ^api/menu$ api/menu.php [L,QSA]
+  RewriteRule ^api/menu/item$ api/menu.php?action=item [L,QSA]
+  RewriteRule ^api/menu/upload-image$ api/menu.php?action=upload_image [L,QSA]
+  RewriteRule ^api/menu/reorder$ api/menu.php?action=reorder [L,QSA]
+  RewriteRule ^api/menu/toggle-available$ api/menu.php?action=toggle_available [L,QSA]
+  RewriteRule ^api/menu/toggle-featured$ api/menu.php?action=toggle_featured [L,QSA]
+  RewriteRule ^api/menu/([^/]+)/([^/]+)$ api/menu.php?type=$1&id=$2 [L,QSA]
+  RewriteRule ^api/gallery$ api/gallery.php [L,QSA]
+  RewriteRule ^api/gallery/reorder$ api/gallery.php?action=reorder [L,QSA]
+  RewriteRule ^api/gallery/([^/]+)/toggle-featured$ api/gallery.php?id=$1&action=toggle-featured [L,QSA]
+  RewriteRule ^api/gallery/([^/]+)$ api/gallery.php?id=$1 [L,QSA]
+  RewriteRule ^api/amenities$ api/amenities.php [L,QSA]
+  RewriteRule ^api/auth/captcha-config$ api/auth.php?action=captcha-config [L,QSA]
+  RewriteRule ^api/auth/captcha$ api/auth.php?action=captcha [L,QSA]
+  RewriteRule ^api/auth/login$ api/auth.php?action=login [L,QSA]
+  RewriteRule ^api/auth/verify$ api/auth.php?action=verify [L,QSA]
+  RewriteRule ^api/auth/logout$ api/auth.php?action=logout [L,QSA]
+  RewriteRule ^api/vehicles$ api/vehicles.php [L,QSA]
+  RewriteRule ^api/vehicles/settings$ api/vehicles.php?action=settings [L,QSA]
+  RewriteRule ^api/vehicles/settings/toggle-triptype$ api/vehicles.php?action=toggle-triptype [L,QSA]
+  RewriteRule ^api/vehicles/([^/]+)$ api/vehicles.php?id=$1 [L,QSA]
+  RewriteRule ^api/audit-log$ api/audit_log.php [L,QSA]
+  RewriteRule ^api/admin/emails$ api/emails.php [L,QSA]
+  RewriteRule ^api/admin/users$ api/auth.php?action=users [L,QSA]
+  RewriteRule ^api/admin/users/([^/]+)$ api/auth.php?action=users&username=$1 [L,QSA]
+  RewriteRule ^api/chat$ api/concierge.php?action=chat [L,QSA]
+  RewriteRule ^api/chat/callback$ api/concierge.php?action=callback [L,QSA]
+  RewriteRule ^api/concierge/chat$ api/concierge.php?action=chat [L,QSA]
+  RewriteRule ^api/concierge/callback$ api/concierge.php?action=callback [L,QSA]
+  RewriteRule ^api/concierge/inquiries$ api/concierge.php?action=inquiries [L,QSA]
+  RewriteRule ^api/concierge/callback/([^/]+)$ api/concierge.php?action=callback_update&id=$1 [L,QSA]
+  RewriteRule ^api/admin/chat/conversations$ api/concierge.php?action=conversations [L,QSA]
+  RewriteRule ^api/admin/chat/settings$ api/concierge.php?action=bot_settings [L,QSA]
+  RewriteRule ^api/admin/chat/stats$ api/concierge.php?action=stats [L,QSA]
+  RewriteRule ^api/admin/chat/export-csv$ api/concierge.php?action=export_csv [L,QSA]
+  RewriteRule ^api/admin/concierge/conversations$ api/concierge.php?action=conversations [L,QSA]
+  RewriteRule ^api/admin/concierge/conversations/([^/]+)$ api/concierge.php?action=conversation&id=$1 [L,QSA]
+  RewriteRule ^api/admin/concierge/bot-settings$ api/concierge.php?action=bot_settings [L,QSA]
+  RewriteRule ^api/admin/concierge/export-csv$ api/concierge.php?action=export_csv [L,QSA]
+</IfModule>
+
+# Security Headers
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+  Header set X-XSS-Protection "1; mode=block"
+  Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# Prevent viewing of sensitive files
+<FilesMatch "^(\.env|\.git|\.htaccess|composer\.json|package\.json|package-lock\.json)$">
+  Order allow,deny
+  Deny from all
+</FilesMatch>
+
+# Enable GZIP Compression for speed
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/plain text/html text/xml text/css application/xml application/xhtml+xml application/rss+xml application/javascript application/x-javascript application/json
+</IfModule>

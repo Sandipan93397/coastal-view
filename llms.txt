@@ -1,0 +1,96 @@
+# Coastal View Hotel & Resort, Mandarmani (Managed By Ani's)
+
+> Premier boutique beachfront luxury resort situated directly on the shores of Mandarmani, West Bengal. Managed and curated by Anirban Das and Ani's Tour & Travels.
+
+## Overview
+- **Location:** Rina Rd, Mandarmani, West Bengal 721455, India.
+- **Distance:** ~170 km from Kolkata (~3.5 to 4 hours via NH16 & NH116B).
+- **Telephone / Front Desk:** +91 9620536361
+- **Management:** Managed By Ani's (Founder: Anirban Das).
+- **Key Amenities:** Direct private beachfront access, infinity swimming pool, The Bay Breeze Bengali fine dining restaurant, The Coral Reef Cocktail Lounge, romantic candlelight beach dinners, private cab hire and sightseeing.
+
+## Room Types & Accommodations
+Coastal View features 4 distinct boutique room and suite categories:
+
+### 1. The Ocean Whisper Room
+- **Category Tag:** SEA VIEW
+- **View:** Sea-facing with private balcony views of the pool, garden, and sea in the distance
+- **Target Guest:** Ideal for couples and romantic getaways
+- **Bed:** Comfortable King Bed
+- **Size:** 450 sq. ft.
+- **Capacity:** Max 2 Guests
+- **Features & Highlights:**
+  - Private balcony with views of the pool, garden, and sea
+  - Silent split air conditioning & high-speed Wi-Fi
+  - Wall-mounted Smart TV with streaming apps
+  - Modern en-suite bathroom with 24/7 hot & cold rainfall shower
+- **Price:** ₹6,800 / night (20% advance: ₹1,360)
+
+### 2. The Pool Haven Room
+- **Category Tag:** POOL VIEW
+- **View:** Swimming pool and garden view from private balcony
+- **Target Guest:** Water lovers and couples
+- **Bed:** Plush King Bed
+- **Size:** 480 sq. ft.
+- **Capacity:** Max 2 Adults + 1 Child
+- **Features & Highlights:**
+  - Private balcony overlooking the swimming pool and garden
+  - Climate control air conditioning & high-speed Wi-Fi
+  - Wall-mounted Smart TV with streaming apps
+  - Modern private bathroom with hot & cold shower
+- **Price:** ₹7,200 / night (20% advance: ₹1,440)
+
+### 3. Cosy Deluxe Room
+- **Category Tag:** NON-SEA FACING (Cosy Deluxe)
+- **View:** Tropical garden and inner courtyard side
+- **Target Guest:** Budget-conscious travelers, quiet retreats, solo travelers, and couples
+- **Bed:** Comfortable Queen Bed
+- **Size:** 380 sq. ft.
+- **Capacity:** Max 2 Guests
+- **Features & Highlights:**
+  - Quiet location overlooking courtyard greenery
+  - Split air conditioning & high-speed Wi-Fi
+  - Smart TV with cable and streaming support
+  - Clean, hygienic modern en-suite bathroom
+- **Price:** Economical rate (managed via live front desk admin panel; defaults to "Ask at hotel" until saved)
+
+### 4. The Palm Grove Family Suite
+- **Category Tag:** FAMILY SUITE
+- **View:** Palm and garden surroundings
+- **Target Guest:** Families with children and vacation groups
+- **Bed:** Two Beds (King Bed + Extra Bed or two spacious beds)
+- **Size:** 850 sq. ft.
+- **Capacity:** Max 4 Adults + 2 Children
+- **Features & Highlights:**
+  - Expansive family suite surrounded by tropical palms and landscaped gardens
+  - Dedicated sitting lounge and family living area
+  - Dual modern en-suite bathrooms
+  - Private wide garden-facing veranda
+- **Price:** ₹11,500 / night (20% advance: ₹2,300)
+
+## Reservation & Payment Policy
+- **Confirmation Advance:** 20% non-refundable advance deposit payable online via UPI / Cards / Net Banking to lock in live room dates.
+- **Balance Payment:** Remaining 80% balance is payable directly at hotel check-in or check-out.
+- **Live Inventory:** Real-time sold-out toggling directly synced between front desk admin panel, website booking engine, and the Coastal Concierge AI.
+
+## Dining & Add-On Experiences
+- **The Bay Breeze Restaurant:** Authentic Bengali seafood (Pomfret, Hilsa, Tiger Prawns, Bhetki), North Indian, Chinese, snacks, and traditional Thalis. Breakfast served daily 7:00 AM – 10:30 AM. Breakfast is optional (not included in the base room rate, available as an add-on at ₹200).
+- **Official Printed Menu & Pricing Highlights:**
+  - **Breakfast (7:00 AM to 10:30 AM):** Tea (₹30), Black Tea (₹25), Coffee (₹70), Black Coffee (₹50), Green Tea (₹60), Puri Sabji 4 pcs. (₹70), Extra Puri (₹20), Jam/Butter Toast 4 pc. (₹60), Aloo Paratha 2 pc. with dahi & aachar (₹150), Sandwich (Veg ₹80 / Chicken ₹100 / Egg ₹120), Egg Boiled 2 pc. (₹50), Omelet 2 pc. (₹60), Egg Poach 2 pc. (₹50), Egg Bhujia 2 pc. (₹80), Maggie (Veg ₹70 / Egg ₹90 / Chicken ₹110).
+  - **Vegetable / Dal:** Aloo Bhaja (₹60), Plain Dal (₹60), Dal Fry (₹120), Begun Fry 2 pc. (₹40), Aloo Posto (₹160), Aloo Dom (₹120), Aloo Matar Paneer (₹180), Mix Veg. (₹190), Aloo Choka (₹40), Aloo Gobi (₹150), Vindi Masala (₹150), Paneer Butter Masala/Dopiyaja/Chilli (₹250), Chana Masala (₹120).
+  - **Rice / Roti / Chowmin:** Rice Plain (₹70), Jeera Rice (₹100), Veg. Fried Rice (₹120), Egg Fried Rice (₹140), Chicken Fried Rice (₹150), Mix Fried Rice (₹200), Roti Tawa (₹10), Butter Roti (₹20), Chowmin (Veg ₹100 / Egg ₹120 / Chicken ₹150), Mix Chowmin (₹200), Chicken Biriyani 2 pc. Chicken, Aloo, Egg, Raita (₹250).
+  - **Non Veg Specialties:** Pomfret Sorsa/Curry/Masala 1 pc. (₹250), Parshe Sorsa/Curry/Masala 1 pc. (₹250), Hilsa Sorsa/Vapa 1 pc. (₹320), Prawn Curry/Masala/Sorsa Vapa 2 pc. (₹250), Crab Masala 2 pc. (₹400), Katla Curry 2 pc. (₹250), Dahi Katla 2 pc. (₹300), Dub Chingri (₹420), Bhetki Curry/Sorsa (₹250), Chicken Curry/Masala/Kadai Dopiyaji 4 pc. (₹250/280/300), Mutton Curry Kasa 4 pc. (₹420), Chicken Chilly/Manchurian/Garlic (₹200), Chicken Bharta (₹220).
+  - **Snacks (Veg./Non Veg.):** Veg. Pakora 8 pc. (₹150), Onion Pakora 8 pc. (₹160), French Fry (₹150), Paneer Pakora 8 pc. (₹200), Chilly Manchurian 8 pc. (₹250), Peanut Salad (₹120), Egg Pakora 8 pc. (₹140), Chicken Pakora 6 pc. (₹210), Dry Chilly Chicken 6 pc. (₹230), Crispy Chicken (₹280), Amudi Fish Fry (₹180), Vola Fish Fry 2 pc. (₹250/300), Pomfret Masala 2 pc. (₹550), Salted Kaju (₹250), Chicken Tandoori Full (₹800), Chicken Tikka 8 pc. (₹300), Chicken Oil Fry 16 pc. (₹300), Fish Finger 8 pc. (₹300), Baby Corn / Mushroom Chilly (₹220/280).
+  - **Mocktail:** Fresh Lime Soda (₹60), Masala Cold Drinks (₹80), Blue Lagoon (₹150), Green Apple Freshness (₹150), Orange Pool (₹130), Mango Masti (₹120), Pineapple Swag (₹130).
+  - **Salad & Raita / Papad:** Green Salad (₹80), Mixed Salad (₹90), Plain Raita (₹80), Papad Fry 2 pc. (₹25), Roasted Papad 2 pc. (₹40), Masala Papad (₹40), Chutney (₹60), Sweet 2 pc. (₹50).
+  - **Thali:** Veg. Thali (₹180 - Rice / Dal / Aloo Bhaja / 2 types of Sabji / Papad / Salad / Chutney), Ruhi Thali (₹220 - Rice / Dal / Aloo Bhaja / Sabji, chutney, papad, 1 pc. Ruhi fish), Katla Thali (₹250), Chicken Thali 3 pc. (₹350), Prawn / Pomfret / Vola Thali (₹400), Parshey / Vetki Thali (₹450), Elish / Mutton Thali (₹550).
+  - **Kitchen & Dining Policy:** Fish & Chicken (per kg): ₹300/kg. Mutton: ₹350/kg. Outside food not allowed. Drinks & hookah available.
+  - **Direct Restaurant Orders:** +91 7812027551 (Tap to call).
+- **Drinks & Lounge:** Signature coastal refreshments, mocktails, fresh coconut water, cold drinks, and hookah by the pool and beach.
+- **Candlelight Dinners:**
+  - Beachside Romantic Canopy Dinner: ₹3,500 (4-course tasting menu, private butler, floral decor, mocktails, celebration cake)
+  - Infinity Poolside Romantic Dinner: ₹2,800
+- **Travel & Car Rentals (Ani's Tour & Travels):**
+  - AC Car Rental: ₹2,500 / day
+  - E-Rickshaw / Toto local coastal exploration
+  - Kolkata Airport / Howrah Railway pickups & custom tours to Tajpur, Digha, and Bakkhali.
