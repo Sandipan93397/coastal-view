@@ -1427,7 +1427,7 @@ function renderBookingVoucher(booking) {
         <strong style="color: var(--ocean-blue);">To Complete 20% Advance Transfer:</strong><br>
         UPI ID: <strong style="color: var(--turquoise);">${hotelSettings.paymentUPI || 'coastalview@upi'}</strong><br>
         Bank Details: ${hotelSettings.paymentBank || 'Contact hotel for bank wire details'}<br>
-        <em>Please send your transfer screenshot on WhatsApp to <strong>${hotelSettings.whatsapp || '+91 98300 12345'}</strong> with Booking ID <strong>${booking.bookingId}</strong>.</em>
+        <em>Please send your transfer screenshot on WhatsApp to <strong>${hotelSettings.whatsapp || '+91 7812027551'}</strong> with Booking ID <strong>${booking.bookingId}</strong>.</em>
       </div>
 
       <div style="display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;">

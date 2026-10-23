@@ -151,7 +151,7 @@ if (process.env.SMTP_HOST && process.env.SMTP_USER) {
 async function sendBookingConfirmationEmail(booking, db) {
   const settings = db.settings || {};
   const recipientEmail = booking.guestEmail;
-  const hotelEmail = settings.email || 'reservations@coastalviewmandarmani.com';
+  const hotelEmail = settings.email || 'coastalviewbyanis@gmail.com';
 
   const transportHtml = booking.needCar ? `
     <tr>
@@ -299,7 +299,7 @@ async function sendBookingConfirmationEmail(booking, db) {
             <strong style="color: #073B4C;">Payment Information for 20% Advance:</strong><br>
             • UPI ID: <strong>${settings.paymentUPI || 'coastalview@upi'}</strong><br>
             • Bank Account: ${settings.paymentBank || 'HDFC Bank, Contai Branch'}<br>
-            • WhatsApp Confirmation: <strong>${settings.whatsapp || '+91 98300 12345'}</strong>
+            • WhatsApp Confirmation: <strong>${settings.whatsapp || '+91 7812027551'}</strong>
           </div>
 
           <p style="font-size: 13px; color: #64748B; margin-bottom: 0;">
@@ -792,6 +792,13 @@ app.post('/api/auth/login', async (req, res) => {
 
     let isMatch = false;
     if (user) {
+      if (user.active === false) {
+        logAudit(db, user.username, 'Disabled Account Login Blocked', `Attempted sign-in to disabled account "${user.username}" from IP ${clientIp}`, req);
+        return res.status(403).json({
+          success: false,
+          message: 'Your staff account has been disabled. Please contact Super Admin.'
+        });
+      }
       isMatch = await verifyPassword(password, user.passwordHash, user, db);
     }
 
@@ -2270,6 +2277,249 @@ app.patch('/api/bookings/:id/status', requireAnyStaff, async (req, res) => {
   res.json({ success: true, booking, message: `Booking status updated to ${status}` });
 });
 
+// Manager, Super Admin, Front Desk: Edit Full Reservation Details
+app.put('/api/bookings/:id', requireAnyStaff, (req, res) => {
+  const { id } = req.params;
+  const {
+    roomId,
+    checkIn,
+    checkOut,
+    guestName,
+    guestPhone,
+    guestEmail,
+    adults = 2,
+    children = 0,
+    roomsCount = 1,
+    status,
+    needCar = false,
+    vehicleType = 'car',
+    vehicleQuantity = null,
+    carCount = 0,
+    breakfast = false,
+    breakfastGuests = null,
+    candlelightDinner = false,
+    dinnerSetup = 'Beachside',
+    dinnerCount = 1,
+    customPrice = null,
+    discountAmount = 0,
+    specialRequests = ''
+  } = req.body;
+
+  const db = readDB();
+  const booking = (db.bookings || []).find(b => b.bookingId === id);
+  if (!booking) {
+    return res.status(404).json({ success: false, message: 'Reservation not found' });
+  }
+
+  // Front Desk role enforcement: cannot discount or override rates
+  if (req.user.role === 'Front Desk') {
+    if (customPrice !== null && customPrice !== undefined && Number(customPrice) !== booking.roomPrice) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Role "Front Desk" cannot alter room rates or apply custom price discounts.'
+      });
+    }
+  }
+
+  return bookingMutex.acquire(async () => {
+    const targetRoomId = roomId || booking.roomId;
+    const room = (db.rooms || []).find(r => r.id === targetRoomId && !r.isArchived);
+    if (!room) {
+      return res.status(400).json({ success: false, message: 'Selected room not found' });
+    }
+
+    const effectiveCheckIn = checkIn || booking.checkIn;
+    const effectiveCheckOut = checkOut || booking.checkOut;
+    const parsedRoomsCount = Math.max(1, parseInt(roomsCount !== undefined ? roomsCount : (booking.roomsCount || 1), 10) || 1);
+
+    // Verify availability excluding current booking
+    const availability = getRoomAvailability(db, targetRoomId, effectiveCheckIn, effectiveCheckOut, booking.bookingId);
+    if (availability.available < parsedRoomsCount) {
+      return res.status(400).json({
+        success: false,
+        message: `Only ${availability.available} room(s) available for "${room.name}" on ${effectiveCheckIn} to ${effectiveCheckOut} (${parsedRoomsCount} requested). Please adjust dates or room count.`
+      });
+    }
+
+    const checkInDate = new Date(effectiveCheckIn);
+    const checkOutDate = new Date(effectiveCheckOut);
+    const diffTime = checkOutDate.getTime() - checkInDate.getTime();
+    const nights = Math.max(1, Math.round(diffTime / (1000 * 60 * 60 * 24)));
+
+    // Room pricing
+    const effectiveRoomRate = (customPrice !== null && customPrice !== undefined && !isNaN(Number(customPrice)) && req.user.role !== 'Front Desk')
+      ? Number(customPrice)
+      : room.price;
+    const roomSubtotal = effectiveRoomRate * nights * parsedRoomsCount;
+    const roomLine = `Room: ₹${effectiveRoomRate.toLocaleString('en-IN')} × ${nights} night${nights > 1 ? 's' : ''} × ${parsedRoomsCount} room${parsedRoomsCount > 1 ? 's' : ''}`;
+
+    // Vehicle pricing
+    let carTotal = 0;
+    let selectedVehicle = null;
+    let parsedVehicleQty = 0;
+    let transportLine = '';
+    let vShortName = 'Car';
+    if (needCar) {
+      const vType = (vehicleType || booking.vehicleType || 'car').toLowerCase();
+      selectedVehicle = (db.vehicles || []).find(v => 
+        v.id === vType || 
+        v.name.toLowerCase() === vType || 
+        vType.includes(v.id) || 
+        v.name.toLowerCase().includes(vType)
+      );
+      if (selectedVehicle && selectedVehicle.enabled) {
+        const maxQ = selectedVehicle.maxQuantity || 5;
+        const effectiveQty = (vehicleQuantity !== null && vehicleQuantity !== undefined && vehicleQuantity !== '') ? vehicleQuantity : (carCount || 1);
+        parsedVehicleQty = Math.min(maxQ, Math.max(1, parseInt(effectiveQty, 10) || 1));
+        carTotal = selectedVehicle.pricePerDay * parsedVehicleQty * nights;
+        vShortName = selectedVehicle.id === 'toto' ? 'Toto' : (selectedVehicle.id === 'auto' ? 'Auto' : 'Car');
+        transportLine = `${vShortName} × ${parsedVehicleQty} × ${nights} day${nights > 1 ? 's' : ''}`;
+      }
+    }
+
+    // Candlelight Dinner pricing
+    let dinnerTotal = 0;
+    let dinnerLine = '';
+    let dinnerPrice = 0;
+    let dinnerMultiplier = 1;
+    if (candlelightDinner) {
+      const effectiveDinnerSetup = dinnerSetup || booking.dinnerSetup || 'Beachside';
+      dinnerPrice = effectiveDinnerSetup === 'Beachside'
+        ? (db.settings?.candlelightDinnerBeachside || db.websiteContent?.candlelight?.beachsidePrice || 3500)
+        : (db.settings?.candlelightDinnerPoolside || db.websiteContent?.candlelight?.poolsidePrice || 2800);
+      dinnerMultiplier = Math.max(1, parseInt(dinnerCount, 10) || 1);
+      dinnerTotal = dinnerPrice * dinnerMultiplier;
+      dinnerLine = `Candlelight dinner (${effectiveDinnerSetup})`;
+    }
+
+    // Breakfast pricing
+    let breakfastTotal = 0;
+    let breakfastLine = '';
+    const bfSettings = db.settings?.breakfastAddon || {};
+    const bfPrice = Number(db.settings?.breakfastPrice !== undefined ? db.settings.breakfastPrice : (bfSettings.price || 200));
+    const bfUnit = db.settings?.breakfastUnit || bfSettings.unit || 'per_person_per_day';
+    let bfQty = 0;
+    if (breakfast) {
+      if (bfUnit === 'per_room_per_day') {
+        bfQty = parsedRoomsCount;
+        breakfastTotal = bfPrice * parsedRoomsCount * nights;
+        breakfastLine = `Breakfast × ${parsedRoomsCount} room${parsedRoomsCount > 1 ? 's' : ''} × ${nights} day${nights > 1 ? 's' : ''} = ₹${breakfastTotal.toLocaleString('en-IN')}`;
+      } else {
+        const effectiveBfGuests = Math.max(1, parseInt(breakfastGuests || adults || 2, 10));
+        bfQty = effectiveBfGuests;
+        breakfastTotal = bfPrice * effectiveBfGuests * nights;
+        breakfastLine = `Breakfast × ${effectiveBfGuests} guest${effectiveBfGuests > 1 ? 's' : ''} × ${nights} day${nights > 1 ? 's' : ''} = ₹${breakfastTotal.toLocaleString('en-IN')}`;
+      }
+    }
+
+    const baseSubtotal = roomSubtotal + carTotal + dinnerTotal + breakfastTotal;
+
+    // Taxes
+    let taxAmount = 0;
+    let taxLine = '';
+    const isTaxEnabled = !!db.settings?.enableTax;
+    const taxPercentage = isTaxEnabled ? (Number(db.settings?.taxPercentage) || 0) : 0;
+    if (isTaxEnabled && taxPercentage > 0) {
+      taxAmount = Math.round((baseSubtotal * taxPercentage) / 100);
+      taxLine = `GST / Taxes (${taxPercentage}%): ₹${taxAmount.toLocaleString('en-IN')}`;
+    }
+
+    const totalAmount = Math.max(0, baseSubtotal + taxAmount - (Number(discountAmount) || 0));
+    const advancePercentage = db.settings?.advancePercentage || 20;
+    const payNowAdvance = Math.round((totalAmount * advancePercentage) / 100);
+    const payAtHotelBalance = totalAmount - payNowAdvance;
+
+    const oldTotal = booking.totalAmount;
+    const oldStatus = booking.status;
+    const oldDates = `${booking.checkIn} to ${booking.checkOut}`;
+    const newDates = `${effectiveCheckIn} to ${effectiveCheckOut}`;
+
+    // Update fields
+    if (guestName) booking.guestName = guestName.trim();
+    if (guestPhone) booking.guestPhone = guestPhone.trim();
+    if (guestEmail !== undefined) booking.guestEmail = guestEmail.trim();
+    booking.roomId = room.id;
+    booking.roomName = room.name;
+    booking.roomPrice = effectiveRoomRate;
+    booking.checkIn = effectiveCheckIn;
+    booking.checkOut = effectiveCheckOut;
+    booking.nights = nights;
+    booking.roomsCount = parsedRoomsCount;
+    booking.adults = parseInt(adults, 10) || 2;
+    booking.children = parseInt(children, 10) || 0;
+    if (status) booking.status = status;
+    booking.needCar = !!needCar;
+    if (needCar && selectedVehicle) {
+      booking.vehicleId = selectedVehicle.id;
+      booking.vehicleName = selectedVehicle.name;
+      booking.vehicleType = selectedVehicle.id;
+      booking.carCount = parsedVehicleQty;
+      booking.carTotal = carTotal;
+    } else {
+      booking.vehicleId = null;
+      booking.vehicleName = null;
+      booking.carTotal = 0;
+    }
+    booking.breakfast = !!breakfast;
+    booking.breakfastTotal = breakfastTotal;
+    booking.breakfastGuests = bfQty;
+    booking.breakfastUnit = bfUnit;
+    booking.candlelightDinner = !!candlelightDinner;
+    booking.dinnerTotal = dinnerTotal;
+    if (candlelightDinner) {
+      booking.dinnerSetup = dinnerSetup || 'Beachside';
+    }
+    booking.taxAmount = taxAmount;
+    booking.totalAmount = totalAmount;
+    booking.payNowAdvance = payNowAdvance;
+    booking.payAtHotelBalance = payAtHotelBalance;
+    if (specialRequests !== undefined) booking.specialRequests = specialRequests;
+    booking.updatedAt = new Date().toISOString();
+    booking.updatedBy = req.user.username;
+
+    const breakdownLines = [
+      roomLine,
+      ...(breakfast && breakfastLine ? [breakfastLine] : []),
+      ...(needCar && transportLine ? [transportLine] : []),
+      ...(candlelightDinner && dinnerLine ? [dinnerLine] : []),
+      ...(taxLine ? [taxLine] : [])
+    ];
+    booking.breakdown = {
+      roomCost: roomSubtotal,
+      transportCost: carTotal,
+      candlelightCost: dinnerTotal,
+      taxAmount,
+      subtotal: baseSubtotal,
+      totalAmount,
+      lines: breakdownLines
+    };
+
+    // Revision creation
+    try {
+      await createInvoiceRevision(booking, db, `Reservation details updated by ${req.user.name} (${req.user.role})`, {
+        baseUrl: `${req.protocol}://${req.get('host')}`
+      });
+    } catch (invErr) {
+      console.warn('Invoice revision creation issue:', invErr.message);
+    }
+
+    logAudit(
+      db,
+      req.user,
+      'Reservation Updated',
+      `${req.user.role} ${req.user.name} updated reservation ${id} for ${booking.guestName}. Dates: ${oldDates} -> ${newDates}, Total: ₹${oldTotal} -> ₹${totalAmount}, Status: ${oldStatus} -> ${booking.status}.`,
+      req
+    );
+
+    writeDB(db);
+    res.json({
+      success: true,
+      booking,
+      message: `Reservation ${id} updated successfully. Invoice revision generated.`
+    });
+  });
+});
+
 // Resend Confirmation Email
 app.post('/api/bookings/:id/resend-email', requireAnyStaff, async (req, res) => {
   const { id } = req.params;
@@ -3643,9 +3893,80 @@ app.get('/api/admin/users', requireSuperAdmin, (req, res) => {
   const safeUsers = (db?.users || []).map(u => ({
     username: u.username,
     role: u.role || 'Manager',
-    name: u.name || u.username
+    name: u.name || u.username,
+    email: u.email || `${u.username}@coastalviewmandarmani.com`,
+    active: u.active !== false,
+    twoFactorEnabled: u.twoFactorEnabled !== false
   }));
   res.json({ success: true, users: safeUsers, currentUser: req.user });
+});
+
+// Super Admin: Edit Staff Role & Status
+app.patch('/api/admin/users/:username', requireSuperAdmin, requireReauth, async (req, res) => {
+  const targetUser = req.params.username;
+  const { role, active, name, email, password } = req.body;
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false, message: 'Database error' });
+
+  const user = (db.users || []).find(u => u.username.toLowerCase() === targetUser.toLowerCase());
+  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+  // Guard: Cannot disable or demote primary Super Admin account
+  if (user.username === 'sandipanmajumder9339' || user.is_superadmin) {
+    if (active === false) {
+      return res.status(400).json({ success: false, message: 'Cannot disable primary Super Admin account' });
+    }
+    if (role && role !== 'Super Admin') {
+      return res.status(400).json({ success: false, message: 'Cannot demote primary Super Admin account' });
+    }
+  }
+
+  const oldRole = user.role;
+  const oldActive = user.active !== false;
+
+  if (role !== undefined) user.role = role;
+  if (active !== undefined) user.active = !!active;
+  if (name !== undefined) user.name = name.trim();
+  if (email !== undefined) user.email = email.trim();
+
+  if (password && password.trim()) {
+    const policy = validatePasswordPolicy(password.trim());
+    if (!policy.isValid) {
+      return res.status(400).json({ success: false, message: policy.issues.join('; ') });
+    }
+    user.passwordHash = await hashPassword(password.trim());
+  }
+
+  logAudit(
+    db,
+    req.user,
+    'Staff Account Updated',
+    `Super Admin ${req.user.name} updated ${targetUser}: Role: ${oldRole} -> ${user.role}, Status: ${oldActive ? 'Active' : 'Disabled'} -> ${user.active !== false ? 'Active' : 'Disabled'}.`,
+    req
+  );
+
+  sendSuperAdminAlert(
+    `Staff Account Modified: ${targetUser}`,
+    `Super Admin ${req.user.name} updated staff account <strong>${targetUser}</strong>. Role: <strong>${user.role}</strong>, Status: <strong>${user.active !== false ? 'Active' : 'Disabled'}</strong>.`,
+    db
+  );
+
+  writeDB(db);
+
+  const safeUsers = db.users.map(u => ({
+    username: u.username,
+    role: u.role || 'Manager',
+    name: u.name || u.username,
+    email: u.email || `${u.username}@coastalviewmandarmani.com`,
+    active: u.active !== false,
+    twoFactorEnabled: u.twoFactorEnabled !== false
+  }));
+
+  res.json({
+    success: true,
+    message: `Account "${targetUser}" updated successfully.`,
+    users: safeUsers
+  });
 });
 
 app.post('/api/admin/users', requireSuperAdmin, requireReauth, async (req, res) => {
@@ -3742,6 +4063,71 @@ app.get('/api/admin/login-history', requireSuperAdmin, (req, res) => {
 // ============================================================================
 // WEBSITE CONTENT & SEO APIS
 // ============================================================================
+// Amenities Management Endpoints
+app.get('/api/admin/amenities', requireAnyStaff, (req, res) => {
+  const db = readDB();
+  res.json({ success: true, amenities: db.amenities || [] });
+});
+
+app.post('/api/admin/amenities', requireManager, (req, res) => {
+  const { id, title, desc, icon, active } = req.body;
+  if (!title || !title.trim()) {
+    return res.status(400).json({ success: false, message: 'Amenity title is required' });
+  }
+  const db = readDB();
+  db.amenities = db.amenities || [];
+  const existingIdx = id ? db.amenities.findIndex(a => a.id === id) : -1;
+
+  const item = {
+    id: id || `am-${Date.now()}`,
+    title: title.trim(),
+    desc: (desc || '').trim(),
+    icon: (icon || 'check_circle').trim(),
+    active: active !== false
+  };
+
+  if (existingIdx > -1) {
+    db.amenities[existingIdx] = { ...db.amenities[existingIdx], ...item };
+  } else {
+    db.amenities.push(item);
+  }
+
+  logAudit(db, req.user, existingIdx > -1 ? 'Amenity Updated' : 'Amenity Created', `${req.user.name} updated amenity "${item.title}".`, req);
+  writeDB(db);
+  res.json({ success: true, amenity: item, amenities: db.amenities, message: `Amenity "${item.title}" saved successfully.` });
+});
+
+app.delete('/api/admin/amenities/:id', requireManager, (req, res) => {
+  const { id } = req.params;
+  const db = readDB();
+  const existing = (db.amenities || []).find(a => a.id === id);
+  if (!existing) return res.status(404).json({ success: false, message: 'Amenity not found' });
+
+  db.amenities = (db.amenities || []).filter(a => a.id !== id);
+  logAudit(db, req.user, 'Amenity Deleted', `${req.user.name} deleted amenity "${existing.title}".`, req);
+  writeDB(db);
+  res.json({ success: true, amenities: db.amenities, message: `Amenity "${existing.title}" removed.` });
+});
+
+app.post('/api/admin/amenities/reorder', requireManager, (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids)) return res.status(400).json({ success: false, message: 'Invalid IDs list' });
+  const db = readDB();
+  const current = db.amenities || [];
+  const reordered = [];
+  ids.forEach(id => {
+    const found = current.find(a => a.id === id);
+    if (found) reordered.push(found);
+  });
+  current.forEach(a => {
+    if (!reordered.find(x => x.id === a.id)) reordered.push(a);
+  });
+  db.amenities = reordered;
+  logAudit(db, req.user, 'Amenities Reordered', `${req.user.name} reordered website amenities.`, req);
+  writeDB(db);
+  res.json({ success: true, amenities: db.amenities, message: 'Amenities order updated.' });
+});
+
 app.get('/api/admin/content', requireAnyStaff, (req, res) => {
   const db = readDB();
   res.json({ success: true, content: db?.websiteContent || {} });
@@ -3752,10 +4138,20 @@ app.post('/api/admin/content/:section', requireManager, (req, res) => {
   const db = readDB();
   if (!db) return res.status(500).json({ success: false });
   db.websiteContent = db.websiteContent || {};
-  db.websiteContent[section] = req.body;
+
+  let dataToSave = req.body;
+  if (section === 'faqs' && req.body && Array.isArray(req.body.faqs)) {
+    dataToSave = req.body.faqs;
+  } else if (section === 'places' && req.body && Array.isArray(req.body.places)) {
+    dataToSave = req.body.places;
+  } else if (section === 'testimonials' && req.body && Array.isArray(req.body.testimonials)) {
+    dataToSave = req.body.testimonials;
+  }
+
+  db.websiteContent[section] = dataToSave;
   logAudit(db, req.user, 'Content Updated', `${req.user?.name || 'Staff'} updated website content section "${section}".`, req);
   writeDB(db);
-  res.json({ success: true, message: 'Content updated' });
+  res.json({ success: true, message: `Website content "${section}" updated successfully.` });
 });
 
 app.get('/api/admin/seo', requireAnyStaff, (req, res) => {

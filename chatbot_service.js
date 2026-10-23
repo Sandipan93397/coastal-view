@@ -5,9 +5,9 @@
  * - Swappable Provider Interface (BaseLLMProvider, AnthropicProvider, OpenAIProvider)
  * - Grounded Local Database Engine (Zero hallucinations, accurate room rates, inventory, menu, policies)
  * - Multi-turn streaming replies via Server-Sent Events (SSE)
- * - Graceful fallback message: "Please call 9620536361"
+ * - Graceful fallback message: "Please call 7812027551"
  * - Multi-lingual support: English, Bengali (বাংলা), Hindi (हिन्दी), Hinglish
- * - Lead capture & human handoff to 9620536361
+ * - Lead capture & human handoff to 7812027551
  * - Security guardrails: Rate limiting, prompt injection defense, sensitive card filtering, cap tokens & length
  */
 
@@ -21,7 +21,7 @@ const sessionRequestWindow = new Map(); // sessionId -> [timestamps]
 const RATE_LIMIT_IP_PER_MINUTE = 20;
 const RATE_LIMIT_SESSION_MAX = 60;
 const MAX_MESSAGE_LENGTH = 500;
-const DIRECT_PHONE_NUMBER = '9620536361';
+const DIRECT_PHONE_NUMBER = '7812027551';
 
 // ---------------------------------------------------------------------------
 // 1. Language Detection & Normalization

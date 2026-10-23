@@ -4,7 +4,7 @@
 let currentLang = 'en';
 let conciergeSessionId = null;
 
-const DIRECT_PHONE_NUMBER = '9620536361';
+const DIRECT_PHONE_NUMBER = '7812027551';
 
 const defaultWelcomeMessages = {
   en: "Welcome to Coastal View, Managed By Ani's! 🌊\nI am your dedicated Coastal Concierge. Directly connected to our front desk, I can assist you with real-time room availability, official rates, dining menus, romantic candlelight dinners, and travel arrangements. How may I assist your Mandarmani getaway today?",
@@ -192,7 +192,7 @@ function formatBotTextToHtml(text) {
   formatted = formatted.replace(/\n/g, '<br>');
 
   // 4. Highlight Phone Number as Clickable Call
-  formatted = formatted.replace(/\b9620536361\b/g, `<a href="tel:${DIRECT_PHONE_NUMBER}" style="color:#06B6B0; font-weight:700; text-decoration:underline;">📞 9620536361</a>`);
+  formatted = formatted.replace(/\b7812027551\b/g, `<a href="tel:${DIRECT_PHONE_NUMBER}" style="color:#06B6B0; font-weight:700; text-decoration:underline;">📞 7812027551</a>`);
 
   // 5. Internal routes
   formatted = formatted.replace(/\/gallery\b/g, '<a href="/gallery" style="color:var(--champagne-gold,#D4A84D); font-weight:700; text-decoration:underline;">/gallery (Explore Photos)</a>');

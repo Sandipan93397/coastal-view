@@ -1953,7 +1953,7 @@ function viewBookingVoucher(bookingId) {
       </div>
 
       <div style="font-size: 0.76rem; color: #64748B; text-align: center;">
-        Hotel Address: Rina Rd, Mandarmani, West Bengal 721455 • Host: Anirban Das (+91 98300 12345)
+        Hotel Address: Rina Rd, Mandarmani, West Bengal 721455 • Host: Anirban Das (+91 7812027551)
       </div>
     </div>
   `;
@@ -2394,8 +2394,8 @@ async function saveBotSettingsFromModal() {
   const toneInstructions = document.getElementById('botToneInstructions').value.trim();
   const offlineMessage = {
     en: document.getElementById('botOfflineEn').value.trim(),
-    bn: "আমাদের ফ্রন্ট ডেস্ক বর্তমানে ব্যস্ত আছে। সরাসরি কল করুন: 9620536361।",
-    hi: "हमारा डेस्क इस समय व्यस्त है। कृपया सीधे कॉल करें: 9620536361।"
+    bn: "আমাদের ফ্রন্ট ডেস্ক বর্তমানে ব্যস্ত আছে। সরাসরি কল করুন: 7812027551।",
+    hi: "हमारा डेस्क इस समय व्यस्त है। कृपया सीधे कॉल करें: 7812027551।"
   };
   const dailyMessageLimit = parseInt(document.getElementById('botDailyLimit').value, 10) || 500;
 
