@@ -20571,7 +20571,7 @@
       "email": "sandipanmajumder9339@gmail.com",
       "role": "Super Admin",
       "passwordHash": "$argon2id$v=19$m=65536,p=4,t=3$y9zvM2KZLw+fNf039iqSAg$X7bNXiZnd2TaNP/+P/f5Bxuwp2SFl1MeHeXX3qaIFaE",
-      "requireMfaSetup": true,
+      "requireMfaSetup": false,
       "status": "Active",
       "createdAt": "2026-10-20T13:10:52.407Z",
       "lastLogin": null,
@@ -20596,7 +20596,18 @@
         "29B22278",
         "0010A9FD"
       ],
-      "pendingCodeVerified": false
+      "pendingCodeVerified": false,
+      "totpSecret": "FHTAXX62R7FEZOI4QXM6XUHCB2NVLP5O",
+      "backupCodes": [
+        "a93848cdcaa4130bd69b1999e0cf97e52d370e616d061ceb72c36d10befd5ad4",
+        "f95906bc0e50bf2d71b4c4478423b2d274b8f28a34b5ece590737ce00582c63e",
+        "3ca5159285e127d63d016737a7fd948b624adf374afb883628c4b7e888a1f845",
+        "0f3402c2d8cd6cf6546f3ce31d4290fa27ebd6f2f09dc44ffc07daee3cfb9b1c",
+        "3c574425ed8e8ed64e791389fc3ea588a499dd8b3a3e9b58b5b3653b9b215767",
+        "4486a94f8f46f7d46b346def05fd919a0d72823228a456eb4492d6514fa7dec6",
+        "d04c44f7988d0496a39f4caf62cd2a11f255a0764ac332f6bb179b5ec85aa1c8",
+        "b98ab256b6b04dbaa6c7bd4f8f2f3da742876793e749c369b923cb96c3266cd5"
+      ]
     },
     {
       "username": "manager",
