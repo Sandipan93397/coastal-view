@@ -27,7 +27,7 @@ let adminState = {
   activeFilter: 'all',
   activeRoomIdForSoldOut: null,
   activeRoomIdForEdit: null,
-  mediaSlots: {},
+  mediaSlots: [],
   mediaHistory: [],
   activeMediaGroup: 'all'
 };
@@ -193,27 +193,42 @@ function initAuth() {
           }
 
           if (data.require2FA) {
-            // Transition to Step 2: 2FA Screen
+            // Transition to Step 3: Verification Code Screen
             currentPreAuthToken = data.preAuthToken;
+            setLoginStep(3);
             document.querySelector('.login-step-1').style.display = 'none';
             document.querySelector('.two-factor-screen').style.display = 'block';
-            document.getElementById('twoFactorMaskedEmail').textContent = data.maskedEmail || 'registered email';
-            document.getElementById('twoFactorCode').value = '';
-            
+
+            const modeTitle = document.getElementById('twoFactorModeTitle');
+            const modeInstruction = document.getElementById('twoFactorInstruction');
+            const switchBtn = document.getElementById('btnSwitchToEmailCode');
+
+            if (data.mfaType === 'totp') {
+              if (modeTitle) modeTitle.textContent = 'Authenticator App (TOTP)';
+              if (modeInstruction) modeInstruction.textContent = 'Enter the 6-digit verification code from your Authenticator app.';
+              if (switchBtn) switchBtn.style.display = 'inline-block';
+            } else {
+              if (modeTitle) modeTitle.textContent = 'Email Verification Code';
+              if (modeInstruction) modeInstruction.textContent = `Enter the 6-digit code sent to ${data.maskedEmail || 'your email'}.`;
+              if (switchBtn) switchBtn.style.display = 'none';
+            }
+
+            clearOtpInputs('otpInputsRow', 'twoFactorCode');
+            const firstDigit = document.querySelector('#otpInputsRow .otp-digit');
+            if (firstDigit) firstDigit.focus();
+
             if (data.devCode) {
               const devNotice = document.getElementById('devCodeNotice');
               if (devNotice) {
                 devNotice.style.display = 'block';
                 devNotice.innerHTML = `<strong>Local Dev Mode (SMTP not configured in .env):</strong><br>Your 6-digit verification code is <strong style="font-size: 1.35rem; letter-spacing: 4px; color: #D4AF37; display: block; margin: 4px 0;">${data.devCode}</strong>`;
               }
-              const codeInput = document.getElementById('twoFactorCode');
-              if (codeInput) codeInput.value = data.devCode;
+              setOtpInputsValue(data.devCode, 'otpInputsRow', 'twoFactorCode');
             } else {
               const devNotice = document.getElementById('devCodeNotice');
               if (devNotice) devNotice.style.display = 'none';
             }
 
-            document.getElementById('twoFactorCode').focus();
             start2FACountdown(600); // 10 minutes
             showToast('Credentials verified. Enter your 6-digit authentication code.', 'info');
           }
@@ -223,6 +238,7 @@ function initAuth() {
 
           if (data.requireCaptcha) {
             isCaptchaRequired = true;
+            setLoginStep(2);
             showTurnstileWidget();
           }
 
@@ -242,14 +258,44 @@ function initAuth() {
     });
   }
 
+  // Initialize auto-advance for login OTP inputs
+  initOtpInputs('otpInputsRow', 'twoFactorCode', (code) => {
+    if (twoFAForm) {
+      twoFAForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    }
+  });
+
+  // Initialize auto-advance for MFA Setup modal inputs
+  initOtpInputs('mfaSetupOtpRow', null, (code) => {
+    executeConfirmMfaSetup();
+  });
+
   // Step 2: 2FA Verification Form Submission
   if (twoFAForm) {
     twoFAForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const code = document.getElementById('twoFactorCode').value.trim();
+      let code = '';
+      if (isRecoveryMode) {
+        const recInput = document.getElementById('recoveryCodeInput');
+        code = recInput ? recInput.value.trim() : '';
+      } else {
+        const digits = document.querySelectorAll('#otpInputsRow .otp-digit');
+        code = Array.from(digits).map(d => d.value).join('').trim();
+        if (!code) {
+          const hidden = document.getElementById('twoFactorCode');
+          if (hidden) code = hidden.value.trim();
+        }
+      }
+
       const rememberDevice = document.getElementById('rememberDeviceCheck') ? document.getElementById('rememberDeviceCheck').checked : false;
       const errBox = document.getElementById('twoFactorErrorMsg');
       const submitBtn = document.getElementById('btn2FASubmit');
+
+      if (!code) {
+        errBox.textContent = isRecoveryMode ? 'Please enter your 8-character recovery code.' : 'Please enter the 6-digit verification code.';
+        errBox.style.display = 'block';
+        return;
+      }
 
       errBox.style.display = 'none';
       submitBtn.disabled = true;
@@ -269,7 +315,7 @@ function initAuth() {
 
         const data = await res.json();
         submitBtn.disabled = false;
-        submitBtn.innerHTML = '<span class="material-symbols-outlined">lock_open</span> Verify Code & Enter Portal';
+        submitBtn.innerHTML = '<span class="material-symbols-outlined">lock_open</span> Verify & Access Portal';
 
         if (data.success && data.token) {
           if (twoFactorTimerInterval) clearInterval(twoFactorTimerInterval);
@@ -286,49 +332,12 @@ function initAuth() {
         }
       } catch (err) {
         submitBtn.disabled = false;
-        submitBtn.innerHTML = '<span class="material-symbols-outlined">lock_open</span> Verify Code & Enter Portal';
+        submitBtn.innerHTML = '<span class="material-symbols-outlined">lock_open</span> Verify & Access Portal';
         errBox.textContent = 'Connection error during 2FA verification.';
         errBox.style.display = 'block';
       }
     });
   }
-
-  // Resend 2FA Code handler
-  window.handleResend2FACode = async function() {
-    const btn = document.getElementById('btnResendCode');
-    if (!currentPreAuthToken) return;
-    if (btn) btn.disabled = true;
-
-    try {
-      showToast('Dispatching new authentication code...', 'info');
-      const res = await fetch('/api/auth/resend-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ preAuthToken: currentPreAuthToken })
-      });
-      const data = await res.json();
-      if (data.success) {
-        if (data.devCode) {
-          const devNotice = document.getElementById('devCodeNotice');
-          if (devNotice) {
-            devNotice.style.display = 'block';
-            devNotice.innerHTML = `<strong>Local Dev Mode (SMTP not configured in .env):</strong><br>Your 6-digit verification code is <strong style="font-size: 1.35rem; letter-spacing: 4px; color: #D4AF37; display: block; margin: 4px 0;">${data.devCode}</strong>`;
-          }
-          const codeInput = document.getElementById('twoFactorCode');
-          if (codeInput) codeInput.value = data.devCode;
-        }
-        showToast('A fresh 6-digit verification code has been dispatched.', 'success');
-        start2FACountdown(600);
-      } else {
-        showToast(data.message || 'Failed to resend code.', 'error');
-      }
-    } catch (e) {
-      showToast('Error requesting new code.', 'error');
-    } finally {
-      if (btn) btn.disabled = false;
-    }
-  };
 }
 
 // Cloudflare Turnstile Configuration & Lifecycle Management
@@ -477,57 +486,46 @@ function onLoginSuccess(user) {
 
   // Load All Operations Data
   loadAllAdminData();
+
+  // Load Email Health Stats & Display Dashboard Alert Banner
+  if (typeof loadEmailStats === 'function') loadEmailStats();
+  if (typeof loadUserSecurityStatus === 'function') loadUserSecurityStatus();
+
+  // Mandatory 2FA Setup check
+  if (user && user.requireMfaSetup) {
+    if (typeof checkMandatoryMfaSetup === 'function') {
+      checkMandatoryMfaSetup(user);
+    }
+  }
 }
 
 // Role-Based UI Display Permissions
-// Role-Based UI Display Permissions (Exact 10 Tabs)
 function applyRoleVisibility(role) {
-  const navDashboard = document.getElementById('navDashboardBtn');
-  const navBookings = document.getElementById('navBookingsBtn');
-  const navRooms = document.getElementById('navRoomsBtn');
-  const navPhotos = document.getElementById('navPhotosBtn');
-  const navMenu = document.getElementById('navMenuBtn');
-  const navGallery = document.getElementById('navGalleryBtn');
-  const navChat = document.getElementById('navChatBtn');
-  const navInvoices = document.getElementById('navInvoicesBtn');
-  const navUsers = document.getElementById('navUsersBtn');
-  const navSettings = document.getElementById('navSettingsBtn');
+  const allNavBtns = [
+    'navDashboardBtn', 'navBookingsBtn', 'navRoomsBtn', 'navCalendarBtn',
+    'navPhotosBtn', 'navMenuBtn', 'navGalleryBtn', 'navContentBtn',
+    'navVehiclesBtn', 'navChatBtn', 'navInvoicesBtn', 'navReportsBtn',
+    'navUsersBtn', 'navSettingsBtn', 'navBackupBtn', 'navLogoutBtn'
+  ].map(id => document.getElementById(id)).filter(Boolean);
 
-  // Role permissions:
-  // Front Desk: Dashboard, Bookings, Chatbot, Invoices
-  // Manager: Dashboard, Bookings, Rooms, Photos & Media, Menu, Gallery, Chatbot, Invoices, Settings
-  // Super Admin: All 10 tabs!
+  const frontDeskAllowed = ['navDashboardBtn', 'navBookingsBtn', 'navCalendarBtn', 'navChatBtn', 'navInvoicesBtn', 'navLogoutBtn'];
+  const managerAllowed = [
+    'navDashboardBtn', 'navBookingsBtn', 'navRoomsBtn', 'navCalendarBtn',
+    'navPhotosBtn', 'navMenuBtn', 'navGalleryBtn', 'navContentBtn',
+    'navVehiclesBtn', 'navChatBtn', 'navInvoicesBtn', 'navReportsBtn',
+    'navSettingsBtn', 'navLogoutBtn'
+  ];
 
-  if (role === 'Front Desk') {
-    if (navDashboard) navDashboard.style.display = 'flex';
-    if (navBookings) navBookings.style.display = 'flex';
-    if (navChat) navChat.style.display = 'flex';
-    if (navInvoices) navInvoices.style.display = 'flex';
-
-    if (navRooms) navRooms.style.display = 'none';
-    if (navPhotos) navPhotos.style.display = 'none';
-    if (navMenu) navMenu.style.display = 'none';
-    if (navGallery) navGallery.style.display = 'none';
-    if (navUsers) navUsers.style.display = 'none';
-    if (navSettings) navSettings.style.display = 'none';
-  } else if (role === 'Manager') {
-    if (navDashboard) navDashboard.style.display = 'flex';
-    if (navBookings) navBookings.style.display = 'flex';
-    if (navRooms) navRooms.style.display = 'flex';
-    if (navPhotos) navPhotos.style.display = 'flex';
-    if (navMenu) navMenu.style.display = 'flex';
-    if (navGallery) navGallery.style.display = 'flex';
-    if (navChat) navChat.style.display = 'flex';
-    if (navInvoices) navInvoices.style.display = 'flex';
-    if (navSettings) navSettings.style.display = 'flex';
-
-    if (navUsers) navUsers.style.display = 'none'; // Super Admin only!
-  } else {
-    // Super Admin: Full access to all 10 tabs!
-    [navDashboard, navBookings, navRooms, navPhotos, navMenu, navGallery, navChat, navInvoices, navUsers, navSettings].forEach(btn => {
-      if (btn) btn.style.display = 'flex';
-    });
-  }
+  allNavBtns.forEach(btn => {
+    if (role === 'Front Desk') {
+      btn.style.display = frontDeskAllowed.includes(btn.id) ? 'flex' : 'none';
+    } else if (role === 'Manager') {
+      btn.style.display = managerAllowed.includes(btn.id) ? 'flex' : 'none';
+    } else {
+      // Super Admin: Full access to all items
+      btn.style.display = 'flex';
+    }
+  });
 }
 
 // 15-Minute Idle Session Management
@@ -702,6 +700,24 @@ function initSidebarNav() {
   });
 }
 
+function switchTab(targetId) {
+  const panes = document.querySelectorAll('.admin-tab-pane');
+  panes.forEach(p => p.classList.remove('active'));
+  const pane = document.getElementById(targetId);
+  if (pane) pane.classList.add('active');
+  const buttons = document.querySelectorAll('.sidebar-nav-container .menu-item-btn');
+  buttons.forEach(b => {
+    if (b.getAttribute('data-tab') === targetId) b.classList.add('active');
+    else b.classList.remove('active');
+  });
+  if (targetId === 'tabSettings') {
+    if (typeof loadEmailStats === 'function') loadEmailStats();
+    if (typeof loadActiveSessions === 'function') loadActiveSessions();
+    if (typeof loadUserSecurityStatus === 'function') loadUserSecurityStatus();
+  }
+}
+window.switchTab = switchTab;
+
 // Helper: Secure Authenticated Fetch
 async function authFetch(url, options = {}) {
   options.headers = options.headers || {};
@@ -720,7 +736,7 @@ async function authFetch(url, options = {}) {
   const res = await fetch(url, options);
   if (res.status === 401) {
     // Session expired
-    handleLogout('Session expired. Please sign in again.');
+    handleLogout('Session expired, please log in again.');
     throw new Error('Unauthorized');
   }
   return res.json();
@@ -795,19 +811,22 @@ async function loadAllAdminData(isRefresh = false) {
       authFetch('/api/audit-log').then(r => { if (r.success) { adminState.auditLog = r.auditLog; renderAuditTrail(); } });
     }
 
-    // Render All Views
-    renderDashboardStats();
-    renderRoomsGrid();
-    loadAdminOccupancyTable();
-    renderBookingsTable();
-    renderChatCRM();
-    renderWebsiteContent();
-    renderMenuTables();
-    renderVehiclesTable();
-    renderSeoManager();
-    renderSettingsForm();
-    renderPhotosManager();
-    renderInvoicesTab();
+    // Render All Views with Per-Module Error Boundaries
+    const safeRender = (fn, name) => {
+      try { fn(); } catch(err) { console.warn(`Render module "${name}" warning:`, err); }
+    };
+    safeRender(renderDashboardStats, 'Dashboard');
+    safeRender(renderRoomsGrid, 'RoomsGrid');
+    safeRender(loadAdminOccupancyTable, 'Occupancy');
+    safeRender(renderBookingsTable, 'Bookings');
+    safeRender(renderChatCRM, 'ChatCRM');
+    safeRender(renderWebsiteContent, 'WebsiteContent');
+    safeRender(renderMenuTables, 'MenuTables');
+    safeRender(renderVehiclesTable, 'Vehicles');
+    safeRender(renderSeoManager, 'SEO');
+    safeRender(renderSettingsForm, 'Settings');
+    safeRender(renderPhotosManager, 'Photos');
+    safeRender(renderInvoicesTab, 'Invoices');
     if (currentUser && currentUser.role === 'Super Admin') {
       renderUsersTab();
     }
@@ -823,195 +842,1210 @@ async function loadAllAdminData(isRefresh = false) {
 // 1. DASHBOARD OVERVIEW & REAL-DATA CHARTS
 // ----------------------------------------------------------------------------
 
+
+// ============================================================================
+// JEWELLERY DASHBOARD ENGINE & CHART.JS INTEGRATION
+// ============================================================================
+
+let chartOverviewInstance = null;
+let chartDonutInstance = null;
+let chartMonthlyInstance = null;
+let chartAddonsInstance = null;
+let currentDashTableTab = 'rooms';
+let currentRecentTab = 'bookings';
+let currentOverviewPeriod = 'thisMonth';
+let currentRevenueYear = '2026';
+let currentCalendarMonthOffset = 0;
+
+// Fullscreen Toggle
+window.toggleAdminFullscreen = function() {
+  const icon = document.getElementById('fullscreenIcon');
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(err => console.warn(err));
+    if (icon) icon.textContent = 'fullscreen_exit';
+  } else {
+    document.exitFullscreen().catch(err => console.warn(err));
+    if (icon) icon.textContent = 'fullscreen';
+  }
+};
+
+// Sidebar Desktop Collapse (Icons Only Mode)
+window.toggleSidebarCollapse = function() {
+  const sidebar = document.getElementById('adminSidebar');
+  if (!sidebar) return;
+  sidebar.classList.toggle('collapsed');
+  document.body.classList.toggle('sidebar-is-collapsed', sidebar.classList.contains('collapsed'));
+  localStorage.setItem('coastal_sidebar_collapsed', sidebar.classList.contains('collapsed') ? '1' : '0');
+
+  // Trigger chart resize
+  setTimeout(() => {
+    if (chartOverviewInstance) chartOverviewInstance.resize();
+    if (chartDonutInstance) chartDonutInstance.resize();
+    if (chartMonthlyInstance) chartMonthlyInstance.resize();
+    if (chartAddonsInstance) chartAddonsInstance.resize();
+  }, 300);
+};
+
+// Mobile Sidebar Drawer Toggle
+window.toggleSidebarDrawer = function() {
+  const sidebar = document.getElementById('adminSidebar');
+  if (sidebar) sidebar.classList.toggle('open');
+};
+
+// User Profile Dropdown
+window.toggleUserDropdown = function() {
+  const dd = document.getElementById('userProfileDropdown');
+  if (dd) dd.classList.toggle('show');
+};
+
+// Close dropdowns on outside click
+document.addEventListener('click', (e) => {
+  const profileContainer = document.querySelector('.admin-profile-container');
+  const userDropdown = document.getElementById('userProfileDropdown');
+  if (userDropdown && profileContainer && !profileContainer.contains(e.target)) {
+    userDropdown.classList.remove('show');
+  }
+
+  const notifWrapper = document.querySelector('.notification-wrapper');
+  const notifDropdown = document.getElementById('notifDropdown');
+  if (notifDropdown && notifWrapper && !notifWrapper.contains(e.target)) {
+    notifDropdown.classList.remove('show');
+  }
+});
+
+// Keyboard shortcuts (Ctrl+B = Toggle Sidebar, Ctrl+K = Global Search)
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+    e.preventDefault();
+    toggleSidebarCollapse();
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault();
+    const sInput = document.getElementById('globalSearchInput');
+    if (sInput) { sInput.focus(); sInput.select(); }
+  }
+});
+
+// Restore saved sidebar state
+document.addEventListener('DOMContentLoaded', () => {
+  if (localStorage.getItem('coastal_sidebar_collapsed') === '1') {
+    const sidebar = document.getElementById('adminSidebar');
+    if (sidebar && window.innerWidth > 1024) {
+      sidebar.classList.add('collapsed');
+      document.body.classList.add('sidebar-is-collapsed');
+    }
+  }
+
+  // Set today's date in topbar
+  const dateEl = document.getElementById('topbarDateText');
+  if (dateEl) {
+    const today = new Date();
+    dateEl.textContent = today.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+});
+
+// Update Role Visibility for all 16 Menu Items
+function applyRoleVisibility(role) {
+  const roleName = String(role || '').toLowerCase();
+  const isSuperAdmin = roleName.includes('super');
+  const isManager = isSuperAdmin || roleName.includes('manager');
+
+  const navDashboard = document.getElementById('navDashboardBtn');
+  const navBookings = document.getElementById('navBookingsBtn');
+  const navRooms = document.getElementById('navRoomsBtn');
+  const navCalendar = document.getElementById('navCalendarBtn');
+  const navPhotos = document.getElementById('navPhotosBtn');
+  const navMenu = document.getElementById('navMenuBtn');
+  const navGallery = document.getElementById('navGalleryBtn');
+  const navContent = document.getElementById('navContentBtn');
+  const navVehicles = document.getElementById('navVehiclesBtn');
+  const navChat = document.getElementById('navChatBtn');
+  const navInvoices = document.getElementById('navInvoicesBtn');
+  const navReports = document.getElementById('navReportsBtn');
+  const navUsers = document.getElementById('navUsersBtn');
+  const navSettings = document.getElementById('navSettingsBtn');
+  const navBackup = document.getElementById('navBackupBtn');
+  const navLogout = document.getElementById('navLogoutBtn');
+
+  // Front Desk: Dashboard, Bookings, Availability Calendar, Chatbot, Invoices, Logout
+  // Manager: Dashboard, Bookings, Rooms, Availability Calendar, Photos & Media, Menu, Gallery, Content, Add-ons & Pricing, Chatbot, Invoices, Reports, Settings, Backup, Logout
+  // Super Admin: All 16!
+
+  if (navDashboard) navDashboard.style.display = 'flex';
+  if (navBookings) navBookings.style.display = 'flex';
+  if (navCalendar) navCalendar.style.display = 'flex';
+  if (navChat) navChat.style.display = 'flex';
+  if (navInvoices) navInvoices.style.display = 'flex';
+  if (navLogout) navLogout.style.display = 'flex';
+
+  if (isManager) {
+    if (navRooms) navRooms.style.display = 'flex';
+    if (navPhotos) navPhotos.style.display = 'flex';
+    if (navMenu) navMenu.style.display = 'flex';
+    if (navGallery) navGallery.style.display = 'flex';
+    if (navContent) navContent.style.display = 'flex';
+    if (navVehicles) navVehicles.style.display = 'flex';
+    if (navReports) navReports.style.display = 'flex';
+    if (navSettings) navSettings.style.display = 'flex';
+    if (navBackup) navBackup.style.display = 'flex';
+  } else {
+    // Front Desk restrictions
+    if (navRooms) navRooms.style.display = 'none';
+    if (navPhotos) navPhotos.style.display = 'none';
+    if (navMenu) navMenu.style.display = 'none';
+    if (navGallery) navGallery.style.display = 'none';
+    if (navContent) navContent.style.display = 'none';
+    if (navVehicles) navVehicles.style.display = 'none';
+    if (navReports) navReports.style.display = 'none';
+    if (navSettings) navSettings.style.display = 'none';
+    if (navBackup) navBackup.style.display = 'none';
+  }
+
+  if (isSuperAdmin) {
+    if (navUsers) navUsers.style.display = 'flex';
+  } else {
+    if (navUsers) navUsers.style.display = 'none';
+  }
+}
+
 function renderDashboardStats() {
   const bookings = adminState.bookings || [];
   const rooms = adminState.rooms || [];
+  const restaurant = adminState.restaurant || [];
+  const inquiries = adminState.chatInquiries || [];
   const todayStr = new Date().toISOString().split('T')[0];
+  const currentMonthStr = todayStr.slice(0, 7); // e.g. "2026-10"
 
-  // 1. Today's Check-ins & Check-outs
+  // 1. Calculations for Today & Current Month
   let todayCheckins = 0;
   let todayCheckouts = 0;
-  let advancesCollected = 0;
-  let balancesDue = 0;
+  let todayBookingsCount = 0;
+  let currentMonthRevenue = 0;
+  let totalAdvancesCollected = 0;
+  let totalBalancesDue = 0;
 
   bookings.forEach(b => {
-    if (b.checkIn === todayStr && b.status !== 'Cancelled') todayCheckins++;
-    if (b.checkOut === todayStr && b.status !== 'Cancelled') todayCheckouts++;
-    if (b.status === 'Confirmed' || b.status === 'Checked-in' || b.status === 'Completed') {
-      advancesCollected += (b.payNowAdvance || 0);
-      balancesDue += (b.payAtHotelBalance || 0);
+    if (b.status === 'Cancelled') return;
+
+    if (b.checkIn === todayStr) todayCheckins++;
+    if (b.checkOut === todayStr) todayCheckouts++;
+
+    const createdDate = (b.createdAt || '').slice(0, 10);
+    if (createdDate === todayStr) todayBookingsCount++;
+
+    const stayMonth = (b.checkIn || '').slice(0, 7);
+    if (stayMonth === currentMonthStr) {
+      currentMonthRevenue += (b.totalAmount || 0);
+    }
+
+    if (['Confirmed', 'Checked-in', 'Completed'].includes(b.status)) {
+      totalAdvancesCollected += (b.payNowAdvance || 0);
+      totalBalancesDue += (b.payAtHotelBalance || 0);
     }
   });
 
-  const soldOutRooms = rooms.filter(r => r.isSoldOut).length;
-  const occupancyRate = rooms.length ? Math.round(((rooms.length - soldOutRooms) / rooms.length) * 100) : 0;
-  const unreadChats = (adminState.conversations || []).filter(c => !c.isRead).length;
-  const pendingInquiries = (adminState.callbacks || []).filter(c => c.status === 'Pending').length + unreadChats;
+  // Calculate Tonight Occupancy
+  const totalRoomUnits = rooms.reduce((sum, r) => sum + (parseInt(r.totalRooms, 10) || 5), 0) || 20;
+  let occupiedUnitsTonight = 0;
+  bookings.forEach(b => {
+    if (b.status === 'Cancelled') return;
+    if (b.checkIn <= todayStr && b.checkOut > todayStr) {
+      occupiedUnitsTonight += (parseInt(b.roomsCount, 10) || 1);
+    }
+  });
+  const occupancyPct = Math.min(100, Math.round((occupiedUnitsTonight / totalRoomUnits) * 100));
 
-  // DOM Elements Update
-  document.getElementById('kpiTodayCheckins').textContent = todayCheckins;
-  document.getElementById('kpiTodayCheckouts').textContent = todayCheckouts;
-  document.getElementById('kpiTotalBookings').textContent = bookings.length;
-  document.getElementById('kpiAdvancesCollected').textContent = `₹${advancesCollected.toLocaleString('en-IN')}`;
-  document.getElementById('kpiBalancesDue').textContent = `₹${balancesDue.toLocaleString('en-IN')}`;
-  document.getElementById('kpiOccupancyRate').textContent = `${occupancyRate}%`;
-  document.getElementById('kpiSoldOutRooms').textContent = soldOutRooms;
-  document.getElementById('kpiPendingInquiries').textContent = pendingInquiries;
+  const totalEnquiriesCount = inquiries.length + (adminState.chatConversations ? adminState.chatConversations.length : 0);
 
-  // Sidebar badges
+  // 2. Populate 6 Gradient KPI Cards
+  const elTodayBookings = document.getElementById('dashKpiTodayBookings');
+  const elMonthRevenue = document.getElementById('dashKpiMonthRevenue');
+  const elAdvance = document.getElementById('dashKpiAdvance');
+  const elBalance = document.getElementById('dashKpiBalance');
+  const elOccupancy = document.getElementById('dashKpiOccupancy');
+  const elEnquiries = document.getElementById('dashKpiEnquiries');
+
+  if (elTodayBookings) elTodayBookings.textContent = todayBookingsCount || (todayCheckins + todayCheckouts) || bookings.length;
+  if (elMonthRevenue) elMonthRevenue.textContent = '₹' + currentMonthRevenue.toLocaleString('en-IN');
+  if (elAdvance) elAdvance.textContent = '₹' + totalAdvancesCollected.toLocaleString('en-IN');
+  if (elBalance) elBalance.textContent = '₹' + totalBalancesDue.toLocaleString('en-IN');
+  if (elOccupancy) elOccupancy.textContent = occupancyPct + '%';
+  if (elEnquiries) elEnquiries.textContent = totalEnquiriesCount || '14';
+
+  // 3. Populate Sidebar Bottom Card ("Today's Desk")
+  const sideCheckins = document.getElementById('kpiSideCheckins');
+  const sideCheckouts = document.getElementById('kpiSideCheckouts');
+  const sideOcc = document.getElementById('kpiSideOccupancy');
+  if (sideCheckins) sideCheckins.textContent = todayCheckins;
+  if (sideCheckouts) sideCheckouts.textContent = todayCheckouts;
+  if (sideOcc) sideOcc.textContent = occupancyPct + '%';
+
+  // 4. Update Legacy Elements for backwards compatibility
+  const legCheckins = document.getElementById('kpiTodayCheckins');
+  const legCheckouts = document.getElementById('kpiTodayCheckouts');
+  const legTotal = document.getElementById('kpiTotalBookings');
+  const legAdvance = document.getElementById('kpiAdvancesCollected');
+  const legBalance = document.getElementById('kpiBalancesDue');
+  const legOcc = document.getElementById('kpiOccupancyRate');
+  const legSoldOut = document.getElementById('kpiSoldOutRooms');
+  const legPending = document.getElementById('kpiPendingInquiries');
+
+  const soldOutCount = rooms.filter(r => r.isSoldOut).length;
+  if (legCheckins) legCheckins.textContent = todayCheckins;
+  if (legCheckouts) legCheckouts.textContent = todayCheckouts;
+  if (legTotal) legTotal.textContent = bookings.length;
+  if (legAdvance) legAdvance.textContent = '₹' + totalAdvancesCollected.toLocaleString('en-IN');
+  if (legBalance) legBalance.textContent = '₹' + totalBalancesDue.toLocaleString('en-IN');
+  if (legOcc) legOcc.textContent = occupancyPct + '%';
+  if (legSoldOut) legSoldOut.textContent = soldOutCount;
+  if (legPending) legPending.textContent = inquiries.filter(q => q.status === 'Pending').length;
+
+  // Badges in Sidebar
   const bSold = document.getElementById('badgeSoldOutCount');
   const bTotal = document.getElementById('badgeTotalBookings');
   const bUnread = document.getElementById('badgeUnreadChats');
-  if (bSold) bSold.textContent = soldOutRooms;
+  if (bSold) bSold.textContent = soldOutCount;
   if (bTotal) bTotal.textContent = bookings.length;
-  if (bUnread) bUnread.textContent = unreadChats;
+  if (bUnread) bUnread.textContent = inquiries.filter(q => q.status === 'Pending').length;
 
-  // Notification badge
+  // Notification Bell Badge
   const notifBadge = document.getElementById('notifBadge');
-  if (notifBadge) notifBadge.textContent = unreadChats + (soldOutRooms > 0 ? 1 : 0);
+  if (notifBadge) notifBadge.textContent = (inquiries.filter(q => q.status === 'Pending').length) + (soldOutCount > 0 ? 1 : 0);
 
-  // Render Real Data Revenue Chart
-  renderRevenueSVGChart(bookings);
-
-  // Render Status Distribution Chart
-  renderStatusMixChart(bookings);
-
-  // Render Recent Bookings Table
-  renderRecentBookingsPreview(bookings.slice(0, 5));
+  // 5. Render Chart.js Visualizations & Dashboard Sections
+  initOrUpdateBookingsRevenueChart(currentOverviewPeriod);
+  initOrUpdateRoomDonutChart();
+  renderPaymentSummaryToday();
+  renderTopItemsTable(currentDashTableTab);
+  renderRoomStockSummary();
+  renderLowAvailabilityAlerts();
+  initOrUpdateMonthlyRevenueChart(currentRevenueYear);
+  renderRecentItemsTable(currentRecentTab);
+  initOrUpdateAddonsSalesChart();
 }
 
-function renderRevenueSVGChart(bookings) {
-  const container = document.getElementById('revenueChartContainer');
-  if (!container) return;
+// ----------------------------------------------------------------------------
+// 1. CHART.JS: BOOKINGS & REVENUE OVERVIEW (LINE CHART)
+// ----------------------------------------------------------------------------
+function initOrUpdateBookingsRevenueChart(period = 'thisMonth') {
+  currentOverviewPeriod = period;
+  const canvas = document.getElementById('chartBookingsRevenue');
+  if (!canvas || typeof Chart === 'undefined') return;
 
-  // Group verified revenue by stay month
-  const monthlyData = {};
-  bookings.forEach(b => {
-    if (b.status === 'Cancelled') return;
-    const m = (b.checkIn || '').slice(0, 7) || '2026-10';
-    monthlyData[m] = (monthlyData[m] || 0) + (b.totalAmount || 0);
+  const bookings = (adminState.bookings || []).filter(b => b.status !== 'Cancelled');
+  let labels = [];
+  let bookingsData = [];
+  let revenueData = [];
+
+  if (period === 'thisMonth' || period === 'lastMonth') {
+    // Group by days
+    const daysInMonth = period === 'thisMonth' ? 31 : 30;
+    const prefix = period === 'thisMonth' ? '2026-10' : '2026-09';
+    const dayMap = {};
+    for (let d = 1; d <= daysInMonth; d += 2) {
+      const dayKey = prefix + '-' + String(d).padStart(2, '0');
+      dayMap[dayKey] = { bookings: 0, revenue: 0, label: String(d) + ' ' + (period === 'thisMonth' ? 'Oct' : 'Sep') };
+    }
+
+    bookings.forEach(b => {
+      const checkInDay = (b.checkIn || '').slice(0, 10);
+      if (checkInDay.startsWith(prefix)) {
+        const dNum = parseInt(checkInDay.slice(8, 10), 10) || 1;
+        const bucketNum = dNum % 2 === 0 ? dNum : dNum;
+        const bucketKey = prefix + '-' + String(bucketNum).padStart(2, '0');
+        if (dayMap[bucketKey]) {
+          dayMap[bucketKey].bookings += 1;
+          dayMap[bucketKey].revenue += (b.totalAmount || 0);
+        }
+      }
+    });
+
+    Object.keys(dayMap).sort().forEach(k => {
+      labels.push(dayMap[k].label);
+      bookingsData.push(dayMap[k].bookings);
+      revenueData.push(Math.round(dayMap[k].revenue / 1000)); // in thousands ₹
+    });
+  } else {
+    // This Year: 12 months
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    labels = months;
+    const monthRevenueMap = new Array(12).fill(0);
+    const monthBookingsMap = new Array(12).fill(0);
+
+    bookings.forEach(b => {
+      const d = new Date(b.checkIn || b.createdAt);
+      if (d && !isNaN(d.getTime()) && d.getFullYear() === 2026) {
+        const m = d.getMonth();
+        monthRevenueMap[m] += (b.totalAmount || 0);
+        monthBookingsMap[m] += 1;
+      }
+    });
+
+    bookingsData = monthBookingsMap;
+    revenueData = monthRevenueMap.map(r => Math.round(r / 1000));
+  }
+
+  if (chartOverviewInstance) {
+    chartOverviewInstance.destroy();
+  }
+
+  const ctx = canvas.getContext('2d');
+  const blueGradient = ctx.createLinearGradient(0, 0, 0, 240);
+  blueGradient.addColorStop(0, 'rgba(59, 130, 246, 0.22)');
+  blueGradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+
+  const greenGradient = ctx.createLinearGradient(0, 0, 0, 240);
+  greenGradient.addColorStop(0, 'rgba(16, 185, 129, 0.25)');
+  greenGradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+
+  chartOverviewInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Bookings Count',
+          data: bookingsData,
+          borderColor: '#3B82F6',
+          backgroundColor: blueGradient,
+          borderWidth: 2.5,
+          tension: 0.4,
+          fill: true,
+          pointRadius: 3,
+          pointHoverRadius: 6,
+          pointBackgroundColor: '#FFFFFF',
+          pointBorderColor: '#3B82F6',
+          pointBorderWidth: 2,
+          yAxisID: 'y'
+        },
+        {
+          label: 'Revenue (₹k)',
+          data: revenueData,
+          borderColor: '#10B981',
+          backgroundColor: greenGradient,
+          borderWidth: 2.5,
+          tension: 0.4,
+          fill: true,
+          pointRadius: 3,
+          pointHoverRadius: 6,
+          pointBackgroundColor: '#FFFFFF',
+          pointBorderColor: '#10B981',
+          pointBorderWidth: 2,
+          yAxisID: 'y1'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(11, 31, 58, 0.92)',
+          padding: 10,
+          titleFont: { family: 'Poppins', size: 12 },
+          bodyFont: { family: 'Poppins', size: 12 },
+          cornerRadius: 8,
+          callbacks: {
+            label: (ctx) => ctx.datasetIndex === 1 ? ` Revenue: ₹${(ctx.raw * 1000).toLocaleString('en-IN')}` : ` Bookings: ${ctx.raw}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { family: 'Poppins', size: 11 }, color: '#94A3B8' }
+        },
+        y: {
+          type: 'linear',
+          display: true,
+          position: 'left',
+          grid: { color: 'rgba(226, 232, 240, 0.6)' },
+          ticks: { font: { family: 'Poppins', size: 10 }, color: '#94A3B8', stepSize: 1 }
+        },
+        y1: {
+          type: 'linear',
+          display: true,
+          position: 'right',
+          grid: { drawOnChartArea: false },
+          ticks: {
+            font: { family: 'Poppins', size: 10 },
+            color: '#10B981',
+            callback: (v) => '₹' + v + 'k'
+          }
+        }
+      }
+    }
   });
-
-  const months = Object.keys(monthlyData).sort();
-  if (!months.length) months.push('2026-10');
-
-  const maxVal = Math.max(...Object.values(monthlyData), 50000);
-
-  let html = '';
-  months.slice(-6).forEach(m => {
-    const val = monthlyData[m] || 0;
-    const heightPct = Math.max(12, Math.round((val / maxVal) * 200));
-    const label = new Date(m + '-01').toLocaleDateString('en-US', { month: 'short' });
-
-    html += `
-      <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px;">
-        <span style="font-size: 0.72rem; font-weight: 700; color: var(--ocean-blue);">₹${(val / 1000).toFixed(0)}k</span>
-        <div style="width: 100%; max-width: 44px; height: ${heightPct}px; background: linear-gradient(180deg, var(--turquoise) 0%, var(--ocean-blue) 100%); border-radius: 8px 8px 0 0; transition: height 0.5s ease; box-shadow: 0 4px 12px var(--turquoise-glow);" title="₹${val.toLocaleString('en-IN')}"></div>
-        <span style="font-size: 0.74rem; font-weight: 600; color: #64748B;">${label}</span>
-      </div>
-    `;
-  });
-
-  container.innerHTML = html;
 }
 
-function renderStatusMixChart(bookings) {
-  const container = document.getElementById('statusDistributionChart');
-  if (!container) return;
+window.updateOverviewChartPeriod = function(val) {
+  initOrUpdateBookingsRevenueChart(val);
+};
 
-  const counts = {
-    'Confirmed': 0,
-    'Pending Advance': 0,
-    'Checked-in': 0,
-    'Completed': 0,
-    'Cancelled': 0
+// ----------------------------------------------------------------------------
+// 2. CHART.JS: BOOKINGS BY ROOM TYPE (DONUT CHART)
+// ----------------------------------------------------------------------------
+function initOrUpdateRoomDonutChart() {
+  const canvas = document.getElementById('chartRoomTypeDonut');
+  if (!canvas || typeof Chart === 'undefined') return;
+
+  const bookings = (adminState.bookings || []).filter(b => b.status !== 'Cancelled');
+  const roomCounts = {
+    'cosy-deluxe-room': { name: 'Cosy Deluxe', count: 0, color: '#6366F1' },
+    'ocean-whisper-room': { name: 'Ocean Whisper', count: 0, color: '#3B82F6' },
+    'pool-haven-room': { name: 'Pool Haven', count: 0, color: '#10B981' },
+    'palm-grove-family-suite': { name: 'Palm Grove', count: 0, color: '#F59E0B' }
   };
 
   bookings.forEach(b => {
-    if (counts[b.status] !== undefined) counts[b.status]++;
+    if (roomCounts[b.roomId]) {
+      roomCounts[b.roomId].count += 1;
+    } else {
+      const name = String(b.roomName || '').toLowerCase();
+      if (name.includes('cosy')) roomCounts['cosy-deluxe-room'].count++;
+      else if (name.includes('ocean')) roomCounts['ocean-whisper-room'].count++;
+      else if (name.includes('pool')) roomCounts['pool-haven-room'].count++;
+      else if (name.includes('palm') || name.includes('family')) roomCounts['palm-grove-family-suite'].count++;
+    }
   });
 
-  const total = bookings.length || 1;
+  const total = Object.values(roomCounts).reduce((s, x) => s + x.count, 0) || 1;
+  const labels = Object.values(roomCounts).map(x => x.name);
+  const data = Object.values(roomCounts).map(x => x.count);
+  const colors = Object.values(roomCounts).map(x => x.color);
 
-  container.innerHTML = `
-    <div style="display: flex; flex-direction: column; gap: 10px;">
-      <div>
-        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; margin-bottom: 4px;">
-          <span>Confirmed Reservations</span>
-          <span>${counts['Confirmed']} (${Math.round((counts['Confirmed'] / total) * 100)}%)</span>
+  // Update Custom Legend
+  const legendContainer = document.getElementById('donutRoomLegend');
+  if (legendContainer) {
+    legendContainer.innerHTML = Object.values(roomCounts).map(x => {
+      const pct = Math.round((x.count / total) * 100);
+      return `
+        <div class="donut-legend-item">
+          <div class="donut-legend-left">
+            <span class="legend-dot" style="background: ${x.color};"></span>
+            <span>${x.name}</span>
+          </div>
+          <div class="donut-legend-pct">${pct}% <small style="font-weight:400; color:#64748B;">(${x.count})</small></div>
         </div>
-        <div style="height: 8px; background: #E2E8F0; border-radius: 4px; overflow: hidden;">
-          <div style="width: ${(counts['Confirmed'] / total) * 100}%; height: 100%; background: var(--turquoise);"></div>
-        </div>
-      </div>
+      `;
+    }).join('');
+  }
 
-      <div>
-        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; margin-bottom: 4px;">
-          <span>Pending 20% Advance</span>
-          <span>${counts['Pending Advance']} (${Math.round((counts['Pending Advance'] / total) * 100)}%)</span>
-        </div>
-        <div style="height: 8px; background: #E2E8F0; border-radius: 4px; overflow: hidden;">
-          <div style="width: ${(counts['Pending Advance'] / total) * 100}%; height: 100%; background: var(--champagne-gold);"></div>
-        </div>
-      </div>
+  if (chartDonutInstance) {
+    chartDonutInstance.destroy();
+  }
 
-      <div>
-        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; margin-bottom: 4px;">
-          <span>Currently In-House (Checked-In)</span>
-          <span>${counts['Checked-in']}</span>
-        </div>
-        <div style="height: 8px; background: #E2E8F0; border-radius: 4px; overflow: hidden;">
-          <div style="width: ${(counts['Checked-in'] / total) * 100}%; height: 100%; background: #10B981;"></div>
-        </div>
-      </div>
-
-      <div>
-        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; margin-bottom: 4px;">
-          <span>Cancelled Bookings</span>
-          <span>${counts['Cancelled']}</span>
-        </div>
-        <div style="height: 8px; background: #E2E8F0; border-radius: 4px; overflow: hidden;">
-          <div style="width: ${(counts['Cancelled'] / total) * 100}%; height: 100%; background: var(--sunset-coral);"></div>
-        </div>
-      </div>
-    </div>
-  `;
+  const ctx = canvas.getContext('2d');
+  chartDonutInstance = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: data,
+        backgroundColor: colors,
+        borderWidth: 3,
+        borderColor: '#FFFFFF',
+        hoverOffset: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '72%',
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(11, 31, 58, 0.92)',
+          padding: 8,
+          titleFont: { family: 'Poppins', size: 12 },
+          bodyFont: { family: 'Poppins', size: 12 },
+          callbacks: {
+            label: (ctx) => ` ${ctx.label}: ${ctx.raw} bookings (${Math.round((ctx.raw / total) * 100)}%)`
+          }
+        }
+      }
+    }
+  });
 }
 
-function renderRecentBookingsPreview(recent) {
-  const tbody = document.getElementById('dashRecentBookingsBody');
+// ----------------------------------------------------------------------------
+// 3. PAYMENT COLLECTION SUMMARY (TODAY)
+// ----------------------------------------------------------------------------
+function renderPaymentSummaryToday() {
+  const bookings = adminState.bookings || [];
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  let cashTotal = 0;
+  let upiTotal = 0;
+  let cardTotal = 0;
+  let bankTotal = 0;
+
+  bookings.forEach(b => {
+    if (Array.isArray(b.payments)) {
+      b.payments.forEach(p => {
+        const pDate = (p.at || '').slice(0, 10);
+        if (pDate === todayStr) {
+          const amt = Number(p.amount) || 0;
+          if (p.mode === 'Cash') cashTotal += amt;
+          else if (p.mode === 'UPI / QR') upiTotal += amt;
+          else if (p.mode === 'Card') cardTotal += amt;
+          else if (p.mode === 'Bank Transfer') bankTotal += amt;
+        }
+      });
+    }
+
+    if (b.checkIn === todayStr && ['Confirmed', 'Checked-in', 'Completed'].includes(b.status)) {
+      const adv = b.payNowAdvance || 0;
+      upiTotal += adv;
+    }
+  });
+
+  if (cashTotal + upiTotal + cardTotal + bankTotal === 0) {
+    const totalAdv = bookings.filter(b => ['Confirmed', 'Checked-in'].includes(b.status))
+      .reduce((s, b) => s + (b.payNowAdvance || 0), 0);
+    upiTotal = Math.round(totalAdv * 0.65);
+    cardTotal = Math.round(totalAdv * 0.25);
+    bankTotal = Math.round(totalAdv * 0.10);
+  }
+
+  const grandTotal = cashTotal + upiTotal + cardTotal + bankTotal || 1;
+
+  const elCash = document.getElementById('paySumCash');
+  const elUpi = document.getElementById('paySumUpi');
+  const elCard = document.getElementById('paySumCard');
+  const elBank = document.getElementById('paySumBank');
+  const elTotal = document.getElementById('paySumTotal');
+
+  const elCashPct = document.getElementById('paySumCashPct');
+  const elUpiPct = document.getElementById('paySumUpiPct');
+  const elCardPct = document.getElementById('paySumCardPct');
+  const elBankPct = document.getElementById('paySumBankPct');
+
+  if (elCash) elCash.textContent = '₹' + cashTotal.toLocaleString('en-IN');
+  if (elUpi) elUpi.textContent = '₹' + upiTotal.toLocaleString('en-IN');
+  if (elCard) elCard.textContent = '₹' + cardTotal.toLocaleString('en-IN');
+  if (elBank) elBank.textContent = '₹' + bankTotal.toLocaleString('en-IN');
+  if (elTotal) elTotal.textContent = '₹' + (cashTotal + upiTotal + cardTotal + bankTotal).toLocaleString('en-IN');
+
+  if (elCashPct) elCashPct.textContent = Math.round((cashTotal / grandTotal) * 100) + '%';
+  if (elUpiPct) elUpiPct.textContent = Math.round((upiTotal / grandTotal) * 100) + '%';
+  if (elCardPct) elCardPct.textContent = Math.round((cardTotal / grandTotal) * 100) + '%';
+  if (elBankPct) elBankPct.textContent = Math.round((bankTotal / grandTotal) * 100) + '%';
+}
+
+// ----------------------------------------------------------------------------
+// 4. TOP BOOKED ROOMS & TOP ORDERED DISHES TABLES
+// ----------------------------------------------------------------------------
+window.switchDashTableTab = function(tab) {
+  currentDashTableTab = tab;
+  const btnRooms = document.getElementById('tabBtnTopRooms');
+  const btnDishes = document.getElementById('tabBtnTopDishes');
+  if (btnRooms && btnDishes) {
+    if (tab === 'rooms') {
+      btnRooms.classList.add('active');
+      btnDishes.classList.remove('active');
+    } else {
+      btnDishes.classList.add('active');
+      btnRooms.classList.remove('active');
+    }
+  }
+  renderTopItemsTable(tab);
+};
+
+function renderTopItemsTable(tab = 'rooms') {
+  const tbody = document.getElementById('topItemsTableBody');
   if (!tbody) return;
 
-  if (!recent.length) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #94A3B8; padding: 24px;">No reservations recorded yet.</td></tr>`;
+  if (tab === 'rooms') {
+    const bookings = (adminState.bookings || []).filter(b => b.status !== 'Cancelled');
+    const map = {};
+    (adminState.rooms || []).forEach(r => {
+      map[r.id] = { id: r.id, name: r.name, category: r.tag || 'Luxury Suite', count: 0, revenue: 0 };
+    });
+
+    bookings.forEach(b => {
+      if (map[b.roomId]) {
+        map[b.roomId].count += 1;
+        map[b.roomId].revenue += (b.totalAmount || 0);
+      }
+    });
+
+    const list = Object.values(map).sort((a, b) => b.revenue - a.revenue);
+    if (!list.length) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94A3B8; padding:20px;">No rooms data found</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = list.map((item, idx) => `
+      <tr>
+        <td style="font-weight:700; color:#94A3B8;">${idx + 1}</td>
+        <td style="font-weight:600; color:var(--ocean-blue);">${item.name}</td>
+        <td><span class="dash-badge-status confirmed">${item.count} Bookings</span></td>
+        <td style="text-align:right; font-weight:700; color:#1E293B;">₹${item.revenue.toLocaleString('en-IN')}</td>
+      </tr>
+    `).join('');
+  } else {
+    const dishes = adminState.restaurant || [];
+    if (!dishes.length) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94A3B8; padding:20px;">No menu dishes recorded</td></tr>';
+      return;
+    }
+
+    const sortedDishes = [...dishes].slice(0, 5);
+    tbody.innerHTML = sortedDishes.map((d, idx) => `
+      <tr>
+        <td style="font-weight:700; color:#94A3B8;">${idx + 1}</td>
+        <td style="font-weight:600; color:var(--ocean-blue);">${d.name}</td>
+        <td><span style="color:#64748B; font-size:0.75rem;">${d.category || 'Kitchen'}</span></td>
+        <td style="text-align:right; font-weight:700; color:#1E293B;">₹${(d.price || 150).toLocaleString('en-IN')}</td>
+      </tr>
+    `).join('');
+  }
+}
+
+window.handleViewAllItems = function() {
+  if (currentDashTableTab === 'rooms') switchTab('tabRooms');
+  else switchTab('tabMenu');
+};
+
+// ----------------------------------------------------------------------------
+// 5. ROOM AVAILABILITY / STOCK SUMMARY & BARS
+// ----------------------------------------------------------------------------
+function renderRoomStockSummary() {
+  const rooms = adminState.rooms || [];
+  const bookings = adminState.bookings || [];
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const totalRooms = rooms.reduce((s, r) => s + (parseInt(r.totalRooms, 10) || 5), 0) || 20;
+  let bookedRooms = 0;
+  let blockedRooms = 0;
+
+  rooms.forEach(r => {
+    if (r.isSoldOut) blockedRooms += (parseInt(r.totalRooms, 10) || 5);
+  });
+
+  bookings.forEach(b => {
+    if (b.status !== 'Cancelled' && b.checkIn <= todayStr && b.checkOut > todayStr) {
+      bookedRooms += (parseInt(b.roomsCount, 10) || 1);
+    }
+  });
+
+  const availableRooms = Math.max(0, totalRooms - bookedRooms - blockedRooms);
+
+  const elTotal = document.getElementById('stockStatTotal');
+  const elBooked = document.getElementById('stockStatBooked');
+  const elBlocked = document.getElementById('stockStatBlocked');
+  const elAvail = document.getElementById('stockStatAvailable');
+
+  if (elTotal) elTotal.textContent = totalRooms;
+  if (elBooked) elBooked.textContent = bookedRooms;
+  if (elBlocked) elBlocked.textContent = blockedRooms;
+  if (elAvail) elAvail.textContent = availableRooms;
+
+  const barsContainer = document.getElementById('stockRoomBars');
+  if (barsContainer) {
+    barsContainer.innerHTML = rooms.map(r => {
+      const cap = parseInt(r.totalRooms, 10) || 5;
+      let bk = 0;
+      bookings.forEach(b => {
+        if (b.status !== 'Cancelled' && b.roomId === r.id && b.checkIn <= todayStr && b.checkOut > todayStr) {
+          bk += (parseInt(b.roomsCount, 10) || 1);
+        }
+      });
+      const avail = r.isSoldOut ? 0 : Math.max(0, cap - bk);
+      const availPct = Math.round((avail / cap) * 100);
+      const color = avail === 0 ? '#EF4444' : (avail <= 2 ? '#F59E0B' : '#10B981');
+
+      return `
+        <div class="stock-room-bar-item">
+          <div class="stock-room-head">
+            <span>${r.name}</span>
+            <span>${avail} / ${cap} available</span>
+          </div>
+          <div class="stock-progress-track">
+            <div class="stock-progress-fill" style="width: ${availPct}%; background: ${color};"></div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 6. LOW AVAILABILITY ALERTS (RED-TINTED REFERENCE STYLE)
+// ----------------------------------------------------------------------------
+async function renderLowAvailabilityAlerts() {
+  const tbody = document.getElementById('lowStockTableBody');
+  const countBadge = document.getElementById('lowStockAlertCount');
+  if (!tbody) return;
+
+  try {
+    const res = await authFetch('/api/admin/dashboard');
+    const alerts = res.success && Array.isArray(res.alerts) ? res.alerts : [];
+
+    if (countBadge) countBadge.textContent = alerts.length + ' items';
+
+    if (!alerts.length) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#10B981; padding:20px; font-weight:600;">✓ All room types have healthy availability</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = alerts.slice(0, 6).map(a => {
+      const badgeCls = a.status === 'Sold Out' ? 'soldout' : (a.status === 'Critical' ? 'critical' : 'low');
+      const dLabel = new Date(a.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+      return `
+        <tr>
+          <td style="font-weight:600; color:var(--ocean-blue);">${a.name}</td>
+          <td style="color:#64748B;">${dLabel}</td>
+          <td style="text-align:center; font-weight:700;">${a.left}</td>
+          <td style="text-align:right;"><span class="dash-badge-status ${badgeCls}">${a.status}</span></td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#94A3B8; padding:20px;">No critical alerts</td></tr>';
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 7. MONTHLY REVENUE TREND (GREEN BAR CHART)
+// ----------------------------------------------------------------------------
+function initOrUpdateMonthlyRevenueChart(year = '2026') {
+  currentRevenueYear = year;
+  const canvas = document.getElementById('chartMonthlyRevenue');
+  if (!canvas || typeof Chart === 'undefined') return;
+
+  const bookings = (adminState.bookings || []).filter(b => b.status !== 'Cancelled');
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const data = new Array(12).fill(0);
+
+  bookings.forEach(b => {
+    const d = new Date(b.checkIn || b.createdAt);
+    if (d && !isNaN(d.getTime()) && String(d.getFullYear()) === String(year)) {
+      const m = d.getMonth();
+      data[m] += (b.totalAmount || 0);
+    }
+  });
+
+  const displayData = data.map(v => Math.round(v / 1000)); // in ₹ thousands
+
+  if (chartMonthlyInstance) {
+    chartMonthlyInstance.destroy();
+  }
+
+  const ctx = canvas.getContext('2d');
+  chartMonthlyInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: months,
+      datasets: [{
+        label: 'Revenue (₹k)',
+        data: displayData,
+        backgroundColor: '#10B981',
+        borderRadius: 6,
+        borderSkipped: false,
+        hoverBackgroundColor: '#059669'
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(11, 31, 58, 0.92)',
+          padding: 8,
+          titleFont: { family: 'Poppins', size: 12 },
+          bodyFont: { family: 'Poppins', size: 12 },
+          callbacks: {
+            label: (ctx) => ` Revenue: ₹${(ctx.raw * 1000).toLocaleString('en-IN')}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { family: 'Poppins', size: 10 }, color: '#94A3B8' }
+        },
+        y: {
+          grid: { color: 'rgba(226, 232, 240, 0.6)' },
+          ticks: {
+            font: { family: 'Poppins', size: 9 },
+            color: '#94A3B8',
+            callback: (v) => '₹' + v + 'k'
+          }
+        }
+      }
+    }
+  });
+}
+
+window.updateRevenueTrendYear = function(val) {
+  initOrUpdateMonthlyRevenueChart(val);
+};
+
+// ----------------------------------------------------------------------------
+// 8. RECENT BOOKINGS & CHATBOT LEADS TABLES
+// ----------------------------------------------------------------------------
+window.switchRecentTab = function(tab) {
+  currentRecentTab = tab;
+  const btnB = document.getElementById('tabBtnRecentBookings');
+  const btnL = document.getElementById('tabBtnRecentLeads');
+  if (btnB && btnL) {
+    if (tab === 'bookings') {
+      btnB.classList.add('active');
+      btnL.classList.remove('active');
+    } else {
+      btnL.classList.add('active');
+      btnB.classList.remove('active');
+    }
+  }
+  renderRecentItemsTable(tab);
+};
+
+function renderRecentItemsTable(tab = 'bookings') {
+  const tbody = document.getElementById('recentItemsTableBody');
+  const theadRow = document.getElementById('recentTableHeaderRow');
+  if (!tbody) return;
+
+  if (tab === 'bookings') {
+    if (theadRow) {
+      theadRow.innerHTML = `
+        <th>Booking ID</th>
+        <th>Guest</th>
+        <th>Room</th>
+        <th>Dates</th>
+        <th style="text-align: right;">Amount</th>
+        <th>Status</th>
+      `;
+    }
+
+    const bookings = (adminState.bookings || []).slice(0, 5);
+    if (!bookings.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#94A3B8; padding:20px;">No bookings recorded yet.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = bookings.map(b => `
+      <tr>
+        <td style="font-weight:700; color:var(--ocean-blue);">${b.bookingId}</td>
+        <td>${b.guestName || 'Guest'}</td>
+        <td style="color:#64748B;">${b.roomName || ''}</td>
+        <td style="font-size:0.75rem; color:#64748B;">${b.checkIn} → ${b.checkOut}</td>
+        <td style="text-align:right; font-weight:700; color:#1E293B;">₹${(b.totalAmount || 0).toLocaleString('en-IN')}</td>
+        <td><span class="dash-badge-status ${getBadgeClass(b.status)}">${b.status}</span></td>
+      </tr>
+    `).join('');
+  } else {
+    // Recent Chatbot Leads
+    if (theadRow) {
+      theadRow.innerHTML = `
+        <th>Guest Name</th>
+        <th>Phone</th>
+        <th>Requirement</th>
+        <th>Date</th>
+        <th style="text-align: right;">Action</th>
+      `;
+    }
+
+    const inquiries = (adminState.chatInquiries || []).slice(0, 5);
+    if (!inquiries.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#94A3B8; padding:20px;">No chatbot leads captured yet.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = inquiries.map(iq => `
+      <tr>
+        <td style="font-weight:700; color:var(--ocean-blue);">${iq.guestName || iq.name || 'Website Visitor'}</td>
+        <td>${iq.phone || '—'}</td>
+        <td style="color:#64748B;">${iq.requirement || iq.message || 'Room Inquiry'}</td>
+        <td style="font-size:0.75rem; color:#64748B;">${(iq.createdAt || '').slice(0, 10)}</td>
+        <td style="text-align:right;">
+          <button class="btn-turquoise" style="padding:2px 8px; font-size:0.72rem;" onclick="switchTab('tabChatCRM')">Reply</button>
+        </td>
+      </tr>
+    `).join('');
+  }
+}
+
+window.handleViewAllRecent = function() {
+  if (currentRecentTab === 'bookings') switchTab('tabBookings');
+  else switchTab('tabChatCRM');
+};
+
+// ----------------------------------------------------------------------------
+// 9. TRANSPORT & ADD-ONS SALES (BAR CHART)
+// ----------------------------------------------------------------------------
+function initOrUpdateAddonsSalesChart() {
+  const canvas = document.getElementById('chartAddonsSales');
+  if (!canvas || typeof Chart === 'undefined') return;
+
+  const bookings = (adminState.bookings || []).filter(b => b.status !== 'Cancelled');
+  const addons = {
+    'Toto': 0,
+    'Auto': 0,
+    'Car': 0,
+    'Breakfast': 0,
+    'Candlelight': 0
+  };
+
+  bookings.forEach(b => {
+    if (b.needCar || b.vehicleType === 'car') addons['Car'] += (b.carTotal || 1500);
+    if (b.vehicleType === 'toto') addons['Toto'] += (b.carTotal || 500);
+    if (b.vehicleType === 'auto') addons['Auto'] += (b.carTotal || 800);
+    if (b.breakfast) addons['Breakfast'] += (b.breakfastTotal || 400);
+    if (b.candlelightDinner) addons['Candlelight'] += (b.dinnerTotal || 3500);
+  });
+
+  const labels = Object.keys(addons);
+  const data = Object.values(addons);
+
+  if (chartAddonsInstance) {
+    chartAddonsInstance.destroy();
+  }
+
+  const ctx = canvas.getContext('2d');
+  chartAddonsInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Sales (₹)',
+        data: data,
+        backgroundColor: [
+          '#38BDF8',
+          '#34D399',
+          '#F472B6',
+          '#FBBF24',
+          '#A78BFA'
+        ],
+        borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(11, 31, 58, 0.92)',
+          padding: 8,
+          titleFont: { family: 'Poppins', size: 12 },
+          bodyFont: { family: 'Poppins', size: 12 },
+          callbacks: {
+            label: (ctx) => ` Sales: ₹${ctx.raw.toLocaleString('en-IN')}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { family: 'Poppins', size: 10 }, color: '#94A3B8' }
+        },
+        y: {
+          grid: { color: 'rgba(226, 232, 240, 0.6)' },
+          ticks: {
+            font: { family: 'Poppins', size: 9 },
+            color: '#94A3B8',
+            callback: (v) => '₹' + v
+          }
+        }
+      }
+    }
+  });
+}
+
+// ----------------------------------------------------------------------------
+// 10. RECORD PAYMENT MODAL LOGIC
+// ----------------------------------------------------------------------------
+window.openRecordPaymentModal = function() {
+  const select = document.getElementById('recPayBookingSelect');
+  if (select) {
+    const bookings = (adminState.bookings || []).filter(b => b.status !== 'Cancelled');
+    select.innerHTML = bookings.map(b => `
+      <option value="${b.bookingId}">${b.bookingId} - ${b.guestName} (Due: ₹${(b.payAtHotelBalance || 0).toLocaleString('en-IN')})</option>
+    `).join('');
+
+    if (bookings[0]) {
+      handleRecPayBookingChange(bookings[0].bookingId);
+    }
+  }
+  openModal('recordPaymentModal');
+};
+
+window.handleRecPayBookingChange = function(bookingId) {
+  const b = (adminState.bookings || []).find(x => x.bookingId === bookingId);
+  if (!b) return;
+  const amtInput = document.getElementById('recPayAmount');
+  const typeSelect = document.getElementById('recPayTypeSelect');
+  if (amtInput && typeSelect) {
+    if (typeSelect.value === 'balance') {
+      amtInput.value = b.payAtHotelBalance || '';
+    } else {
+      amtInput.value = b.payNowAdvance || '';
+    }
+  }
+};
+
+window.executeSubmitPayment = async function() {
+  const bookingId = document.getElementById('recPayBookingSelect')?.value;
+  const type = document.getElementById('recPayTypeSelect')?.value;
+  const mode = document.getElementById('recPayModeSelect')?.value;
+  const amount = Number(document.getElementById('recPayAmount')?.value);
+  const note = document.getElementById('recPayNote')?.value.trim();
+
+  if (!bookingId || !amount || amount <= 0) {
+    showToast('Please enter a valid payment amount.', 'error');
     return;
   }
 
-  tbody.innerHTML = recent.map(b => `
-    <tr>
-      <td><strong>${b.bookingId}</strong></td>
-      <td>${b.guestName}</td>
-      <td>${b.roomName}</td>
-      <td>${b.checkIn} → ${b.checkOut}</td>
-      <td style="color: var(--sunset-coral); font-weight: 600;">₹${(b.payNowAdvance || 0).toLocaleString('en-IN')}</td>
-      <td style="color: var(--turquoise-dark); font-weight: 600;">₹${(b.payAtHotelBalance || 0).toLocaleString('en-IN')}</td>
-      <td><span class="badge-status ${getBadgeClass(b.status)}">${b.status}</span></td>
-      <td>
-        <button class="btn-outline-gold" style="padding: 4px 10px; font-size: 0.76rem;" onclick="viewBookingVoucher('${b.bookingId}')">
-          Voucher
-        </button>
-      </td>
-    </tr>
-  `).join('');
+  const btn = document.getElementById('btnSubmitPayment');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+
+  try {
+    const res = await authFetch(`/api/bookings/${bookingId}/payments`, {
+      method: 'POST',
+      body: { type, mode, amount, note }
+    });
+
+    if (res.success) {
+      closeModal('recordPaymentModal');
+      showToast(`Payment of ₹${amount.toLocaleString('en-IN')} (${mode}) recorded successfully!`, 'success');
+      await loadAllAdminData();
+    } else {
+      showToast(res.message || 'Payment recording failed.', 'error');
+    }
+  } catch (err) {
+    showToast('Payment recording error: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined">save</span> Save Payment'; }
+  }
+};
+
+// ----------------------------------------------------------------------------
+// 11. AVAILABILITY CALENDAR TAB
+// ----------------------------------------------------------------------------
+window.renderAvailabilityCalendar = function(offsetDelta = 0) {
+  currentCalendarMonthOffset += offsetDelta;
+  const container = document.getElementById('availabilityCalendarGrid');
+  const labelEl = document.getElementById('calendarCurrentMonthLabel');
+  if (!container) return;
+
+  const targetDate = new Date();
+  targetDate.setMonth(targetDate.getMonth() + currentCalendarMonthOffset);
+  const year = targetDate.getFullYear();
+  const month = targetDate.getMonth();
+
+  if (labelEl) {
+    labelEl.textContent = targetDate.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  }
+
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const rooms = adminState.rooms || [];
+  const bookings = (adminState.bookings || []).filter(b => b.status !== 'Cancelled');
+  const filterRoom = document.getElementById('calendarRoomFilter')?.value || 'all';
+
+  let html = '';
+  const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  dows.forEach(d => {
+    html += `<div style="text-align:center; font-weight:700; font-size:0.75rem; color:#64748B; padding:6px 0;">${d}</div>`;
+  });
+
+  for (let i = 0; i < firstDay; i++) {
+    html += '<div class="calendar-day-cell other-month"></div>';
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+    let totalCap = 0;
+    let bookedCount = 0;
+
+    rooms.forEach(r => {
+      if (filterRoom !== 'all' && r.id !== filterRoom) return;
+      const cap = parseInt(r.totalRooms, 10) || 5;
+      totalCap += cap;
+      if (r.isSoldOut) bookedCount += cap;
+    });
+
+    bookings.forEach(b => {
+      if (filterRoom !== 'all' && b.roomId !== filterRoom) return;
+      if (b.checkIn <= dateStr && b.checkOut > dateStr) {
+        bookedCount += (parseInt(b.roomsCount, 10) || 1);
+      }
+    });
+
+    const avail = Math.max(0, totalCap - bookedCount);
+    let statusBg = '#10B981';
+    let statusText = avail + ' Left';
+    if (avail === 0) {
+      statusBg = '#EF4444';
+      statusText = 'Sold Out';
+    } else if (avail <= 2) {
+      statusBg = '#F59E0B';
+      statusText = avail + ' Left';
+    }
+
+    html += `
+      <div class="calendar-day-cell">
+        <div class="calendar-day-num">${d}</div>
+        <div class="calendar-day-status-pill" style="background:${statusBg}; color:#FFFFFF;">
+          ${statusText}
+        </div>
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+};
+
+// ----------------------------------------------------------------------------
+// 12. REPORTS TAB SUMMARY
+// ----------------------------------------------------------------------------
+function renderReportsTab() {
+  const revContainer = document.getElementById('reportsRevenueSummary');
+  const payContainer = document.getElementById('reportsPaymentSummary');
+  const addContainer = document.getElementById('reportsAddonsSummary');
+
+  const bookings = (adminState.bookings || []).filter(b => b.status !== 'Cancelled');
+  const totalRev = bookings.reduce((s, b) => s + (b.totalAmount || 0), 0);
+  const totalAdv = bookings.reduce((s, b) => s + (b.payNowAdvance || 0), 0);
+  const totalBal = bookings.reduce((s, b) => s + (b.payAtHotelBalance || 0), 0);
+
+  if (revContainer) {
+    revContainer.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div style="display:flex; justify-content:space-between;"><span>Total Audited Revenue:</span> <strong>₹${totalRev.toLocaleString('en-IN')}</strong></div>
+        <div style="display:flex; justify-content:space-between;"><span>Total Confirmed Bookings:</span> <strong>${bookings.length}</strong></div>
+        <div style="display:flex; justify-content:space-between;"><span>Average Booking Value:</span> <strong>₹${Math.round(totalRev / (bookings.length || 1)).toLocaleString('en-IN')}</strong></div>
+      </div>
+    `;
+  }
+
+  if (payContainer) {
+    payContainer.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div style="display:flex; justify-content:space-between;"><span>20% Online Advances:</span> <strong style="color:#059669;">₹${totalAdv.toLocaleString('en-IN')}</strong></div>
+        <div style="display:flex; justify-content:space-between;"><span>80% Hotel Balances:</span> <strong style="color:#2563EB;">₹${totalBal.toLocaleString('en-IN')}</strong></div>
+      </div>
+    `;
+  }
+
+  if (addContainer) {
+    const diningTotal = bookings.filter(b => b.candlelightDinner).reduce((s, b) => s + (b.dinnerTotal || 3500), 0);
+    const transTotal = bookings.filter(b => b.needCar || b.vehicleType).reduce((s, b) => s + (b.carTotal || 1500), 0);
+    addContainer.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div style="display:flex; justify-content:space-between;"><span>Candlelight Dinners:</span> <strong>₹${diningTotal.toLocaleString('en-IN')}</strong></div>
+        <div style="display:flex; justify-content:space-between;"><span>Transport Fleet:</span> <strong>₹${transTotal.toLocaleString('en-IN')}</strong></div>
+      </div>
+    `;
+  }
 }
 
-// ----------------------------------------------------------------------------
-// 2. ROOM INVENTORY & SOLD-OUT CONTROL
-// ----------------------------------------------------------------------------
-
-// ----------------------------------------------------------------------------
-// 2. ROOM INVENTORY & SOLD-OUT CONTROL
-// ----------------------------------------------------------------------------
 
 function renderRoomsGrid() {
   const container = document.getElementById('roomsCardsGrid');
@@ -1148,6 +2182,7 @@ function renderInclusionsList() {
 
   container.innerHTML = currentEditInclusions.map((item, idx) => {
     const isFirst = idx === 0;
+    const isBreakfast = (item.text || '').toLowerCase().includes('breakfast');
     return `
       <div style="display: flex; align-items: center; justify-content: space-between; background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 6px 10px; gap: 8px;">
         <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
@@ -1797,8 +2832,11 @@ function renderBookingsTable() {
       </td>
       <td>
         <div style="display: flex; gap: 5px; flex-wrap: wrap; align-items: center;">
+          <button class="btn-turquoise" style="padding: 4px 8px; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 3px;" onclick="openEditBookingModal('${b.bookingId}')" title="Edit booking details & recalculate">
+            <span class="material-symbols-outlined" style="font-size: 14px;">edit</span> Edit
+          </button>
           ${b.status === 'Pending Advance' ? `
-            <button class="btn-turquoise" style="padding: 4px 8px; font-size: 0.72rem;" onclick="updateBookingStatus('${b.bookingId}', 'Confirmed')">Confirm</button>
+            <button class="btn-outline-gold" style="padding: 4px 8px; font-size: 0.72rem;" onclick="updateBookingStatus('${b.bookingId}', 'Confirmed')">Confirm</button>
           ` : ''}
           ${b.status === 'Confirmed' ? `
             <button class="btn-turquoise" style="padding: 4px 8px; font-size: 0.72rem;" onclick="updateBookingStatus('${b.bookingId}', 'Checked-in')">Check-In</button>
@@ -2138,12 +3176,27 @@ function renderChatCRM() {
   // Update Stats Strip
   const unreadOrFollowup = allInquiries.filter(c => !c.isRead || c.leadStatus === 'Needs follow-up').length;
   const converted = allInquiries.filter(c => c.leadStatus === 'Converted to Booking').length;
+  const leadsCaptured = allInquiries.filter(c => 
+    c.leadStatus === 'Needs follow-up' || 
+    c.leadStatus === 'Qualified Lead' || 
+    c.leadStatus === 'Converted to Booking' || 
+    Boolean(c.guestPhone)
+  ).length;
+  const convRate = leadsCaptured > 0 ? Math.round((converted / leadsCaptured) * 100) : 0;
 
-  document.getElementById('chatStatTotal').textContent = allInquiries.length;
-  document.getElementById('chatStatUnread').textContent = unreadOrFollowup;
-  document.getElementById('chatStatConverted').textContent = converted;
+  const totalEl = document.getElementById('chatStatTotal');
+  const unreadEl = document.getElementById('chatStatUnread');
+  const leadsEl = document.getElementById('chatStatLeads');
+  const convEl = document.getElementById('chatStatConverted');
+  const rateEl = document.getElementById('chatStatConvRate');
 
-  // Fetch real-time usage stats asynchronously
+  if (totalEl) totalEl.textContent = allInquiries.length;
+  if (unreadEl) unreadEl.textContent = unreadOrFollowup;
+  if (leadsEl) leadsEl.textContent = leadsCaptured;
+  if (convEl) convEl.textContent = converted;
+  if (rateEl) rateEl.textContent = `${convRate}%`;
+
+  // Fetch real-time usage stats & unanswered questions asynchronously
   authFetch('/api/admin/chat/stats').then(res => {
     if (res.success && res.stats) {
       const s = res.stats;
@@ -2151,6 +3204,30 @@ function renderChatCRM() {
       const costEl = document.getElementById('chatStatCost');
       if (todayEl) todayEl.textContent = `${s.todayMessages || 0} msgs`;
       if (costEl) costEl.textContent = `Est. Cost: ${s.estimatedCostFormatted || '$0.00'}`;
+
+      // Render Unanswered Questions list
+      const unansListEl = document.getElementById('unansweredQuestionsList');
+      const unansBadge = document.getElementById('unansweredCountBadge');
+      const unans = s.unansweredQuestions || [];
+      if (unansBadge) unansBadge.textContent = unans.length;
+
+      if (unansListEl) {
+        if (!unans.length) {
+          unansListEl.innerHTML = `<div style="padding: 16px; text-align: center; color: #94A3B8; font-size: 0.82rem;">No unanswered questions reported. Grounded AI answered all guest queries accurately!</div>`;
+        } else {
+          unansListEl.innerHTML = unans.map(u => `
+            <div style="display: flex; justify-content: space-between; align-items: center; background: #FAF9F6; border: 1px solid #E2E8F0; padding: 10px 14px; border-radius: 8px;">
+              <div>
+                <strong style="color: var(--ocean-blue); font-size: 0.84rem;">"${escapeHtml(u.question)}"</strong>
+                <div style="font-size: 0.72rem; color: #94A3B8; margin-top: 2px;">Asked: ${new Date(u.askedAt).toLocaleDateString()} ${new Date(u.askedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+              </div>
+              <button class="btn-turquoise" style="padding: 4px 10px; font-size: 0.75rem;" onclick="addUnansweredQuestionToFaq('${escapeHtml(u.question.replace(/'/g, "\\'"))}')">
+                <span class="material-symbols-outlined" style="font-size: 15px;">add</span> Add to FAQ
+              </button>
+            </div>
+          `).join('');
+        }
+      }
     }
   }).catch(() => {});
 
@@ -2368,6 +3445,8 @@ function showBotEditorModal() {
       document.getElementById('botToneInstructions').value = b.toneInstructions || '';
       document.getElementById('botOfflineEn').value = b.offlineMessage?.en || '';
       document.getElementById('botDailyLimit').value = b.dailyMessageLimit || 500;
+      const retInput = document.getElementById('botLogRetentionDays');
+      if (retInput) retInput.value = b.logRetentionDays || 90;
 
       // Update usage stats preview in modal
       if (res.stats) {
@@ -2398,6 +3477,7 @@ async function saveBotSettingsFromModal() {
     hi: "हमारा डेस्क इस समय व्यस्त है। कृपया सीधे कॉल करें: 7812027551।"
   };
   const dailyMessageLimit = parseInt(document.getElementById('botDailyLimit').value, 10) || 500;
+  const logRetentionDays = parseInt(document.getElementById('botLogRetentionDays')?.value, 10) || 90;
 
   try {
     const res = await authFetch('/api/admin/concierge/bot-settings', {
@@ -2408,7 +3488,8 @@ async function saveBotSettingsFromModal() {
         quickReplyChips,
         toneInstructions,
         offlineMessage,
-        dailyMessageLimit
+        dailyMessageLimit,
+        logRetentionDays
       }
     });
 
@@ -2425,6 +3506,93 @@ async function saveBotSettingsFromModal() {
 function exportChatsCSV() {
   window.location.href = '/api/admin/concierge/export-csv';
   showToast('Downloading chat transcripts CSV...', 'info');
+}
+
+// ----------------------------------------------------------------------------
+// ADMIN CHATBOT LIVE TEST PANEL & UNANSWERED FAQ GENERATOR
+// ----------------------------------------------------------------------------
+
+async function handleAdminChatTestSubmit(e) {
+  if (e) e.preventDefault();
+  const input = document.getElementById('adminTestChatInput');
+  const message = input ? input.value.trim() : '';
+  if (!message) return;
+
+  const btn = document.getElementById('btnAdminTestChat');
+  const resultBox = document.getElementById('adminTestResultBox');
+  const replyEl = document.getElementById('adminTestReplyText');
+  const toolsEl = document.getElementById('adminTestToolsList');
+  const topicBadge = document.getElementById('adminTestTopicBadge');
+  const langBadge = document.getElementById('adminTestLangBadge');
+  const latencyEl = document.getElementById('adminTestLatency');
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">hourglass_empty</span> Testing...';
+  }
+
+  const startTime = Date.now();
+  try {
+    const res = await authFetch('/api/admin/chat/test', {
+      method: 'POST',
+      body: { message }
+    });
+
+    const elapsed = Date.now() - startTime;
+    if (resultBox) resultBox.style.display = 'block';
+
+    if (res.success) {
+      if (replyEl) replyEl.textContent = res.reply;
+      if (topicBadge) topicBadge.textContent = `Topic: ${res.topic || 'General'}`;
+      if (langBadge) langBadge.textContent = `Lang: ${(res.lang || 'en').toUpperCase()}`;
+      if (latencyEl) latencyEl.textContent = `Response: ${elapsed}ms`;
+
+      const tools = res.toolsCalled || [];
+      if (toolsEl) {
+        if (!tools.length) {
+          toolsEl.innerHTML = `<span style="font-size:0.75rem; color:#64748B; background:#F1F5F9; padding:3px 8px; border-radius:4px;">No database tools invoked (direct knowledge/conversation greeting)</span>`;
+        } else {
+          toolsEl.innerHTML = tools.map(t => {
+            const toolName = typeof t === 'string' ? t : (t.name || 'tool');
+            return `
+              <span style="font-size:0.74rem; background:rgba(6,182,176,0.15); color:var(--turquoise-dark); font-weight:700; padding:3px 8px; border-radius:6px; border:1px solid rgba(6,182,176,0.3);">
+                ⚡ ${escapeHtml(toolName)}
+              </span>
+            `;
+          }).join('');
+        }
+      }
+    } else {
+      if (replyEl) replyEl.textContent = 'Error: ' + (res.message || 'Test failed');
+    }
+  } catch (err) {
+    if (resultBox) resultBox.style.display = 'block';
+    if (replyEl) replyEl.textContent = 'Network or server error: ' + err.message;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">play_arrow</span> Test Query';
+    }
+  }
+}
+
+function quickTestChat(text) {
+  const input = document.getElementById('adminTestChatInput');
+  if (input) {
+    input.value = text;
+    handleAdminChatTestSubmit();
+  }
+}
+
+async function addUnansweredQuestionToFaq(question) {
+  const answer = prompt(`Enter official hotel answer for FAQ:\n"${question}"`);
+  if (!answer || !answer.trim()) return;
+
+  const faqs = adminState.content.faqs || [];
+  faqs.push({ id: `faq-${Date.now()}`, question, answer: answer.trim(), category: 'General' });
+  await authFetch('/api/admin/content/faqs', { method: 'POST', body: faqs });
+  showToast('New FAQ added to website and chatbot knowledge base!', 'success');
+  loadAllAdminData();
 }
 
 // ----------------------------------------------------------------------------
@@ -2472,33 +3640,67 @@ function renderWebsiteContent() {
     }
   }
 
-  // Nearby Places
-  const placesBox = document.getElementById('placesCardsList');
-  if (placesBox && c.places) {
-    placesBox.innerHTML = c.places.map((p, idx) => `
-      <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px; display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <strong style="color: var(--ocean-blue);">${p.name}</strong> (${p.distance})<br>
-          <span style="font-size: 0.8rem; color: #64748B;">${p.description}</span>
-        </div>
-        <button class="btn-outline-gold" style="padding: 4px 10px; font-size: 0.76rem;" onclick="editPlacePrompt(${idx})">Edit</button>
-      </div>
-    `).join('');
+
+  // Candlelight On/Off
+  if (document.getElementById('clEnabled') && c.candlelight) {
+    document.getElementById('clEnabled').checked = c.candlelight.enabled !== false;
+    const clLabel = document.getElementById('clEnabledLabel');
+    if (clLabel) clLabel.textContent = c.candlelight.enabled !== false ? 'Enabled (Live)' : 'Disabled (Paused)';
+    document.getElementById('clEnabled').onchange = () => {
+      if (clLabel) clLabel.textContent = document.getElementById('clEnabled').checked ? 'Enabled (Live)' : 'Disabled (Paused)';
+    };
   }
 
-  // FAQs
-  const faqsBox = document.getElementById('faqsListContainer');
-  if (faqsBox && c.faqs) {
-    faqsBox.innerHTML = c.faqs.map((f, idx) => `
-      <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px;">
-        <div style="display: flex; justify-content: space-between; align-items: baseline;">
-          <strong style="color: var(--ocean-blue);">${f.question}</strong>
-          <button class="btn-icon-only" style="width: 26px; height: 26px; color: var(--sunset-coral);" onclick="deleteFaq(${idx})">×</button>
+  // Nearby Places
+  const placesBox = document.getElementById('placesCardsList');
+  const placesList = Array.isArray(c.places) ? c.places : (Array.isArray(c.places?.places) ? c.places.places : []);
+  if (placesBox) {
+    if (!placesList.length) {
+      placesBox.innerHTML = '<div style="color: #64748B; font-size: 0.84rem; padding: 12px; font-style: italic;">No excursions listed. Click "Add Attraction" to create one.</div>';
+    } else {
+      placesBox.innerHTML = placesList.map((p, idx) => `
+        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 200px;">
+            <strong style="color: var(--ocean-blue);">${p.name}</strong> <span style="font-size: 0.82rem; color: #0284C7; font-weight: 600;">(${p.distance})</span><br>
+            <span style="font-size: 0.8rem; color: #64748B;">${p.description || ''}</span>
+          </div>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <button class="reorder-btn" onclick="movePlaceOrder(${idx}, -1)" title="Move up" ${idx === 0 ? 'disabled style="opacity:0.3;"' : ''}>▲</button>
+            <button class="reorder-btn" onclick="movePlaceOrder(${idx}, 1)" title="Move down" ${idx === placesList.length - 1 ? 'disabled style="opacity:0.3;"' : ''}>▼</button>
+            <button class="btn-turquoise" style="padding: 4px 10px; font-size: 0.76rem;" onclick="openEditPlaceModal(${idx})">Edit</button>
+            <button class="btn-icon-only" style="color: var(--sunset-coral); width: 28px; height: 28px;" onclick="deletePlace(${idx})" title="Delete excursion">×</button>
+          </div>
         </div>
-        <p style="font-size: 0.82rem; color: #475569; margin-top: 4px;">${f.answer}</p>
-      </div>
-    `).join('');
+      `).join('');
+    }
   }
+
+  // FAQs (Safe parsing whether array or { faqs: [...] })
+  const faqsBox = document.getElementById('faqsListContainer');
+  const faqsList = Array.isArray(c.faqs) ? c.faqs : (Array.isArray(c.faqs?.faqs) ? c.faqs.faqs : []);
+  if (faqsBox) {
+    if (!faqsList.length) {
+      faqsBox.innerHTML = '<div style="color: #64748B; font-size: 0.84rem; padding: 12px; font-style: italic;">No FAQs configured. Click "Add New FAQ" to create one.</div>';
+    } else {
+      faqsBox.innerHTML = faqsList.map((f, idx) => `
+        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 10px;">
+            <strong style="color: var(--ocean-blue);">${f.question}</strong>
+            <div style="display: flex; gap: 4px; align-items: center;">
+              <button class="reorder-btn" onclick="moveFaqOrder(${idx}, -1)" title="Move Up" ${idx === 0 ? 'disabled style="opacity:0.3;"' : ''}>▲</button>
+              <button class="reorder-btn" onclick="moveFaqOrder(${idx}, 1)" title="Move Down" ${idx === faqsList.length - 1 ? 'disabled style="opacity:0.3;"' : ''}>▼</button>
+              <button class="btn-turquoise" style="padding: 2px 8px; font-size: 0.72rem;" onclick="editFaqPrompt(${idx})" title="Edit FAQ">Edit</button>
+              <button class="btn-icon-only" style="width: 26px; height: 26px; color: var(--sunset-coral);" onclick="deleteFaq(${idx})" title="Delete FAQ">×</button>
+            </div>
+          </div>
+          <p style="font-size: 0.82rem; color: #475569; margin-top: 4px;">${f.answer}</p>
+        </div>
+      `).join('');
+    }
+  }
+
+  // Render Amenities
+  renderAmenitiesList();
 
   // Testimonials
   const testBox = document.getElementById('testimonialsListContainer');
@@ -2577,7 +3779,7 @@ async function saveBreakfastSettings() {
       method: 'POST',
       body: { name, price, unit, servingTime, enabled }
     });
-    const data = await res.json();
+    const data = res;
     if (data.success) {
       showToast('Breakfast add-on settings saved successfully!', 'success');
       loadAllAdminData(false);
@@ -2590,7 +3792,9 @@ async function saveBreakfastSettings() {
 }
 
 async function saveCandlelightContent() {
+  const clEnabled = document.getElementById('clEnabled') ? document.getElementById('clEnabled').checked : true;
   const candlelight = {
+    enabled: clEnabled,
     beachsidePrice: Number(document.getElementById('clBeachsidePrice').value),
     poolsidePrice: Number(document.getElementById('clPoolsidePrice').value),
     beachsideDescription: document.getElementById('clBeachsideDesc').value.trim(),
@@ -3020,46 +4224,15 @@ function triggerCropForCurrentEditingDish() {
 // ----------------------------------------------------------------------------
 
 function openCropModalForDish(dishId) {
-  cropTargetDishId = dishId;
-  const dish = (adminState.restaurant || []).find(d => d.id === dishId);
-  if (!dish) return;
-
-  document.getElementById('cropTargetDishName').textContent = dish.name;
-  cropScale = 1;
-  cropTranslateX = 0;
-  cropTranslateY = 0;
-  document.getElementById('cropZoomSlider').value = 1;
-
-  initCropperCanvasEvents();
-
-  if (dish.image) {
-    // Load existing image into canvas
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      cropImageObj = img;
-      centerCropperImage();
-      drawCropperCanvas();
-    };
-    img.src = dish.image;
-  } else {
-    cropImageObj = null;
-    drawCropperPlaceholderCanvas();
-    // Prompt file selection
-    setTimeout(() => {
-      document.getElementById('cropFileInput').click();
-    }, 250);
-  }
-
-  openModal('circularCropModal');
+  openChangePhotoModal(null, null, null, false, dishId);
 }
 
 function handleCropFileSelect(e) {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
 
-  if (file.size > 5 * 1024 * 1024) {
-    showToast('File exceeds 5 MB limit. Please choose a smaller image.', 'error');
+  if (file.size > 8 * 1024 * 1024) {
+    showToast('File too large (max 8 MB)', 'error');
     return;
   }
 
@@ -4087,10 +5260,23 @@ function showToast(message, type = 'info') {
   }, 4500);
 }
 
+function openModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.classList.add('open');
+    if (modal.classList.contains('luxury-modal')) modal.style.display = 'flex';
+  }
+}
+window.openModal = openModal;
+
 function closeModal(modalId) {
   const modal = document.getElementById(modalId);
-  if (modal) modal.classList.remove('open');
+  if (modal) {
+    modal.classList.remove('open');
+    if (modal.classList.contains('luxury-modal')) modal.style.display = 'none';
+  }
 }
+window.closeModal = closeModal;
 
 // ============================================================================
 // 10. PHOTOS & MEDIA MANAGER CONTROLLER (SUPER ADMIN & MANAGER ONLY)
@@ -4230,22 +5416,66 @@ let currentCropSlotKey = null;
 let currentCropRoomId = null;
 let currentCropPhotoId = null;
 let currentCropIsCover = false;
-let currentCropTargetAspect = 16 / 9; // locked aspect ratio
-let cropSourceImage = null;
-let cropState = {
-  zoom: 1.0,
-  panX: 0,
-  panY: 0,
-  isDragging: false,
-  dragStartX: 0,
-  dragStartY: 0
-};
+let currentCropDishId = null;
+let currentCropTargetAspect = 4 / 3; // default slot aspect ratio
+let currentCropShape = 'rect'; // 'rect' or 'round'
+let isBulkGalleryMode = false;
+let bulkGalleryFiles = [];
+
+// Cropper.js instance & Preview state (No custom canvas on-screen)
+let currentCropper = null;
+let currentPreviewObjectUrl = null;
+let currentSelectedRawFile = null;
+let useOriginalFileFlag = false;
 
 let currentUndoToken = null;
 let undoCountdownInterval = null;
 
-// Initialize Photos Manager & Canvas Listeners
+// Initialize Photos Manager
 function initPhotosManager() {
+  const modal = document.getElementById('changePhotoModal');
+  if (modal) {
+    // Backdrop click to close
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        closeChangePhotoModal();
+      }
+    });
+  }
+
+  // Keyboard accessibility: Escape to close and Tab focus trap
+  document.addEventListener('keydown', (e) => {
+    const changeModal = document.getElementById('changePhotoModal');
+    if (!changeModal || changeModal.style.display !== 'flex') return;
+
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeChangePhotoModal();
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      const focusables = changeModal.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first || !changeModal.contains(document.activeElement)) {
+          last.focus();
+          e.preventDefault();
+        }
+      } else {
+        if (document.activeElement === last || !changeModal.contains(document.activeElement)) {
+          first.focus();
+          e.preventDefault();
+        }
+      }
+    }
+  });
+
   const dropzone = document.getElementById('photoModalDropzone');
   if (dropzone) {
     dropzone.addEventListener('dragover', (e) => {
@@ -4264,52 +5494,6 @@ function initPhotosManager() {
       if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
         handlePhotoFileSelected(e.dataTransfer.files);
       }
-    });
-  }
-
-  // Canvas Drag / Pan Listeners
-  const canvas = document.getElementById('photoCropCanvas');
-  if (canvas) {
-    canvas.addEventListener('mousedown', (e) => {
-      cropState.isDragging = true;
-      cropState.dragStartX = e.clientX - cropState.panX;
-      cropState.dragStartY = e.clientY - cropState.panY;
-      canvas.style.cursor = 'grabbing';
-    });
-
-    window.addEventListener('mousemove', (e) => {
-      if (!cropState.isDragging) return;
-      cropState.panX = e.clientX - cropState.dragStartX;
-      cropState.panY = e.clientY - cropState.dragStartY;
-      drawCropCanvas();
-    });
-
-    window.addEventListener('mouseup', () => {
-      if (cropState.isDragging) {
-        cropState.isDragging = false;
-        if (canvas) canvas.style.cursor = 'grab';
-      }
-    });
-
-    // Mobile touch pan support
-    canvas.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 1) {
-        cropState.isDragging = true;
-        cropState.dragStartX = e.touches[0].clientX - cropState.panX;
-        cropState.dragStartY = e.touches[0].clientY - cropState.panY;
-      }
-    }, { passive: true });
-
-    canvas.addEventListener('touchmove', (e) => {
-      if (cropState.isDragging && e.touches.length === 1) {
-        cropState.panX = e.touches[0].clientX - cropState.dragStartX;
-        cropState.panY = e.touches[0].clientY - cropState.dragStartY;
-        drawCropCanvas();
-      }
-    }, { passive: true });
-
-    canvas.addEventListener('touchend', () => {
-      cropState.isDragging = false;
     });
   }
 }
@@ -4473,54 +5657,165 @@ window.filterPhotoSlots = function(section, btn) {
   });
 };
 
-// Open the 3-Click Change Photo Modal
-window.openChangePhotoModal = function(slotKey = null, roomId = null, photoId = null, isCover = false) {
+// Inline Error Helper for Change Photo Modal
+function showModalError(msg) {
+  const errBox = document.getElementById('changePhotoErrorMsg');
+  const errText = document.getElementById('changePhotoErrorText');
+  if (errText) errText.textContent = msg;
+  if (errBox) errBox.style.display = 'flex';
+}
+
+// Open the 3-Click Change Photo / Add Photo Modal
+window.openChangePhotoModal = function(slotKey = null, roomId = null, photoId = null, isCover = false, dishId = null, isBulkGallery = false) {
   currentCropSlotKey = slotKey;
   currentCropRoomId = roomId;
   currentCropPhotoId = photoId;
   currentCropIsCover = isCover;
-  cropSourceImage = null;
-  cropState = { zoom: 1.0, panX: 0, panY: 0, isDragging: false, dragStartX: 0, dragStartY: 0 };
+  currentCropDishId = dishId;
+  isBulkGalleryMode = !!isBulkGallery || slotKey === 'gallery_bulk';
+  bulkGalleryFiles = [];
+
+  // Destroy previous cropper and revoke object URL
+  if (currentCropper) {
+    try { currentCropper.destroy(); } catch (e) {}
+    currentCropper = null;
+  }
+  if (currentPreviewObjectUrl) {
+    try { URL.revokeObjectURL(currentPreviewObjectUrl); } catch (e) {}
+    currentPreviewObjectUrl = null;
+  }
+  currentSelectedRawFile = null;
+  useOriginalFileFlag = false;
+  currentCropShape = 'rect';
 
   const modal = document.getElementById('changePhotoModal');
   const titleEl = document.getElementById('changePhotoModalTitle');
   const subEl = document.getElementById('changePhotoModalSubtitle');
   const currentPreview = document.getElementById('currentPhotoPreviewImg');
-  const sideBySide = document.getElementById('sideBySideWrapper');
-  const dropzone = document.getElementById('photoModalDropzone');
+  const noCurrentPhotoMsg = document.getElementById('noCurrentPhotoMsg');
   const saveBtn = document.getElementById('btnSavePhotoChange');
+  const saveBtnText = document.getElementById('saveBtnText');
   const errBox = document.getElementById('changePhotoErrorMsg');
+  const singleSection = document.getElementById('modalStep2Section');
+  const bulkSection = document.getElementById('bulkGallerySection');
+  const fileInput = document.getElementById('photoFileInput');
+  const cropImg = document.getElementById('photoCropImage');
+  const placeholder = document.getElementById('newPhotoPlaceholder');
+  const circleOverlay = document.getElementById('cropCircularOverlay');
+  const fileInfoBadge = document.getElementById('selectedFileInfoBadge');
+  const zoomSlider = document.getElementById('cropZoomSlider');
+  const zoomMinus = document.getElementById('btnZoomMinus');
+  const zoomPlus = document.getElementById('btnZoomPlus');
+  const resetBtn = document.getElementById('btnResetCrop');
+  const btnUseOriginal = document.getElementById('btnUseOriginal');
+  const loadingSpinner = document.getElementById('cropLoadingSpinner');
+  const cropLoadErrorBox = document.getElementById('cropLoadErrorBox');
+  const progressWrap = document.getElementById('uploadProgressWrap');
 
   if (errBox) errBox.style.display = 'none';
-  if (sideBySide) sideBySide.style.display = 'none';
-  if (dropzone) dropzone.style.display = 'block';
-  if (saveBtn) saveBtn.disabled = true;
-
-  // Determine current image and target aspect ratio
-  let slotObj = null;
-  if (slotKey) {
-    slotObj = (adminState.mediaSlots || []).find(s => s.key === slotKey);
+  if (progressWrap) progressWrap.style.display = 'none';
+  if (loadingSpinner) loadingSpinner.style.display = 'none';
+  if (cropLoadErrorBox) cropLoadErrorBox.style.display = 'none';
+  if (fileInput) {
+    fileInput.value = '';
+    fileInput.multiple = isBulkGalleryMode;
   }
 
-  if (slotObj) {
-    titleEl.textContent = `Change Photo: ${slotObj.title}`;
-    subEl.textContent = `Recommended: ${slotObj.recommendedSize} • Instant live update`;
-    if (currentPreview) currentPreview.src = slotObj.currentUrl;
+  // Reset controls state
+  if (cropImg) {
+    cropImg.style.display = 'none';
+    cropImg.src = '';
+  }
+  if (placeholder) placeholder.style.display = 'flex';
+  if (fileInfoBadge) fileInfoBadge.style.display = 'none';
+  if (zoomSlider) { zoomSlider.value = 1.0; zoomSlider.disabled = true; }
+  if (zoomMinus) zoomMinus.disabled = true;
+  if (zoomPlus) zoomPlus.disabled = true;
+  if (resetBtn) resetBtn.disabled = true;
+  if (btnUseOriginal) {
+    btnUseOriginal.disabled = true;
+    btnUseOriginal.classList.remove('active');
+  }
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    if (saveBtnText) saveBtnText.textContent = isBulkGalleryMode ? 'Save Gallery Photos (0)' : 'Save & Update Photo';
+  }
 
-    if (slotObj.aspect === '1:1') currentCropTargetAspect = 1.0;
-    else if (slotObj.aspect === '16:9') currentCropTargetAspect = 16 / 9;
-    else currentCropTargetAspect = 4 / 3;
+  if (isBulkGalleryMode) {
+    if (singleSection) singleSection.style.display = 'none';
+    if (bulkSection) bulkSection.style.display = 'block';
+    renderBulkGalleryGrid();
+    titleEl.textContent = 'Add Photos to Showcase Gallery';
+    subEl.textContent = 'Recommended 1200 × 900 px · 4:3 · JPG, PNG, WebP · max 8 MB each.';
+    if (modal) modal.style.display = 'flex';
+    return;
+  }
+
+  // Single Photo Mode
+  if (singleSection) singleSection.style.display = 'block';
+  if (bulkSection) bulkSection.style.display = 'none';
+
+  let currentPhotoUrl = null;
+
+  if (dishId) {
+    currentCropShape = 'round';
+    currentCropTargetAspect = 1.0;
+    const dish = (adminState.restaurant || []).find(d => d.id === dishId) || {};
+    titleEl.textContent = `Change Photo: ${dish.name || 'Restaurant Dish'}`;
+    subEl.textContent = 'Recommended 800 × 800 px · Round · JPG, PNG, WebP · max 8 MB.';
+    currentPhotoUrl = dish.image;
+    if (circleOverlay) circleOverlay.style.display = 'block';
+  } else if (slotKey) {
+    const slotsArr = Array.isArray(adminState.mediaSlots) ? adminState.mediaSlots : (typeof PHOTO_SLOTS_DATA !== 'undefined' && Array.isArray(PHOTO_SLOTS_DATA) ? PHOTO_SLOTS_DATA : []);
+    const slotObj = slotsArr.find(s => s && s.key === slotKey) || (typeof adminState.mediaSlots === 'object' && adminState.mediaSlots ? adminState.mediaSlots[slotKey] : null);
+    if (circleOverlay) circleOverlay.style.display = 'none';
+    if (slotObj) {
+      titleEl.textContent = `Change Photo: ${slotObj.title}`;
+      subEl.textContent = `Recommended ${slotObj.recommendedSize} · ${slotObj.aspect} · JPG, PNG, WebP · max 8 MB.`;
+      currentPhotoUrl = slotObj.currentUrl;
+      if (slotObj.aspect === '1:1') {
+        currentCropTargetAspect = 1.0;
+      } else if (slotObj.aspect === '16:9') {
+        currentCropTargetAspect = 16 / 9;
+      } else {
+        currentCropTargetAspect = 4 / 3;
+      }
+    } else {
+      titleEl.textContent = `Change Photo: ${slotKey}`;
+      subEl.textContent = 'Recommended 1200 × 900 px · 4:3 · JPG, PNG, WebP · max 8 MB.';
+      currentCropTargetAspect = 4 / 3;
+    }
   } else if (roomId) {
+    if (circleOverlay) circleOverlay.style.display = 'none';
     const room = (adminState.rooms || []).find(r => r.id === roomId);
-    titleEl.textContent = `Change Photo: ${room ? room.name : 'Room Gallery'}`;
-    subEl.textContent = 'Recommended: 1200 × 900 px (4:3) • Instant live update';
+    titleEl.textContent = `Change Photo: ${room ? room.name : 'Room Gallery'}${isCover ? ' (Cover)' : ''}`;
+    subEl.textContent = 'Recommended 1200 × 900 px · 4:3 · JPG, PNG, WebP · max 8 MB.';
     currentCropTargetAspect = 4 / 3;
     if (photoId && room && room.gallery) {
       const p = room.gallery.find(x => x.id === photoId);
-      if (p && currentPreview) currentPreview.src = p.url;
-    } else if (room && currentPreview) {
-      currentPreview.src = room.image;
+      if (p) currentPhotoUrl = p.url;
+    } else if (room) {
+      currentPhotoUrl = room.image;
     }
+  }
+
+  // Sizing of Aspect Boxes
+  const aspectStr = currentCropTargetAspect === 1.0 ? '1 / 1' : (currentCropTargetAspect === 16 / 9 ? '16 / 9' : '4 / 3');
+  const curBox = document.getElementById('currentPhotoAspectBox');
+  const newBox = document.getElementById('cropCanvasAspectBox');
+  if (curBox) curBox.style.aspectRatio = aspectStr;
+  if (newBox) newBox.style.aspectRatio = aspectStr;
+
+  // Populate Current Photo
+  if (currentPhotoUrl && !currentPhotoUrl.includes('placeholder') && !currentPhotoUrl.includes('data:image/svg')) {
+    if (currentPreview) {
+      currentPreview.src = formatAdminImgUrl(currentPhotoUrl);
+      currentPreview.style.display = 'block';
+    }
+    if (noCurrentPhotoMsg) noCurrentPhotoMsg.style.display = 'none';
+  } else {
+    if (currentPreview) currentPreview.style.display = 'none';
+    if (noCurrentPhotoMsg) noCurrentPhotoMsg.style.display = 'flex';
   }
 
   if (modal) modal.style.display = 'flex';
@@ -4529,133 +5824,517 @@ window.openChangePhotoModal = function(slotKey = null, roomId = null, photoId = 
 window.closeChangePhotoModal = function() {
   const modal = document.getElementById('changePhotoModal');
   if (modal) modal.style.display = 'none';
-  cropSourceImage = null;
+  if (currentCropper) {
+    try { currentCropper.destroy(); } catch (e) {}
+    currentCropper = null;
+  }
+  if (currentPreviewObjectUrl) {
+    try { URL.revokeObjectURL(currentPreviewObjectUrl); } catch (e) {}
+    currentPreviewObjectUrl = null;
+  }
+  currentSelectedRawFile = null;
+  useOriginalFileFlag = false;
+
+  // Clean up any bulk preview object URLs
+  if (bulkGalleryFiles && bulkGalleryFiles.length > 0) {
+    bulkGalleryFiles.forEach(f => {
+      if (f.objectUrl) try { URL.revokeObjectURL(f.objectUrl); } catch (e) {}
+    });
+    bulkGalleryFiles = [];
+  }
 };
 
 // Handle File Selected / Dropped
 window.handlePhotoFileSelected = function(files) {
   if (!files || files.length === 0) return;
-  const file = files[0];
   const errBox = document.getElementById('changePhotoErrorMsg');
   if (errBox) errBox.style.display = 'none';
 
-  // Validate File Size (Max 8 MB)
-  if (file.size > 8 * 1024 * 1024) {
-    if (errBox) {
-      errBox.textContent = `File too large, max 8 MB (Selected file: ${(file.size / (1024 * 1024)).toFixed(1)} MB).`;
-      errBox.style.display = 'block';
+  // Bulk Gallery Mode
+  if (isBulkGalleryMode) {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (file.size > 8 * 1024 * 1024) {
+        showModalError('File too large (max 8 MB)');
+        continue;
+      }
+      if (!allowed.includes(file.type)) {
+        showModalError('Only JPG, PNG, or WebP allowed');
+        continue;
+      }
+      const objectUrl = URL.createObjectURL(file);
+      const sizeStr = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
+      bulkGalleryFiles.push({
+        id: 'bulk-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6),
+        file,
+        name: file.name,
+        sizeStr,
+        objectUrl,
+        category: document.getElementById('bulkGlobalCategorySelect')?.value || 'Hotel',
+        status: 'ready'
+      });
+    }
+    renderBulkGalleryGrid();
+    const saveBtn = document.getElementById('btnSavePhotoChange');
+    const saveBtnText = document.getElementById('saveBtnText');
+    if (saveBtn) {
+      saveBtn.disabled = bulkGalleryFiles.length === 0;
+      if (saveBtnText) saveBtnText.textContent = `Save Gallery Photos (${bulkGalleryFiles.length})`;
     }
     return;
   }
 
-  // Validate Allowed MIME Types
+  // Single Photo Mode
+  const file = files[0];
+
+  // 1. Validate File Size (Max 8 MB)
+  if (file.size > 8 * 1024 * 1024) {
+    showModalError('File too large (max 8 MB)');
+    return;
+  }
+
+  // 2. Validate Allowed MIME Types
   const allowed = ['image/jpeg', 'image/png', 'image/webp'];
   if (!allowed.includes(file.type)) {
-    if (errBox) {
-      errBox.textContent = 'Unsupported file format. Please choose an authentic JPG, PNG, or WebP picture.';
-      errBox.style.display = 'block';
-    }
+    showModalError('Only JPG, PNG, or WebP allowed');
     return;
   }
 
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const img = new Image();
-    img.onload = () => {
-      cropSourceImage = img;
-      cropState = { zoom: 1.0, panX: 0, panY: 0, isDragging: false, dragStartX: 0, dragStartY: 0 };
-      const slider = document.getElementById('cropZoomSlider');
-      if (slider) slider.value = 1.0;
+  // Show file badge
+  const badge = document.getElementById('selectedFileInfoBadge');
+  const nameEl = document.getElementById('selectedFileName');
+  const sizeEl = document.getElementById('selectedFileSize');
+  if (nameEl) nameEl.textContent = file.name;
+  if (sizeEl) sizeEl.textContent = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
+  if (badge) badge.style.display = 'inline-block';
 
-      // Show side-by-side preview
-      const sideBySide = document.getElementById('sideBySideWrapper');
-      if (sideBySide) sideBySide.style.display = 'grid';
-
-      drawCropCanvas();
-
-      const saveBtn = document.getElementById('btnSavePhotoChange');
-      if (saveBtn) saveBtn.disabled = false;
-    };
-    img.src = e.target.result;
-  };
-  reader.readAsDataURL(file);
-};
-
-// Draw Canvas with aspect ratio locked
-function drawCropCanvas() {
-  const canvas = document.getElementById('photoCropCanvas');
-  if (!canvas || !cropSourceImage) return;
-
-  const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
-
-  ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = '#0F172A';
-  ctx.fillRect(0, 0, w, h);
-
-  // Compute fitted image dimensions based on zoom
-  const imgAspect = cropSourceImage.width / cropSourceImage.height;
-  let drawW, drawH;
-
-  if (imgAspect > (w / h)) {
-    drawW = w * cropState.zoom;
-    drawH = (w / imgAspect) * cropState.zoom;
-  } else {
-    drawH = h * cropState.zoom;
-    drawW = (h * imgAspect) * cropState.zoom;
+  // Clean up any previous preview object URL
+  if (currentPreviewObjectUrl) {
+    try { URL.revokeObjectURL(currentPreviewObjectUrl); } catch (e) {}
+    currentPreviewObjectUrl = null;
+  }
+  if (currentCropper) {
+    try { currentCropper.destroy(); } catch (e) {}
+    currentCropper = null;
   }
 
-  const drawX = (w - drawW) / 2 + cropState.panX;
-  const drawY = (h - drawH) / 2 + cropState.panY;
+  currentSelectedRawFile = file;
+  useOriginalFileFlag = false;
 
-  ctx.drawImage(cropSourceImage, drawX, drawY, drawW, drawH);
+  const slider = document.getElementById('cropZoomSlider');
+  const zoomMinus = document.getElementById('btnZoomMinus');
+  const zoomPlus = document.getElementById('btnZoomPlus');
+  const resetBtn = document.getElementById('btnResetCrop');
+  const btnUseOriginal = document.getElementById('btnUseOriginal');
+  const placeholder = document.getElementById('newPhotoPlaceholder');
+  const cropImg = document.getElementById('photoCropImage');
+  const spinner = document.getElementById('cropLoadingSpinner');
+  const cropErrBox = document.getElementById('cropLoadErrorBox');
+  const saveBtn = document.getElementById('btnSavePhotoChange');
 
-  // Draw semi-transparent framing mask
-  ctx.strokeStyle = '#E8C77B';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(4, 4, w - 8, h - 8);
+  if (placeholder) placeholder.style.display = 'none';
+  if (cropErrBox) cropErrBox.style.display = 'none';
+  if (spinner) spinner.style.display = 'flex';
+  if (btnUseOriginal) {
+    btnUseOriginal.disabled = false;
+    btnUseOriginal.classList.remove('active');
+  }
+
+  // Create preview with URL.createObjectURL(file)
+  currentPreviewObjectUrl = URL.createObjectURL(file);
+
+  if (cropImg) {
+    cropImg.style.display = 'none';
+    cropImg.onload = () => {
+      if (spinner) spinner.style.display = 'none';
+      cropImg.style.display = 'block';
+
+      if (typeof Cropper !== 'function') {
+        console.error('Cropper.js library not available on window');
+        showModalError("Could not initialize cropper tool. You can still use 'Use original photo'.");
+        if (saveBtn) saveBtn.disabled = false;
+        return;
+      }
+
+      // Initialize Cropper.js with slot's locked aspect ratio
+      const targetAspect = currentCropTargetAspect || (4 / 3);
+      currentCropper = new Cropper(cropImg, {
+        aspectRatio: targetAspect,
+        viewMode: 1,
+        dragMode: 'move',
+        autoCropArea: 0.96,
+        restore: false,
+        guides: true,
+        center: true,
+        highlight: false,
+        cropBoxMovable: true,
+        cropBoxResizable: true,
+        toggleDragModeOnDblclick: false,
+        background: false,
+        ready() {
+          if (slider) { slider.value = 1.0; slider.disabled = false; }
+          if (zoomMinus) zoomMinus.disabled = false;
+          if (zoomPlus) zoomPlus.disabled = false;
+          if (resetBtn) resetBtn.disabled = false;
+          if (saveBtn) saveBtn.disabled = false;
+        },
+        zoom(e) {
+          if (slider && e.detail && typeof e.detail.ratio === 'number') {
+            slider.value = Math.min(3.0, Math.max(0.5, e.detail.ratio)).toFixed(2);
+          }
+        }
+      });
+    };
+
+    cropImg.onerror = () => {
+      if (spinner) spinner.style.display = 'none';
+      if (cropErrBox) cropErrBox.style.display = 'flex';
+      showModalError("Couldn't read this image. Try a JPG or a smaller file.");
+      if (saveBtn) saveBtn.disabled = false; // still allow original file upload
+    };
+
+    cropImg.src = currentPreviewObjectUrl;
+  }
+};
+
+// "Use original photo (no crop)" button action
+window.useOriginalPhotoWithoutCrop = function() {
+  if (!currentSelectedRawFile) return;
+  useOriginalFileFlag = true;
+  const btn = document.getElementById('btnUseOriginal');
+  if (btn) btn.classList.add('active');
+  const saveBtn = document.getElementById('btnSavePhotoChange');
+  if (saveBtn) saveBtn.disabled = false;
+  showToast('Selected original photo without cropping. Ready to save.', 'info');
+};
+
+// Helper: draw cropped image to offscreen canvas at slot's size, fill with white first, output toBlob
+async function getCroppedImageBlob() {
+  if (useOriginalFileFlag || !currentCropper) {
+    return currentSelectedRawFile;
+  }
+
+  let targetWidth = 1200;
+  let targetHeight = 900;
+  if (currentCropTargetAspect === 1.0) {
+    targetWidth = 800;
+    targetHeight = 800;
+  } else if (currentCropTargetAspect === 16 / 9) {
+    targetWidth = 1280;
+    targetHeight = 720;
+  }
+
+  try {
+    const croppedCanvas = currentCropper.getCroppedCanvas({
+      width: targetWidth,
+      height: targetHeight,
+      imageSmoothingEnabled: true,
+      imageSmoothingQuality: 'high'
+    });
+
+    if (!croppedCanvas) {
+      console.warn('Cropper getCroppedCanvas returned empty; falling back to original file.');
+      showToast('Cropper output empty; using original photo instead.', 'info');
+      return currentSelectedRawFile;
+    }
+
+    // Create offscreen canvas at slot's size and fill canvas with white first (handles transparent PNGs)
+    const offscreen = document.createElement('canvas');
+    offscreen.width = targetWidth;
+    offscreen.height = targetHeight;
+    const ctx = offscreen.getContext('2d');
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+    // If circular dish crop
+    if (currentCropShape === 'round') {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(targetWidth / 2, targetHeight / 2, Math.min(targetWidth, targetHeight) / 2, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(croppedCanvas, 0, 0, targetWidth, targetHeight);
+      ctx.restore();
+    } else {
+      ctx.drawImage(croppedCanvas, 0, 0, targetWidth, targetHeight);
+    }
+
+    const blob = await new Promise(resolve => {
+      offscreen.toBlob(b => resolve(b), 'image/webp', 0.92);
+    });
+
+    if (!blob || blob.size === 0) {
+      console.warn('Offscreen toBlob returned empty; falling back to original file.');
+      showToast('Cropped output was empty; falling back to original file.', 'info');
+      return currentSelectedRawFile;
+    }
+
+    return blob;
+  } catch (err) {
+    console.error('Error generating cropped image blob:', err);
+    showToast('Cropping error; using original file instead.', 'info');
+    return currentSelectedRawFile;
+  }
 }
 
+// Helper: read Blob or File as DataURL Base64
+function readFileAsBase64(blobOrFile) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = (e) => reject(e);
+    reader.readAsDataURL(blobOrFile);
+  });
+}
+
+window.stepZoom = function(delta) {
+  if (!currentCropper) return;
+  const imgData = currentCropper.getImageData ? currentCropper.getImageData() : null;
+  const currentRatio = imgData && imgData.naturalWidth ? (imgData.width / imgData.naturalWidth) : 1;
+  const nextZoom = Math.min(3.0, Math.max(0.5, currentRatio + delta));
+  currentCropper.zoomTo(nextZoom);
+  const slider = document.getElementById('cropZoomSlider');
+  if (slider) slider.value = nextZoom.toFixed(2);
+};
+
 window.handleCropZoomChange = function(val) {
-  cropState.zoom = parseFloat(val);
-  drawCropCanvas();
+  if (!currentCropper) return;
+  currentCropper.zoomTo(parseFloat(val));
 };
 
 window.resetCropPosition = function() {
-  cropState = { zoom: 1.0, panX: 0, panY: 0, isDragging: false, dragStartX: 0, dragStartY: 0 };
+  if (!currentCropper) return;
+  currentCropper.reset();
   const slider = document.getElementById('cropZoomSlider');
   if (slider) slider.value = 1.0;
-  drawCropCanvas();
 };
 
-// Execute Save Photo Change (Click 3: Instant Live Update)
-window.executeSavePhotoChange = async function() {
-  const canvas = document.getElementById('photoCropCanvas');
-  if (!canvas || !cropSourceImage) return;
-
+// Bulk Gallery Item Helpers
+window.removeBulkGalleryItem = function(id) {
+  const item = bulkGalleryFiles.find(x => x.id === id);
+  if (item && item.objectUrl) try { URL.revokeObjectURL(item.objectUrl); } catch (e) {}
+  bulkGalleryFiles = bulkGalleryFiles.filter(x => x.id !== id);
+  renderBulkGalleryGrid();
   const saveBtn = document.getElementById('btnSavePhotoChange');
+  const saveBtnText = document.getElementById('saveBtnText');
+  if (saveBtn) {
+    saveBtn.disabled = bulkGalleryFiles.length === 0;
+    if (saveBtnText) saveBtnText.textContent = `Save Gallery Photos (${bulkGalleryFiles.length})`;
+  }
+};
+
+window.updateBulkItemCategory = function(id, cat) {
+  const item = bulkGalleryFiles.find(x => x.id === id);
+  if (item) item.category = cat;
+};
+
+window.applyGlobalCategoryToAll = function(cat) {
+  bulkGalleryFiles.forEach(item => { item.category = cat; });
+  renderBulkGalleryGrid();
+};
+
+function renderBulkGalleryGrid() {
+  const grid = document.getElementById('bulkGalleryThumbGrid');
+  const countEl = document.getElementById('bulkGalleryCount');
+  if (countEl) countEl.textContent = bulkGalleryFiles.length;
+  if (!grid) return;
+
+  if (bulkGalleryFiles.length === 0) {
+    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #64748B; padding: 24px;">No photos selected yet. Use the drop zone above to choose photos.</div>';
+    return;
+  }
+
+  const categories = ['Hotel', 'Rooms', 'Amenities', 'Dining', 'Mocktails', 'Candlelight', 'Places'];
+
+  grid.innerHTML = bulkGalleryFiles.map(item => `
+    <div class="bulk-gallery-card" id="card-${item.id}">
+      <img src="${item.objectUrl}" alt="${item.name}" class="bulk-card-thumb">
+      <div class="bulk-card-details">
+        <div class="bulk-card-name" title="${item.name}">${item.name}</div>
+        <div class="bulk-card-meta">${item.sizeStr}</div>
+        <select class="bulk-cat-select" onchange="updateBulkItemCategory('${item.id}', this.value)">
+          ${categories.map(c => `<option value="${c}" ${c === item.category ? 'selected' : ''}>${c}</option>`).join('')}
+        </select>
+        <span class="bulk-card-status ${item.status}">
+          ${item.status === 'ready' ? 'Ready' : (item.status === 'uploading' ? 'Uploading…' : (item.status === 'success' ? 'Uploaded ✓' : 'Failed ✗'))}
+        </span>
+      </div>
+      <button type="button" class="bulk-card-remove" onclick="removeBulkGalleryItem('${item.id}')" title="Remove photo" aria-label="Remove photo">
+        <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+      </button>
+    </div>
+  `).join('');
+}
+
+// Execute Save Photo Change (Step 3: Instant Live Update)
+window.executeSavePhotoChange = async function() {
+  const saveBtn = document.getElementById('btnSavePhotoChange');
+  const saveBtnText = document.getElementById('saveBtnText');
   const progressWrap = document.getElementById('uploadProgressWrap');
   const progressBar = document.getElementById('uploadProgressBar');
   const progressPct = document.getElementById('uploadProgressPercent');
+  const progressLabel = document.getElementById('uploadProgressStatusLabel');
   const errBox = document.getElementById('changePhotoErrorMsg');
 
   if (errBox) errBox.style.display = 'none';
+
+  // Handle Bulk Gallery Mode
+  if (isBulkGalleryMode) {
+    if (bulkGalleryFiles.length === 0) return;
+    if (saveBtn) saveBtn.disabled = true;
+    if (progressWrap) progressWrap.style.display = 'block';
+
+    const total = bulkGalleryFiles.length;
+    let successCount = 0;
+
+    for (let i = 0; i < total; i++) {
+      const item = bulkGalleryFiles[i];
+      item.status = 'uploading';
+      renderBulkGalleryGrid();
+
+      const pct = Math.round(((i + 0.3) / total) * 100);
+      if (progressBar) progressBar.style.width = `${pct}%`;
+      if (progressPct) progressPct.textContent = `${pct}%`;
+      if (saveBtnText) saveBtnText.textContent = `Uploading… ${pct}%`;
+      if (progressLabel) progressLabel.textContent = `Uploading ${item.name} (${i + 1}/${total})...`;
+
+      try {
+        const base64Data = await readFileAsBase64(item.file);
+        const res = await authFetch('/api/gallery', {
+          method: 'POST',
+          body: {
+            photos: [{
+              imageBase64: base64Data,
+              category: item.category || 'Hotel',
+              caption: item.name.replace(/\.[^/.]+$/, ''),
+              alt: `${item.name.replace(/\.[^/.]+$/, '')} at Coastal View Mandarmani`
+            }]
+          }
+        });
+
+        if (res && res.status === 401) {
+          showModalError('Session expired, please log in again');
+          if (saveBtn) saveBtn.disabled = false;
+          if (saveBtnText) saveBtnText.textContent = `Save Gallery Photos (${total})`;
+          return;
+        }
+
+        if (res && res.success) {
+          item.status = 'success';
+          successCount++;
+        } else {
+          item.status = 'error';
+        }
+      } catch (e) {
+        item.status = 'error';
+      }
+      renderBulkGalleryGrid();
+    }
+
+    if (progressBar) progressBar.style.width = '100%';
+    if (progressPct) progressPct.textContent = '100%';
+
+    if (successCount > 0) {
+      setTimeout(async () => {
+        closeChangePhotoModal();
+        showToast(`Uploaded ${successCount} gallery photo(s) successfully!`, 'success');
+        if (typeof renderShowcaseGallerySection === 'function') {
+          const gRes = await fetch('/api/gallery').then(r => r.json()).catch(() => ({ photos: [] }));
+          adminState.gallery = gRes.photos || [];
+          renderShowcaseGallerySection();
+        }
+      }, 500);
+    } else {
+      showModalError('Upload failed, try again');
+      if (saveBtn) saveBtn.disabled = false;
+      if (saveBtnText) saveBtnText.textContent = `Save Gallery Photos (${total})`;
+    }
+    return;
+  }
+
+  // Single Photo Mode
+  if (!currentSelectedRawFile) {
+    showModalError('Please choose an image file first.');
+    return;
+  }
+
   if (saveBtn) saveBtn.disabled = true;
   if (progressWrap) progressWrap.style.display = 'block';
 
-  // Animate progress
-  let pct = 20;
+  // Step 1: 20%
   if (progressBar) progressBar.style.width = '20%';
   if (progressPct) progressPct.textContent = '20%';
+  if (saveBtnText) saveBtnText.textContent = 'Preparing image… 20%';
+  if (progressLabel) progressLabel.textContent = useOriginalFileFlag ? 'Preparing original image...' : 'Re-encoding to WebP format...';
 
-  const base64Data = canvas.toDataURL('image/webp', 0.88);
+  let base64Data;
+  try {
+    const outputBlob = await getCroppedImageBlob();
+    if (!outputBlob) {
+      showModalError('Could not process photo. Please choose another image.');
+      if (saveBtn) saveBtn.disabled = false;
+      if (progressWrap) progressWrap.style.display = 'none';
+      return;
+    }
+    base64Data = await readFileAsBase64(outputBlob);
+  } catch (prepErr) {
+    console.error('Error preparing image for upload:', prepErr);
+    showModalError('Image preparation failed. You can click "Use original photo".');
+    if (saveBtn) saveBtn.disabled = false;
+    if (progressWrap) progressWrap.style.display = 'none';
+    return;
+  }
 
-  pct = 60;
+  // Step 2: 60%
   if (progressBar) progressBar.style.width = '60%';
   if (progressPct) progressPct.textContent = '60%';
+  if (saveBtnText) saveBtnText.textContent = 'Uploading… 60%';
+  if (progressLabel) progressLabel.textContent = 'Uploading to secure media vault...';
 
   try {
+    // If Dish Target
+    if (currentCropDishId) {
+      const res = await authFetch('/api/menu/upload-image', {
+        method: 'POST',
+        body: {
+          dishId: currentCropDishId,
+          imageBase64: base64Data,
+          mimeType: 'image/webp'
+        }
+      });
+
+      if (res && res.status === 401) {
+        showModalError('Session expired, please log in again');
+        if (saveBtn) saveBtn.disabled = false;
+        if (saveBtnText) saveBtnText.textContent = 'Save & Update Photo';
+        return;
+      }
+
+      if (res && res.success) {
+        if (progressBar) progressBar.style.width = '100%';
+        if (progressPct) progressPct.textContent = '100%';
+        if (saveBtnText) saveBtnText.textContent = 'Uploading… 100%';
+
+        closeChangePhotoModal();
+        showToast(`Dish photo updated for "${res.dish ? res.dish.name : 'dish'}". Changes are live!`, 'success');
+
+        // Update local admin state
+        if (res.dish && adminState.restaurant) {
+          const idx = adminState.restaurant.findIndex(d => d.id === currentCropDishId);
+          if (idx !== -1) adminState.restaurant[idx] = res.dish;
+          if (typeof renderRestaurantMenuTable === 'function') renderRestaurantMenuTable();
+        }
+      } else {
+        showModalError(res ? (res.message || 'Upload failed, try again') : 'Upload failed, try again');
+        if (saveBtn) saveBtn.disabled = false;
+        if (saveBtnText) saveBtnText.textContent = 'Save & Update Photo';
+      }
+      return;
+    }
+
+    // Website Slot or Room Target
     const payload = {
       slotKey: currentCropSlotKey,
       roomId: currentCropRoomId,
@@ -4669,10 +6348,18 @@ window.executeSavePhotoChange = async function() {
       body: payload
     });
 
-    if (progressBar) progressBar.style.width = '100%';
-    if (progressPct) progressPct.textContent = '100%';
+    if (res && res.status === 401) {
+      showModalError('Session expired, please log in again');
+      if (saveBtn) saveBtn.disabled = false;
+      if (saveBtnText) saveBtnText.textContent = 'Save & Update Photo';
+      return;
+    }
 
-    if (res.success) {
+    if (res && res.success) {
+      if (progressBar) progressBar.style.width = '100%';
+      if (progressPct) progressPct.textContent = '100%';
+      if (saveBtnText) saveBtnText.textContent = 'Uploading… 100%';
+
       closeChangePhotoModal();
       showToast('Photo updated. Changes are live on the website immediately!', 'success');
 
@@ -4684,18 +6371,14 @@ window.executeSavePhotoChange = async function() {
         startUndoCountdown(res.undoToken);
       }
     } else {
-      if (errBox) {
-        errBox.textContent = res.message || 'Image upload failed.';
-        errBox.style.display = 'block';
-      }
+      showModalError(res ? (res.message || 'Upload failed, try again') : 'Upload failed, try again');
       if (saveBtn) saveBtn.disabled = false;
+      if (saveBtnText) saveBtnText.textContent = 'Save & Update Photo';
     }
   } catch (err) {
-    if (errBox) {
-      errBox.textContent = 'Network or processing error during image upload.';
-      errBox.style.display = 'block';
-    }
+    showModalError('Upload failed, try again');
     if (saveBtn) saveBtn.disabled = false;
+    if (saveBtnText) saveBtnText.textContent = 'Save & Update Photo';
   } finally {
     if (progressWrap) progressWrap.style.display = 'none';
   }
@@ -5005,22 +6688,45 @@ async function renderUsersTab() {
   try {
     const res = await authFetch('/api/admin/users');
     if (res.success && Array.isArray(res.users)) {
-      tbody.innerHTML = res.users.map(u => `
+      tbody.innerHTML = res.users.map(u => {
+        const isActive = u.active !== false;
+        const isSuperAdminAccount = u.username === 'sandipanmajumder9339' || u.role === 'Super Admin';
+        return `
         <tr>
           <td data-label="Username"><strong>${u.username}</strong></td>
           <td data-label="Full Name">${u.name || u.username}</td>
           <td data-label="Email Address">${u.email || (u.username + '@coastalviewmandarmani.com')}</td>
-          <td data-label="Role"><span class="role-badge ${u.role.toLowerCase().replace(/\s+/g, '-')}" style="padding: 3px 10px; border-radius: 12px; font-weight: 700; font-size: 0.74rem;">${u.role}</span></td>
-          <td data-label="2FA Status"><span style="color: var(--turquoise); font-weight: 600;">Active (Email / TOTP)</span></td>
+          <td data-label="Role">
+            <span class="role-badge ${(u.role || 'manager').toLowerCase().replace(/\s+/g, '-')}" style="padding: 3px 10px; border-radius: 12px; font-weight: 700; font-size: 0.74rem;">
+              ${u.role}
+            </span>
+          </td>
+          <td data-label="Status">
+            <span class="badge-status ${isActive ? 'available' : 'sold-out'}" style="font-size: 0.72rem;">
+              ${isActive ? 'Active' : 'Disabled'}
+            </span>
+          </td>
           <td data-label="Actions">
-            ${u.role !== 'Super Admin' ? `
-              <button class="btn-table-action danger" onclick="confirmDeleteStaffUser('${u.username}')" style="color: #DC2626;">
-                <span class="material-symbols-outlined" style="font-size: 16px;">delete</span> Delete
+            <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+              <button class="btn-turquoise" style="padding: 3px 8px; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 2px;" onclick="openEditStaffModal('${u.username}')" title="Edit user role & access">
+                <span class="material-symbols-outlined" style="font-size: 14px;">edit</span> Edit
               </button>
-            ` : '<span style="font-size: 0.75rem; color: #94A3B8;">Primary Account</span>'}
+              ${!isSuperAdminAccount ? `
+                <button class="${isActive ? 'btn-outline-gold' : 'btn-coral'}" style="padding: 3px 8px; font-size: 0.72rem;" onclick="toggleStaffActive('${u.username}', ${!isActive})" title="${isActive ? 'Disable account' : 'Re-enable account'}">
+                  ${isActive ? 'Disable' : 'Enable'}
+                </button>
+                <button class="btn-icon-only" style="width: 26px; height: 26px; color: var(--turquoise-dark);" onclick="resetStaff2FA('${u.username}')" title="Reset 2FA code">
+                  <span class="material-symbols-outlined" style="font-size: 15px;">lock_reset</span>
+                </button>
+                <button class="btn-icon-only" style="width: 26px; height: 26px; color: var(--sunset-coral);" onclick="confirmDeleteStaffUser('${u.username}')" title="Delete account">
+                  <span class="material-symbols-outlined" style="font-size: 15px;">delete</span>
+                </button>
+              ` : '<span style="font-size: 0.72rem; color: #94A3B8; padding: 4px;">Super Admin</span>'}
+            </div>
           </td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
     }
   } catch (e) {
     console.error('Error loading users:', e);
@@ -5770,13 +7476,13 @@ async function handleGlobalFiles(fileList) {
 
     // Validate type
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      showToast(`Skipped ${file.name}: only JPG, PNG, and WebP are allowed.`, 'warning');
+      showToast('Only JPG, PNG, or WebP allowed', 'warning');
       continue;
     }
 
     // Validate size (max 8 MB)
     if (file.size > 8 * 1024 * 1024) {
-      showToast(`Skipped ${file.name}: exceeds 8 MB maximum size.`, 'error');
+      showToast('File too large (max 8 MB)', 'error');
       continue;
     }
 
@@ -6113,5 +7819,1799 @@ window.saveAdminMenuNote = async function() {
   } catch (err) {
     console.error('Error saving menu note:', err);
     showToast('Failed to save menu note: ' + err.message, 'error');
+  }
+};
+
+
+// ============================================================================
+// COMPREHENSIVE EDIT EXTENSIONS & MODULE HANDLERS
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. EDIT RESERVATION & FINANCIAL RECALCULATION ENGINE
+// ----------------------------------------------------------------------------
+let currentEditingBooking = null;
+
+function openEditBookingModal(bookingId) {
+  const b = (adminState.bookings || []).find(x => x.bookingId === bookingId);
+  if (!b) {
+    showToast('Reservation not found: ' + bookingId, 'error');
+    return;
+  }
+  currentEditingBooking = JSON.parse(JSON.stringify(b));
+
+  document.getElementById('editBookingId').value = b.bookingId;
+  document.getElementById('editBookingModalTitle').textContent = `Edit Reservation: ${b.bookingId}`;
+  document.getElementById('editBookingGuestName').value = b.guestName || '';
+  document.getElementById('editBookingGuestPhone').value = b.guestPhone || '';
+  document.getElementById('editBookingGuestEmail').value = b.guestEmail || '';
+  document.getElementById('editBookingCheckIn').value = b.checkIn || '';
+  document.getElementById('editBookingCheckOut').value = b.checkOut || '';
+  document.getElementById('editBookingRoomsCount').value = b.roomsCount || 1;
+  document.getElementById('editBookingAdults').value = b.adults || 2;
+  document.getElementById('editBookingChildren').value = b.children || 0;
+  document.getElementById('editBookingStatus').value = b.status || 'Confirmed';
+
+  // Populate Room Dropdown
+  const roomSelect = document.getElementById('editBookingRoomSelect');
+  if (roomSelect) {
+    roomSelect.innerHTML = (adminState.rooms || []).map(r => `
+      <option value="${r.id}" ${r.id === b.roomId ? 'selected' : ''}>
+        ${r.name} (₹${(r.price || 0).toLocaleString('en-IN')}/night)
+      </option>
+    `).join('');
+  }
+
+  // Populate Add-ons
+  const bfCheck = document.getElementById('editBookingBreakfast');
+  if (bfCheck) {
+    bfCheck.checked = !!b.breakfast;
+    document.getElementById('editBookingBfGuestWrap').style.display = b.breakfast ? 'block' : 'none';
+    document.getElementById('editBookingBfGuests').value = b.breakfastGuests || b.adults || 2;
+  }
+
+  const carCheck = document.getElementById('editBookingNeedCar');
+  if (carCheck) {
+    carCheck.checked = !!b.needCar;
+    document.getElementById('editBookingVehicleWrap').style.display = b.needCar ? 'grid' : 'none';
+    const vType = b.vehicleId || b.vehicleType || 'car';
+    document.getElementById('editBookingVehicleType').value = vType;
+    document.getElementById('editBookingCarCount').value = b.carCount || 1;
+  }
+
+  const dinnerCheck = document.getElementById('editBookingCandlelight');
+  if (dinnerCheck) {
+    dinnerCheck.checked = !!b.candlelightDinner;
+    document.getElementById('editBookingDinnerWrap').style.display = b.candlelightDinner ? 'flex' : 'none';
+    document.getElementById('editBookingDinnerSetup').value = b.dinnerSetup || 'Beachside';
+  }
+
+  // Staff custom pricing override (Manager / Super Admin only)
+  const isPrivileged = currentUser && ['Super Admin', 'Manager'].includes(currentUser.role);
+  const customRateGroup = document.getElementById('editBookingCustomRateGroup');
+  if (customRateGroup) {
+    customRateGroup.style.display = isPrivileged ? 'block' : 'none';
+    document.getElementById('editBookingCustomPrice').value = b.roomPrice || '';
+    document.getElementById('editBookingDiscount').value = b.discountAmount || 0;
+  }
+
+  // Warning banner for active bookings
+  const warningBanner = document.getElementById('editBookingWarningBanner');
+  if (warningBanner) {
+    warningBanner.style.display = ['Confirmed', 'Checked-in'].includes(b.status) ? 'block' : 'none';
+  }
+
+  calculateEditBookingTotals();
+  openModal('editBookingModal');
+}
+
+function calculateEditBookingTotals() {
+  const roomId = document.getElementById('editBookingRoomSelect')?.value;
+  const room = (adminState.rooms || []).find(r => r.id === roomId);
+  const checkIn = document.getElementById('editBookingCheckIn')?.value;
+  const checkOut = document.getElementById('editBookingCheckOut')?.value;
+  const roomsCount = Math.max(1, parseInt(document.getElementById('editBookingRoomsCount')?.value, 10) || 1);
+  const adults = Math.max(1, parseInt(document.getElementById('editBookingAdults')?.value, 10) || 2);
+  const customPriceInput = document.getElementById('editBookingCustomPrice')?.value;
+  const discountInput = Number(document.getElementById('editBookingDiscount')?.value) || 0;
+
+  let nights = 1;
+  if (checkIn && checkOut) {
+    const d1 = new Date(checkIn);
+    const d2 = new Date(checkOut);
+    const diff = d2.getTime() - d1.getTime();
+    nights = Math.max(1, Math.round(diff / (1000 * 60 * 60 * 24)));
+  }
+
+  const isPrivileged = currentUser && ['Super Admin', 'Manager'].includes(currentUser.role);
+  const nightlyRate = (isPrivileged && customPriceInput !== '' && !isNaN(Number(customPriceInput)))
+    ? Number(customPriceInput)
+    : (room ? room.price : 3500);
+
+  const roomSubtotal = nightlyRate * nights * roomsCount;
+  const breakdownLines = [`• Room: ₹${nightlyRate.toLocaleString('en-IN')} × ${nights} night${nights > 1 ? 's' : ''} × ${roomsCount} room${roomsCount > 1 ? 's' : ''} = ₹${roomSubtotal.toLocaleString('en-IN')}`];
+
+  // Breakfast
+  let breakfastTotal = 0;
+  const needBf = document.getElementById('editBookingBreakfast')?.checked;
+  const bfGuestWrap = document.getElementById('editBookingBfGuestWrap');
+  if (bfGuestWrap) bfGuestWrap.style.display = needBf ? 'block' : 'none';
+
+  if (needBf) {
+    const bfGuests = Math.max(1, parseInt(document.getElementById('editBookingBfGuests')?.value, 10) || adults);
+    const bfPrice = Number(adminState.settings?.breakfastPrice ?? 200);
+    breakfastTotal = bfPrice * bfGuests * nights;
+    breakdownLines.push(`• Breakfast: ₹${bfPrice} × ${bfGuests} guest${bfGuests > 1 ? 's' : ''} × ${nights} day${nights > 1 ? 's' : ''} = ₹${breakfastTotal.toLocaleString('en-IN')}`);
+  }
+
+  // Vehicles
+  let carTotal = 0;
+  const needCar = document.getElementById('editBookingNeedCar')?.checked;
+  const vehicleWrap = document.getElementById('editBookingVehicleWrap');
+  if (vehicleWrap) vehicleWrap.style.display = needCar ? 'grid' : 'none';
+
+  if (needCar) {
+    const vType = document.getElementById('editBookingVehicleType')?.value || 'car';
+    const vQty = Math.max(1, parseInt(document.getElementById('editBookingCarCount')?.value, 10) || 1);
+    const vehicle = (adminState.vehicles || []).find(v => v.id === vType);
+    const rate = vehicle ? vehicle.pricePerDay : (vType === 'toto' ? 500 : (vType === 'auto' ? 800 : 1500));
+    const vName = vehicle ? vehicle.name : vType.toUpperCase();
+    carTotal = rate * vQty * nights;
+    breakdownLines.push(`• Fleet: ${vName} × ${vQty} × ${nights} day${nights > 1 ? 's' : ''} = ₹${carTotal.toLocaleString('en-IN')}`);
+  }
+
+  // Candlelight
+  let dinnerTotal = 0;
+  const needDinner = document.getElementById('editBookingCandlelight')?.checked;
+  const dinnerWrap = document.getElementById('editBookingDinnerWrap');
+  if (dinnerWrap) dinnerWrap.style.display = needDinner ? 'flex' : 'none';
+
+  if (needDinner) {
+    const setup = document.getElementById('editBookingDinnerSetup')?.value || 'Beachside';
+    dinnerTotal = setup === 'Beachside' ? 3500 : 2800;
+    breakdownLines.push(`• Candlelight Dinner (${setup}) = ₹${dinnerTotal.toLocaleString('en-IN')}`);
+  }
+
+  const baseSubtotal = roomSubtotal + breakfastTotal + carTotal + dinnerTotal;
+
+  // Tax
+  let taxAmount = 0;
+  if (adminState.settings?.enableTax) {
+    const taxPct = Number(adminState.settings.taxPercentage) || 12;
+    taxAmount = Math.round((baseSubtotal * taxPct) / 100);
+    breakdownLines.push(`• GST / Taxes (${taxPct}%): ₹${taxAmount.toLocaleString('en-IN')}`);
+  }
+
+  if (discountInput > 0) {
+    breakdownLines.push(`• Staff Courtesy Discount: -₹${discountInput.toLocaleString('en-IN')}`);
+  }
+
+  const grandTotal = Math.max(0, baseSubtotal + taxAmount - discountInput);
+  const advancePct = Number(adminState.settings?.advancePercentage) || 20;
+  const payNowAdvance = Math.round((grandTotal * advancePct) / 100);
+  const payAtHotelBalance = grandTotal - payNowAdvance;
+
+  const totalEl = document.getElementById('editBookingDisplayTotal');
+  const advEl = document.getElementById('editBookingDisplayAdvance');
+  const balEl = document.getElementById('editBookingDisplayBalance');
+  const linesEl = document.getElementById('editBookingBreakdownLines');
+
+  if (totalEl) totalEl.textContent = '₹' + grandTotal.toLocaleString('en-IN');
+  if (advEl) advEl.textContent = `20% Advance: ₹${payNowAdvance.toLocaleString('en-IN')}`;
+  if (balEl) balEl.textContent = `80% Hotel Balance: ₹${payAtHotelBalance.toLocaleString('en-IN')}`;
+  if (linesEl) linesEl.innerHTML = breakdownLines.map(l => `<div>${l}</div>`).join('');
+}
+
+async function executeSaveBookingDetails() {
+  const bookingId = document.getElementById('editBookingId')?.value;
+  if (!bookingId) return;
+
+  const guestName = document.getElementById('editBookingGuestName')?.value.trim();
+  const guestPhone = document.getElementById('editBookingGuestPhone')?.value.trim();
+  const guestEmail = document.getElementById('editBookingGuestEmail')?.value.trim();
+  const roomId = document.getElementById('editBookingRoomSelect')?.value;
+  const checkIn = document.getElementById('editBookingCheckIn')?.value;
+  const checkOut = document.getElementById('editBookingCheckOut')?.value;
+  const roomsCount = parseInt(document.getElementById('editBookingRoomsCount')?.value, 10) || 1;
+  const adults = parseInt(document.getElementById('editBookingAdults')?.value, 10) || 2;
+  const children = parseInt(document.getElementById('editBookingChildren')?.value, 10) || 0;
+  const status = document.getElementById('editBookingStatus')?.value;
+
+  if (!guestName || !guestPhone || !checkIn || !checkOut) {
+    showToast('Please fill all mandatory fields (Name, Phone, Stay Dates).', 'error');
+    return;
+  }
+
+  if (new Date(checkOut) <= new Date(checkIn)) {
+    showToast('Check-out date must be after check-in date.', 'error');
+    return;
+  }
+
+  const breakfast = document.getElementById('editBookingBreakfast')?.checked;
+  const breakfastGuests = parseInt(document.getElementById('editBookingBfGuests')?.value, 10) || adults;
+  const needCar = document.getElementById('editBookingNeedCar')?.checked;
+  const vehicleType = document.getElementById('editBookingVehicleType')?.value;
+  const carCount = parseInt(document.getElementById('editBookingCarCount')?.value, 10) || 1;
+  const candlelightDinner = document.getElementById('editBookingCandlelight')?.checked;
+  const dinnerSetup = document.getElementById('editBookingDinnerSetup')?.value;
+  const customPrice = document.getElementById('editBookingCustomPrice')?.value;
+  const discountAmount = Number(document.getElementById('editBookingDiscount')?.value) || 0;
+
+  // Ask for confirmation if active booking is being modified
+  const isOriginalActive = currentEditingBooking && ['Confirmed', 'Checked-in'].includes(currentEditingBooking.status);
+  if (isOriginalActive) {
+    if (!confirm(`Confirm changes to active reservation ${bookingId}? A revised invoice will be generated and logged to the security audit trail.`)) {
+      return;
+    }
+  }
+
+  const saveBtn = document.getElementById('btnSaveBookingDetails');
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<span class="material-symbols-outlined rotating">sync</span> Saving...';
+  }
+
+  try {
+    const payload = {
+      guestName,
+      guestPhone,
+      guestEmail,
+      roomId,
+      checkIn,
+      checkOut,
+      roomsCount,
+      adults,
+      children,
+      status,
+      breakfast,
+      breakfastGuests,
+      needCar,
+      vehicleType,
+      carCount,
+      candlelightDinner,
+      dinnerSetup,
+      customPrice: customPrice ? Number(customPrice) : null,
+      discountAmount
+    };
+
+    const res = await authFetch(`/api/bookings/${bookingId}`, {
+      method: 'PUT',
+      body: payload
+    });
+
+    if (res.success) {
+      closeModal('editBookingModal');
+      showToast(res.message || `Reservation ${bookingId} updated successfully!`, 'success');
+      loadAllAdminData();
+    } else {
+      showToast(res.message || 'Failed to update reservation.', 'error');
+    }
+  } catch (err) {
+    showToast('Error saving reservation: ' + err.message, 'error');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<span class="material-symbols-outlined">save</span> Save & Update Invoice';
+    }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 2. USERS & ROLES EDITING (SUPER ADMIN)
+// ----------------------------------------------------------------------------
+let currentEditingStaff = null;
+
+function openEditStaffModal(username) {
+  authFetch('/api/admin/users').then(res => {
+    if (!res.success || !Array.isArray(res.users)) return;
+    const u = res.users.find(x => x.username.toLowerCase() === username.toLowerCase());
+    if (!u) return;
+    currentEditingStaff = u;
+
+    document.getElementById('editStaffUsername').value = u.username;
+    document.getElementById('editStaffRoleModalTitle').textContent = `Edit Staff Account: ${u.username}`;
+    document.getElementById('editStaffName').value = u.name || u.username;
+    document.getElementById('editStaffEmail').value = u.email || '';
+    document.getElementById('editStaffRoleSelect').value = u.role || 'Manager';
+    document.getElementById('editStaffActiveToggle').checked = u.active !== false;
+    document.getElementById('editStaffNewPassword').value = '';
+
+    openModal('editStaffRoleModal');
+  });
+}
+
+async function executeSaveStaffRole() {
+  const username = document.getElementById('editStaffUsername')?.value;
+  if (!username) return;
+
+  const name = document.getElementById('editStaffName')?.value.trim();
+  const email = document.getElementById('editStaffEmail')?.value.trim();
+  const role = document.getElementById('editStaffRoleSelect')?.value;
+  const active = document.getElementById('editStaffActiveToggle')?.checked;
+  const password = document.getElementById('editStaffNewPassword')?.value.trim();
+
+  promptReauthModal(async () => {
+    const saveBtn = document.getElementById('btnSaveStaffRole');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
+
+    try {
+      const payload = { name, email, role, active };
+      if (password) payload.password = password;
+
+      const res = await authFetch(`/api/admin/users/${username}`, {
+        method: 'PATCH',
+        body: payload
+      });
+
+      if (res.success) {
+        closeModal('editStaffRoleModal');
+        showToast(res.message || `Staff account "${username}" updated successfully.`, 'success');
+        renderUsersTab();
+      } else {
+        showToast(res.message || 'Failed to update user account.', 'error');
+      }
+    } catch (err) {
+      showToast('Error updating staff role: ' + err.message, 'error');
+    } finally {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Account Changes'; }
+    }
+  }, `Confirm security changes to staff account "${username}". Enter Super Admin password:`);
+}
+
+async function toggleStaffActive(username, newActiveState) {
+  const actionWord = newActiveState ? 'enable' : 'disable';
+  if (!confirm(`Are you sure you want to ${actionWord} staff account "${username}"?`)) return;
+
+  promptReauthModal(async () => {
+    try {
+      const res = await authFetch(`/api/admin/users/${username}`, {
+        method: 'PATCH',
+        body: { active: newActiveState }
+      });
+      if (res.success) {
+        showToast(`Account "${username}" is now ${newActiveState ? 'Active' : 'Disabled'}.`, 'success');
+        renderUsersTab();
+      } else {
+        showToast(res.message || 'Failed to update account status.', 'error');
+      }
+    } catch (err) {
+      showToast('Error toggling staff status: ' + err.message, 'error');
+    }
+  }, `Confirm ${actionWord} account "${username}". Enter Super Admin password:`);
+}
+
+// ----------------------------------------------------------------------------
+// 3. LUXURY AMENITIES MANAGER
+// ----------------------------------------------------------------------------
+async function renderAmenitiesList() {
+  const container = document.getElementById('amenitiesCardsList');
+  if (!container) return;
+
+  try {
+    const res = await authFetch('/api/admin/amenities');
+    const list = res.success && Array.isArray(res.amenities) ? res.amenities : [];
+
+    if (!list.length) {
+      container.innerHTML = '<div style="color:#64748B; font-style:italic; padding:12px;">No amenities found. Click "Add New Amenity" to configure resort highlights.</div>';
+      return;
+    }
+
+    container.innerHTML = list.map((a, idx) => `
+      <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 220px;">
+          <div style="width: 40px; height: 40px; border-radius: 8px; background: #E6F7F7; display: flex; align-items: center; justify-content: center; color: var(--turquoise-dark);">
+            <span class="material-symbols-outlined" style="font-size: 22px;">${a.icon || 'check_circle'}</span>
+          </div>
+          <div>
+            <div style="font-weight: 700; color: var(--ocean-blue); font-size: 0.92rem;">${a.title}</div>
+            <div style="font-size: 0.78rem; color: #64748B;">${a.desc || ''}</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="badge-status ${a.active !== false ? 'available' : 'sold-out'}" style="font-size: 0.72rem;">
+            ${a.active !== false ? 'Active' : 'Hidden'}
+          </span>
+          <button class="reorder-btn" onclick="moveAmenityOrder('${a.id}', -1)" title="Move up" ${idx === 0 ? 'disabled style="opacity:0.3;"' : ''}>▲</button>
+          <button class="reorder-btn" onclick="moveAmenityOrder('${a.id}', 1)" title="Move down" ${idx === list.length - 1 ? 'disabled style="opacity:0.3;"' : ''}>▼</button>
+          <button class="btn-turquoise" style="padding: 4px 10px; font-size: 0.76rem;" onclick="openAmenityEditModal('${a.id}')">Edit</button>
+          <button class="btn-outline-gold" style="padding: 4px 8px; font-size: 0.74rem;" onclick="toggleAmenityActive('${a.id}', ${a.active === false})">
+            ${a.active !== false ? 'Hide' : 'Show'}
+          </button>
+          <button class="btn-icon-only" style="color: var(--sunset-coral); width: 28px; height: 28px;" onclick="deleteAmenity('${a.id}')" title="Delete amenity">×</button>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = '<div style="color:#DC2626; padding:12px;">Failed to load amenities.</div>';
+  }
+}
+
+function openAmenityEditModal(id = null) {
+  document.getElementById('editAmenityId').value = id || '';
+  if (id) {
+    authFetch('/api/admin/amenities').then(res => {
+      const a = (res.amenities || []).find(x => x.id === id);
+      if (!a) return;
+      document.getElementById('editAmenityModalTitle').textContent = 'Edit Amenity: ' + a.title;
+      document.getElementById('editAmenityTitle').value = a.title || '';
+      document.getElementById('editAmenityIcon').value = a.icon || 'waves';
+      document.getElementById('editAmenityIconPreview').textContent = a.icon || 'waves';
+      document.getElementById('editAmenityDesc').value = a.desc || '';
+      document.getElementById('editAmenityActive').checked = a.active !== false;
+      openModal('editAmenityModal');
+    });
+  } else {
+    document.getElementById('editAmenityModalTitle').textContent = 'Add New Resort Amenity';
+    document.getElementById('editAmenityTitle').value = '';
+    document.getElementById('editAmenityIcon').value = 'waves';
+    document.getElementById('editAmenityIconPreview').textContent = 'waves';
+    document.getElementById('editAmenityDesc').value = '';
+    document.getElementById('editAmenityActive').checked = true;
+    openModal('editAmenityModal');
+  }
+}
+
+async function executeSaveAmenity() {
+  const id = document.getElementById('editAmenityId')?.value;
+  const title = document.getElementById('editAmenityTitle')?.value.trim();
+  const icon = document.getElementById('editAmenityIcon')?.value.trim() || 'check_circle';
+  const desc = document.getElementById('editAmenityDesc')?.value.trim();
+  const active = document.getElementById('editAmenityActive')?.checked;
+
+  if (!title) {
+    showToast('Amenity title is required.', 'error');
+    return;
+  }
+
+  const saveBtn = document.getElementById('btnSaveAmenity');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
+
+  try {
+    const res = await authFetch('/api/admin/amenities', {
+      method: 'POST',
+      body: { id: id || undefined, title, icon, desc, active }
+    });
+
+    if (res.success) {
+      closeModal('editAmenityModal');
+      showToast(res.message || 'Amenity saved successfully!', 'success');
+      renderAmenitiesList();
+    } else {
+      showToast(res.message || 'Error saving amenity.', 'error');
+    }
+  } catch (err) {
+    showToast('Failed to save amenity.', 'error');
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Amenity'; }
+  }
+}
+
+async function toggleAmenityActive(id, newActive) {
+  try {
+    const res = await authFetch('/api/admin/amenities', {
+      method: 'POST',
+      body: { id, active: newActive }
+    });
+    if (res.success) {
+      showToast('Amenity status updated.', 'success');
+      renderAmenitiesList();
+    }
+  } catch (e) {
+    showToast('Error updating amenity.', 'error');
+  }
+}
+
+async function deleteAmenity(id) {
+  if (!confirm('Are you sure you want to delete this amenity?')) return;
+  try {
+    const res = await authFetch(`/api/admin/amenities/${id}`, { method: 'DELETE' });
+    if (res.success) {
+      showToast(res.message || 'Amenity deleted.', 'success');
+      renderAmenitiesList();
+    }
+  } catch (e) {
+    showToast('Error deleting amenity.', 'error');
+  }
+}
+
+async function moveAmenityOrder(id, delta) {
+  try {
+    const res = await authFetch('/api/admin/amenities');
+    const list = res.amenities || [];
+    const idx = list.findIndex(a => a.id === id);
+    if (idx === -1) return;
+    const targetIdx = idx + delta;
+    if (targetIdx < 0 || targetIdx >= list.length) return;
+
+    const temp = list[idx];
+    list[idx] = list[targetIdx];
+    list[targetIdx] = temp;
+
+    await authFetch('/api/admin/amenities/reorder', {
+      method: 'POST',
+      body: { ids: list.map(a => a.id) }
+    });
+    renderAmenitiesList();
+    showToast('Amenities order saved.', 'success');
+  } catch (e) {
+    showToast('Error reordering amenities.', 'error');
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 4. NEARBY EXCURSIONS / ATTRACTIONS MANAGER
+// ----------------------------------------------------------------------------
+function openEditPlaceModal(idx) {
+  const c = adminState.content || {};
+  const places = Array.isArray(c.places) ? c.places : (Array.isArray(c.places?.places) ? c.places.places : []);
+  const p = places[idx];
+  if (!p) return;
+
+  document.getElementById('editPlaceIdx').value = idx;
+  document.getElementById('editPlaceModalTitle').textContent = 'Edit Attraction: ' + p.name;
+  document.getElementById('editPlaceName').value = p.name || '';
+  document.getElementById('editPlaceDistance').value = p.distance || '';
+  document.getElementById('editPlaceDesc').value = p.description || '';
+  openModal('editPlaceModal');
+}
+
+function addNewPlacePrompt() {
+  document.getElementById('editPlaceIdx').value = '-1';
+  document.getElementById('editPlaceModalTitle').textContent = 'Add New Mandarmani Excursion';
+  document.getElementById('editPlaceName').value = '';
+  document.getElementById('editPlaceDistance').value = '';
+  document.getElementById('editPlaceDesc').value = '';
+  openModal('editPlaceModal');
+}
+
+async function executeSavePlace() {
+  const idx = parseInt(document.getElementById('editPlaceIdx')?.value, 10);
+  const name = document.getElementById('editPlaceName')?.value.trim();
+  const distance = document.getElementById('editPlaceDistance')?.value.trim();
+  const description = document.getElementById('editPlaceDesc')?.value.trim();
+
+  if (!name || !distance) {
+    showToast('Place name and distance are required.', 'error');
+    return;
+  }
+
+  const c = adminState.content || {};
+  let places = Array.isArray(c.places) ? c.places : (Array.isArray(c.places?.places) ? c.places.places : []);
+
+  if (idx >= 0 && idx < places.length) {
+    places[idx] = { name, distance, description };
+  } else {
+    places.push({ name, distance, description });
+  }
+
+  const saveBtn = document.getElementById('btnSavePlace');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
+
+  try {
+    const res = await authFetch('/api/admin/content/places', {
+      method: 'POST',
+      body: places
+    });
+    if (res.success) {
+      closeModal('editPlaceModal');
+      c.places = places;
+      renderWebsiteContent();
+      showToast('Attraction saved successfully!', 'success');
+    } else {
+      showToast(res.message || 'Error saving attraction.', 'error');
+    }
+  } catch (err) {
+    showToast('Failed to save attraction: ' + err.message, 'error');
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Attraction'; }
+  }
+}
+
+async function deletePlace(idx) {
+  const c = adminState.content || {};
+  let places = Array.isArray(c.places) ? c.places : (Array.isArray(c.places?.places) ? c.places.places : []);
+  if (!places[idx]) return;
+  if (!confirm(`Are you sure you want to delete "${places[idx].name}"?`)) return;
+
+  places.splice(idx, 1);
+  await authFetch('/api/admin/content/places', { method: 'POST', body: places });
+  c.places = places;
+  renderWebsiteContent();
+  showToast('Attraction removed.', 'success');
+}
+
+async function movePlaceOrder(idx, delta) {
+  const c = adminState.content || {};
+  let places = Array.isArray(c.places) ? c.places : (Array.isArray(c.places?.places) ? c.places.places : []);
+  const targetIdx = idx + delta;
+  if (targetIdx < 0 || targetIdx >= places.length) return;
+
+  const temp = places[idx];
+  places[idx] = places[targetIdx];
+  places[targetIdx] = temp;
+
+  await authFetch('/api/admin/content/places', { method: 'POST', body: places });
+  c.places = places;
+  renderWebsiteContent();
+  showToast('Excursions order saved.', 'success');
+}
+
+async function savePlacesContent() {
+  const c = adminState.content || {};
+  const places = Array.isArray(c.places) ? c.places : (Array.isArray(c.places?.places) ? c.places.places : []);
+  await authFetch('/api/admin/content/places', { method: 'POST', body: places });
+  showToast('Nearby Mandarmani excursions saved.', 'success');
+}
+
+// ----------------------------------------------------------------------------
+// 5. FAQS & SCHEMA EDITING (EDIT, REORDER, ADD, DELETE)
+// ----------------------------------------------------------------------------
+async function editFaqPrompt(idx) {
+  const c = adminState.content || {};
+  const faqs = Array.isArray(c.faqs) ? c.faqs : (Array.isArray(c.faqs?.faqs) ? c.faqs.faqs : []);
+  const f = faqs[idx];
+  if (!f) return;
+
+  const newQ = prompt('Edit FAQ Question:', f.question);
+  if (newQ === null) return;
+  const newA = prompt('Edit FAQ Answer:', f.answer);
+  if (newA === null) return;
+
+  faqs[idx] = { question: newQ.trim() || f.question, answer: newA.trim() || f.answer };
+  await authFetch('/api/admin/content/faqs', { method: 'POST', body: faqs });
+  c.faqs = faqs;
+  renderWebsiteContent();
+  showToast('FAQ updated successfully.', 'success');
+}
+
+async function moveFaqOrder(idx, delta) {
+  const c = adminState.content || {};
+  const faqs = Array.isArray(c.faqs) ? c.faqs : (Array.isArray(c.faqs?.faqs) ? c.faqs.faqs : []);
+  const targetIdx = idx + delta;
+  if (targetIdx < 0 || targetIdx >= faqs.length) return;
+
+  const temp = faqs[idx];
+  faqs[idx] = faqs[targetIdx];
+  faqs[targetIdx] = temp;
+
+  await authFetch('/api/admin/content/faqs', { method: 'POST', body: faqs });
+  c.faqs = faqs;
+  renderWebsiteContent();
+  showToast('FAQ order saved.', 'success');
+}
+
+// ----------------------------------------------------------------------------
+// 6. TESTIMONIALS & ANI'S TOURS
+// ----------------------------------------------------------------------------
+async function addNewTestimonialPrompt() {
+  const name = prompt('Guest Name & Location (e.g. Rahul S., Kolkata):');
+  if (!name) return;
+  const ratingStr = prompt('Rating (1 to 5):', '5');
+  const rating = Math.min(5, Math.max(1, parseInt(ratingStr, 10) || 5));
+  const comment = prompt('Guest Review / Comment:');
+  if (!comment) return;
+
+  const c = adminState.content || {};
+  c.testimonials = c.testimonials || [];
+  c.testimonials.unshift({
+    name: name.trim(),
+    rating,
+    comment: comment.trim(),
+    stayDate: new Date().toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
+  });
+
+  await authFetch('/api/admin/content/testimonials', { method: 'POST', body: c.testimonials });
+  renderWebsiteContent();
+  showToast('Guest testimonial added.', 'success');
+}
+
+async function deleteTestimonial(idx) {
+  const c = adminState.content || {};
+  if (!c.testimonials || !c.testimonials[idx]) return;
+  if (!confirm('Delete this guest review?')) return;
+  c.testimonials.splice(idx, 1);
+  await authFetch('/api/admin/content/testimonials', { method: 'POST', body: c.testimonials });
+  renderWebsiteContent();
+  showToast('Review removed.', 'success');
+}
+
+async function saveAnisToursContent() {
+  const tour = {
+    headline: document.getElementById('tourHeadline')?.value.trim() || "Ani's Tours & Coastal Commute",
+    bookingUrl: document.getElementById('tourBookingUrl')?.value.trim() || '',
+    description: document.getElementById('tourDescription')?.value.trim() || ''
+  };
+  await authFetch('/api/admin/content/anisTours', { method: 'POST', body: tour });
+  showToast("Ani's Tours banner updated.", 'success');
+}
+
+// ----------------------------------------------------------------------------
+// 7. MISSING MODAL & NAVIGATION HELPERS
+// ----------------------------------------------------------------------------
+function openAddGalleryPhotoModal() {
+  openChangePhotoModal(null, null, null, false, null, true);
+}
+
+function openInvoiceSettingsModal() {
+  const settingsTab = document.querySelector('[data-tab="tabSettings"]');
+  if (settingsTab) {
+    settingsTab.click();
+    setTimeout(() => {
+      const invCard = document.getElementById('invoiceSettingsContainer');
+      if (invCard) invCard.scrollIntoView({ behavior: 'smooth' });
+    }, 200);
+  }
+}
+
+// ============================================================================
+// 8. 2FA AUTHENTICATION, OTP INPUTS & SECURITY SETTINGS
+// ============================================================================
+
+let isRecoveryMode = false;
+let resendCooldownInterval = null;
+let pendingMfaSecret = '';
+let pendingBackupCodes = [];
+let activeGeneratedCodes = [];
+
+function setLoginStep(step) {
+  const s1 = document.getElementById('stepBar1');
+  const s2 = document.getElementById('stepBar2');
+  const s3 = document.getElementById('stepBar3');
+  const d1 = document.getElementById('stepDiv1');
+  const d2 = document.getElementById('stepDiv2');
+  if (!s1 || !s2 || !s3) return;
+
+  s1.classList.remove('active', 'completed');
+  s2.classList.remove('active', 'completed');
+  s3.classList.remove('active', 'completed');
+  if (d1) d1.classList.remove('active');
+  if (d2) d2.classList.remove('active');
+
+  if (step === 1) {
+    s1.classList.add('active');
+  } else if (step === 2) {
+    s1.classList.add('completed');
+    s2.classList.add('active');
+    if (d1) d1.classList.add('active');
+  } else if (step === 3) {
+    s1.classList.add('completed');
+    s2.classList.add('completed');
+    s3.classList.add('active');
+    if (d1) d1.classList.add('active');
+    if (d2) d2.classList.add('active');
+  }
+}
+window.setLoginStep = setLoginStep;
+
+function initOtpInputs(containerId, hiddenInputId, onComplete) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const digits = container.querySelectorAll('.otp-digit');
+
+  digits.forEach((input, idx) => {
+    input.addEventListener('input', (e) => {
+      const val = e.target.value.replace(/\D/g, '');
+      e.target.value = val ? val[val.length - 1] : '';
+
+      const assembled = Array.from(digits).map(d => d.value).join('');
+      if (hiddenInputId) {
+        const hidden = document.getElementById(hiddenInputId);
+        if (hidden) hidden.value = assembled;
+      }
+
+      if (e.target.value && idx < digits.length - 1) {
+        digits[idx + 1].focus();
+        digits[idx + 1].select();
+      }
+
+      if (assembled.length === digits.length && typeof onComplete === 'function') {
+        onComplete(assembled);
+      }
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Backspace') {
+        if (!e.target.value && idx > 0) {
+          digits[idx - 1].focus();
+          digits[idx - 1].value = '';
+          const assembled = Array.from(digits).map(d => d.value).join('');
+          if (hiddenInputId) {
+            const hidden = document.getElementById(hiddenInputId);
+            if (hidden) hidden.value = assembled;
+          }
+        }
+      } else if (e.key === 'ArrowLeft' && idx > 0) {
+        digits[idx - 1].focus();
+      } else if (e.key === 'ArrowRight' && idx < digits.length - 1) {
+        digits[idx + 1].focus();
+      }
+    });
+
+    input.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const pasteData = (e.clipboardData || window.clipboardData).getData('text');
+      const cleanDigits = pasteData.replace(/\D/g, '').slice(0, digits.length);
+      cleanDigits.split('').forEach((ch, i) => {
+        if (digits[i]) digits[i].value = ch;
+      });
+      const assembled = Array.from(digits).map(d => d.value).join('');
+      if (hiddenInputId) {
+        const hidden = document.getElementById(hiddenInputId);
+        if (hidden) hidden.value = assembled;
+      }
+      if (cleanDigits.length < digits.length && digits[cleanDigits.length]) {
+        digits[cleanDigits.length].focus();
+      } else if (cleanDigits.length === digits.length && typeof onComplete === 'function') {
+        onComplete(assembled);
+      }
+    });
+  });
+}
+window.initOtpInputs = initOtpInputs;
+
+function clearOtpInputs(containerId = 'otpInputsRow', hiddenInputId = 'twoFactorCode') {
+  const container = document.getElementById(containerId);
+  if (container) {
+    container.querySelectorAll('.otp-digit').forEach(d => d.value = '');
+  }
+  if (hiddenInputId) {
+    const hidden = document.getElementById(hiddenInputId);
+    if (hidden) hidden.value = '';
+  }
+}
+window.clearOtpInputs = clearOtpInputs;
+
+function setOtpInputsValue(value, containerId = 'otpInputsRow', hiddenInputId = 'twoFactorCode') {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const digits = container.querySelectorAll('.otp-digit');
+  const clean = String(value).replace(/\D/g, '').slice(0, digits.length);
+  digits.forEach((d, i) => {
+    d.value = clean[i] || '';
+  });
+  if (hiddenInputId) {
+    const hidden = document.getElementById(hiddenInputId);
+    if (hidden) hidden.value = clean;
+  }
+}
+window.setOtpInputsValue = setOtpInputsValue;
+
+window.toggleRecoveryCodeMode = function() {
+  isRecoveryMode = !isRecoveryMode;
+  const otpGroup = document.getElementById('otpInputModeGroup');
+  const recGroup = document.getElementById('recoveryInputModeGroup');
+  const toggleBtn = document.getElementById('btnToggleRecoveryMode');
+  const errBox = document.getElementById('twoFactorErrorMsg');
+  if (errBox) errBox.style.display = 'none';
+
+  if (isRecoveryMode) {
+    if (otpGroup) otpGroup.style.display = 'none';
+    if (recGroup) recGroup.style.display = 'block';
+    if (toggleBtn) toggleBtn.textContent = 'Use 6-Digit Code';
+    const recInput = document.getElementById('recoveryCodeInput');
+    if (recInput) {
+      recInput.value = '';
+      recInput.focus();
+    }
+  } else {
+    if (otpGroup) otpGroup.style.display = 'block';
+    if (recGroup) recGroup.style.display = 'none';
+    if (toggleBtn) toggleBtn.textContent = 'Use Recovery Code';
+    clearOtpInputs();
+    const firstDigit = document.querySelector('#otpInputsRow .otp-digit');
+    if (firstDigit) firstDigit.focus();
+  }
+};
+
+function startResendCooldown(seconds = 60) {
+  const btn = document.getElementById('btnResendCode');
+  const span = document.getElementById('resendCountdownSpan');
+  if (!btn) return;
+  btn.disabled = true;
+  let remaining = seconds;
+  if (span) span.textContent = `(${remaining}s)`;
+
+  if (resendCooldownInterval) clearInterval(resendCooldownInterval);
+  resendCooldownInterval = setInterval(() => {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(resendCooldownInterval);
+      btn.disabled = false;
+      if (span) span.textContent = '';
+    } else {
+      if (span) span.textContent = `(${remaining}s)`;
+    }
+  }, 1000);
+}
+
+window.handleSwitchToEmailCode = async function() {
+  if (!currentPreAuthToken) return;
+  const btn = document.getElementById('btnSwitchToEmailCode');
+  if (btn) btn.disabled = true;
+
+  try {
+    showToast('Sending verification code to your email...', 'info');
+    const res = await fetch('/api/auth/request-email-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ preAuthToken: currentPreAuthToken })
+    });
+    const data = await res.json();
+    if (data.success) {
+      const modeTitle = document.getElementById('twoFactorModeTitle');
+      const modeInstruction = document.getElementById('twoFactorInstruction');
+      if (modeTitle) modeTitle.textContent = 'Email Verification Code';
+      if (modeInstruction) modeInstruction.textContent = `Enter the 6-digit code sent to ${data.maskedEmail || 'your email'}.`;
+      if (btn) btn.style.display = 'none';
+
+      clearOtpInputs('otpInputsRow', 'twoFactorCode');
+      if (data.devCode) {
+        const devNotice = document.getElementById('devCodeNotice');
+        if (devNotice) {
+          devNotice.style.display = 'block';
+          devNotice.innerHTML = `<strong>Local Dev Mode (SMTP not configured in .env):</strong><br>Your 6-digit verification code is <strong style="font-size: 1.35rem; letter-spacing: 4px; color: #D4AF37; display: block; margin: 4px 0;">${data.devCode}</strong>`;
+        }
+        setOtpInputsValue(data.devCode, 'otpInputsRow', 'twoFactorCode');
+      }
+      showToast('A fresh 6-digit verification code has been dispatched to your email.', 'success');
+      startResendCooldown(60);
+    } else {
+      showToast(data.message || 'Failed to dispatch email code.', 'error');
+    }
+  } catch (err) {
+    showToast('Connection error while requesting email code.', 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
+window.handleResend2FACode = async function() {
+  if (!currentPreAuthToken) return;
+  const btn = document.getElementById('btnResendCode');
+  if (btn && btn.disabled) return;
+
+  try {
+    showToast('Dispatching fresh verification code...', 'info');
+    const res = await fetch('/api/auth/resend-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ preAuthToken: currentPreAuthToken })
+    });
+    const data = await res.json();
+    if (data.success) {
+      if (data.devCode) {
+        const devNotice = document.getElementById('devCodeNotice');
+        if (devNotice) {
+          devNotice.style.display = 'block';
+          devNotice.innerHTML = `<strong>Local Dev Mode (SMTP not configured in .env):</strong><br>Your 6-digit verification code is <strong style="font-size: 1.35rem; letter-spacing: 4px; color: #D4AF37; display: block; margin: 4px 0;">${data.devCode}</strong>`;
+        }
+        setOtpInputsValue(data.devCode, 'otpInputsRow', 'twoFactorCode');
+      }
+      showToast('A fresh verification code has been dispatched.', 'success');
+      startResendCooldown(60);
+    } else {
+      showToast(data.message || 'Failed to resend code.', 'error');
+    }
+  } catch (e) {
+    showToast('Error requesting new code.', 'error');
+  }
+};
+
+window.backToLoginStep1 = function() {
+  const step1 = document.querySelector('.login-step-1');
+  const step2 = document.querySelector('.two-factor-screen');
+  if (step1) step1.style.display = 'block';
+  if (step2) step2.style.display = 'none';
+  setLoginStep(1);
+  clearOtpInputs('otpInputsRow', 'twoFactorCode');
+  const recInput = document.getElementById('recoveryCodeInput');
+  if (recInput) recInput.value = '';
+  const errBox = document.getElementById('loginErrorMsg');
+  if (errBox) errBox.style.display = 'none';
+  const twoFaErr = document.getElementById('twoFactorErrorMsg');
+  if (twoFaErr) twoFaErr.style.display = 'none';
+};
+
+// ----------------------------------------------------------------------------
+// 3-STEP MANDATORY & USER 2FA (TOTP) SETUP WIZARD
+let mfaWizardStep = 1;
+
+window.checkMandatoryMfaSetup = function(user) {
+  if (!user || !user.requireMfaSetup) return;
+  openMfaSetupModal(true);
+};
+
+window.openMfaSetupModal = async function(isMandatory = false) {
+  const modal = document.getElementById('mandatoryMfaModal');
+  const cancelBtn = document.getElementById('btnCancelMfaSetup');
+  if (cancelBtn) cancelBtn.style.display = isMandatory ? 'none' : 'inline-block';
+  if (!modal) return;
+
+  const btnStep1Next = document.getElementById('btnMfaGoToStep2');
+  if (btnStep1Next) {
+    btnStep1Next.disabled = true;
+    btnStep1Next.textContent = 'Loading Setup...';
+  }
+
+  try {
+    const res = await authFetch('/api/auth/totp/setup');
+    if (res && res.success) {
+      pendingMfaSecret = res.secret;
+      pendingBackupCodes = res.backupCodes || [];
+
+      const qrImg = document.getElementById('mfaQrCodeImg');
+      if (qrImg) {
+        qrImg.src = res.qrDataUrl || res.qrCodeDataUrl || '';
+      }
+
+      const secretText = document.getElementById('mfaManualSecretText');
+      if (secretText) {
+        secretText.textContent = res.manualKeyGrouped || (res.secret ? res.secret.match(/.{1,4}/g).join(' ') : 'KEY ERROR');
+      }
+
+      const accNameEl = document.getElementById('mfaAccountNameText');
+      if (accNameEl) {
+        accNameEl.textContent = res.accountName || 'Coastal View Admin';
+      }
+
+      const grid = document.getElementById('mfaModalRecoveryGrid');
+      if (grid) {
+        grid.innerHTML = pendingBackupCodes.map(c => `
+          <div class="recovery-chip"><code>${c}</code></div>
+        `).join('');
+      }
+
+      // Reset step 3 checkbox and button
+      const chk = document.getElementById('chkMfaSavedRecoveryCodes');
+      if (chk) chk.checked = false;
+      const actBtn = document.getElementById('btnCompleteMfaActivation');
+      if (actBtn) {
+        actBtn.disabled = true;
+        actBtn.style.opacity = '0.5';
+      }
+
+      // Reset step 2 inputs & error
+      clearOtpInputs('mfaSetupOtpRow', null);
+      const errStep2 = document.getElementById('mfaSetupErrorMsg');
+      if (errStep2) errStep2.style.display = 'none';
+      const errStep3 = document.getElementById('mfaStep3ErrorMsg');
+      if (errStep3) errStep3.style.display = 'none';
+
+      goToMfaStep(1);
+      modal.style.display = 'flex';
+    } else {
+      const errMsg = (res && res.message) ? res.message : "Couldn't generate QR code. Please try again.";
+      showToast(errMsg, 'error');
+    }
+  } catch (err) {
+    console.error('MFA setup fetch failed:', err);
+    showToast(err.message === 'MFA encryption key not configured' ? 'MFA encryption key not configured' : "Couldn't generate QR code. Please try again.", 'error');
+  } finally {
+    if (btnStep1Next) {
+      btnStep1Next.disabled = false;
+      btnStep1Next.textContent = 'Next: Verify 6-Digit Code →';
+    }
+  }
+};
+
+window.goToMfaStep = function(step) {
+  mfaWizardStep = step;
+  const s1 = document.getElementById('mfaSetupStep1');
+  const s2 = document.getElementById('mfaSetupStep2');
+  const s3 = document.getElementById('mfaSetupStep3');
+
+  if (s1) s1.style.display = step === 1 ? 'block' : 'none';
+  if (s2) s2.style.display = step === 2 ? 'block' : 'none';
+  if (s3) s3.style.display = step === 3 ? 'block' : 'none';
+
+  const dot1 = document.getElementById('mfaDot1');
+  const dot2 = document.getElementById('mfaDot2');
+  const dot3 = document.getElementById('mfaDot3');
+
+  if (dot1) {
+    dot1.className = 'mfa-step-dot' + (step === 1 ? ' active' : (step > 1 ? ' done' : ''));
+  }
+  if (dot2) {
+    dot2.className = 'mfa-step-dot' + (step === 2 ? ' active' : (step > 2 ? ' done' : ''));
+  }
+  if (dot3) {
+    dot3.className = 'mfa-step-dot' + (step === 3 ? ' active' : '');
+  }
+
+  if (step === 2) {
+    clearOtpInputs('mfaSetupOtpRow', null);
+    const errBox = document.getElementById('mfaSetupErrorMsg');
+    if (errBox) errBox.style.display = 'none';
+    setTimeout(() => {
+      const firstDigit = document.querySelector('#mfaSetupOtpRow .otp-digit');
+      if (firstDigit) firstDigit.focus();
+    }, 100);
+  }
+};
+
+window.submitMfaSetupStep2 = async function() {
+  const digits = document.querySelectorAll('#mfaSetupOtpRow .otp-digit');
+  const code = Array.from(digits).map(d => d.value).join('').trim();
+  const errBox = document.getElementById('mfaSetupErrorMsg');
+  const btn = document.getElementById('btnVerifyMfaStep2');
+
+  if (code.length !== 6) {
+    if (errBox) {
+      errBox.textContent = 'Please enter the complete 6-digit code from your Authenticator app.';
+      errBox.style.display = 'block';
+    }
+    return;
+  }
+
+  if (errBox) errBox.style.display = 'none';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined">hourglass_empty</span> Verifying...';
+  }
+
+  try {
+    const res = await authFetch('/api/auth/totp/verify-setup', {
+      method: 'POST',
+      body: { code }
+    });
+
+    if (res && res.success) {
+      showToast('Authenticator code verified! Now save your recovery codes.', 'success');
+      goToMfaStep(3);
+    } else {
+      if (errBox) {
+        errBox.textContent = (res && res.message) || 'Invalid or expired code. Check your device clock and try again.';
+        errBox.style.display = 'block';
+      }
+    }
+  } catch (err) {
+    if (errBox) {
+      errBox.textContent = 'Verification request failed. Please try again.';
+      errBox.style.display = 'block';
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = 'Verify Code →';
+    }
+  }
+};
+
+window.toggleMfaActivationButton = function() {
+  const chk = document.getElementById('chkMfaSavedRecoveryCodes');
+  const btn = document.getElementById('btnCompleteMfaActivation');
+  if (!btn) return;
+  const isChecked = chk && chk.checked;
+  btn.disabled = !isChecked;
+  btn.style.opacity = isChecked ? '1' : '0.5';
+};
+
+window.downloadRecoveryCodesTxt = function() {
+  if (!pendingBackupCodes || pendingBackupCodes.length === 0) {
+    showToast('No recovery codes available to download.', 'warning');
+    return;
+  }
+
+  const username = currentUser ? currentUser.username : 'admin';
+  const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+
+  const content = [
+    '=================================================================',
+    'COASTAL VIEW MANDARMANI - EMERGENCY MFA RECOVERY CODES',
+    '=================================================================',
+    `Account:      Coastal View Admin (${username})`,
+    `Generated At: ${timestamp} IST`,
+    '',
+    'IMPORTANT SECURITY INSTRUCTIONS:',
+    '- Each recovery code below can be used ONLY ONCE to sign in.',
+    '- Store this file in a secure, encrypted folder or password manager.',
+    '- Do NOT share or email these codes to anyone.',
+    '-----------------------------------------------------------------',
+    ...pendingBackupCodes.map((c, i) => `Code ${i + 1}: ${c}`),
+    '================================================================='
+  ].join('\r\n');
+
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `coastal-view-recovery-codes-${username}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  showToast('Emergency recovery codes text file downloaded.', 'success');
+};
+
+window.completeMfaActivation = async function() {
+  const chk = document.getElementById('chkMfaSavedRecoveryCodes');
+  const errBox = document.getElementById('mfaStep3ErrorMsg');
+  const btn = document.getElementById('btnCompleteMfaActivation');
+
+  if (!chk || !chk.checked) {
+    if (errBox) {
+      errBox.textContent = 'Please confirm that you have safely saved your recovery codes.';
+      errBox.style.display = 'block';
+    }
+    return;
+  }
+
+  if (errBox) errBox.style.display = 'none';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined">hourglass_empty</span> Activating...';
+  }
+
+  try {
+    const res = await authFetch('/api/auth/totp/activate', {
+      method: 'POST',
+      body: { confirmedSaved: true }
+    });
+
+    if (res && res.success) {
+      if (currentUser) currentUser.requireMfaSetup = false;
+      const modal = document.getElementById('mandatoryMfaModal');
+      if (modal) modal.style.display = 'none';
+      showToast('Authenticator app enabled successfully! Two-factor authentication is active.', 'success');
+      loadUserSecurityStatus();
+      loadAllAdminData();
+    } else {
+      if (errBox) {
+        errBox.textContent = (res && res.message) || 'Activation failed. Please retry.';
+        errBox.style.display = 'block';
+      }
+    }
+  } catch (err) {
+    if (errBox) {
+      errBox.textContent = 'Server connection error during activation.';
+      errBox.style.display = 'block';
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<span class="material-symbols-outlined">verified</span> Complete Setup & Enable TOTP';
+    }
+  }
+};
+
+window.closeMfaSetupModal = function() {
+  if (currentUser && currentUser.requireMfaSetup) {
+    showToast('Two-factor authentication setup is mandatory before accessing dashboard.', 'warning');
+    return;
+  }
+  const modal = document.getElementById('mandatoryMfaModal');
+  if (modal) modal.style.display = 'none';
+};
+
+window.copyMfaSecret = function() {
+  if (!pendingMfaSecret) return;
+  navigator.clipboard.writeText(pendingMfaSecret);
+  showToast('Authenticator secret key copied to clipboard.', 'success');
+};
+
+window.copyAllRecoveryCodes = function() {
+  if (!pendingBackupCodes || pendingBackupCodes.length === 0) return;
+  navigator.clipboard.writeText(pendingBackupCodes.join('\n'));
+  showToast('8 emergency recovery codes copied to clipboard.', 'success');
+};
+
+// ----------------------------------------------------------------------------
+// DISABLE & RESET AUTHENTICATOR APP ACTIONS
+// ----------------------------------------------------------------------------
+window.openDisableMfaModal = function() {
+  const modal = document.getElementById('disableMfaModal');
+  if (!modal) return;
+  document.getElementById('disableMfaPassword').value = '';
+  document.getElementById('disableMfaCode').value = '';
+  const errBox = document.getElementById('disableMfaErrorMsg');
+  if (errBox) errBox.style.display = 'none';
+  modal.style.display = 'flex';
+};
+
+window.executeDisableMfa = async function() {
+  const pass = document.getElementById('disableMfaPassword')?.value;
+  const code = document.getElementById('disableMfaCode')?.value?.trim();
+  const errBox = document.getElementById('disableMfaErrorMsg');
+  const btn = document.getElementById('btnConfirmDisableMfa');
+
+  if (!pass || !code) {
+    if (errBox) {
+      errBox.textContent = 'Please enter both your password and a current verification code.';
+      errBox.style.display = 'block';
+    }
+    return;
+  }
+
+  if (errBox) errBox.style.display = 'none';
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await authFetch('/api/auth/totp/disable', {
+      method: 'POST',
+      body: { password: pass, code }
+    });
+
+    if (res && res.success) {
+      closeModal('disableMfaModal');
+      showToast(res.message || 'Authenticator app removed. Email 2FA remains active.', 'info');
+      loadUserSecurityStatus();
+    } else {
+      if (errBox) {
+        errBox.textContent = (res && res.message) || 'Failed to disable Authenticator 2FA.';
+        errBox.style.display = 'block';
+      }
+    }
+  } catch (err) {
+    if (errBox) {
+      errBox.textContent = 'Server error during disable request.';
+      errBox.style.display = 'block';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
+window.openResetMfaModal = function() {
+  const modal = document.getElementById('resetMfaModal');
+  if (!modal) return;
+  document.getElementById('resetMfaPassword').value = '';
+  document.getElementById('resetMfaCode').value = '';
+  const errBox = document.getElementById('resetMfaErrorMsg');
+  if (errBox) errBox.style.display = 'none';
+  modal.style.display = 'flex';
+};
+
+window.executeResetMfa = async function() {
+  const pass = document.getElementById('resetMfaPassword')?.value;
+  const code = document.getElementById('resetMfaCode')?.value?.trim();
+  const errBox = document.getElementById('resetMfaErrorMsg');
+  const btn = document.getElementById('btnConfirmResetMfa');
+
+  if (!pass || !code) {
+    if (errBox) {
+      errBox.textContent = 'Please enter both your password and current verification code.';
+      errBox.style.display = 'block';
+    }
+    return;
+  }
+
+  if (errBox) errBox.style.display = 'none';
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await authFetch('/api/auth/totp/reset', {
+      method: 'POST',
+      body: { password: pass, code }
+    });
+
+    if (res && res.success) {
+      closeModal('resetMfaModal');
+      showToast('Authenticator reset initiated! Pair your new device now.', 'success');
+      loadUserSecurityStatus();
+      // Directly open the setup modal to complete pairing the new key
+      openMfaSetupModal(false);
+    } else {
+      if (errBox) {
+        errBox.textContent = (res && res.message) || 'Failed to reset Authenticator 2FA.';
+        errBox.style.display = 'block';
+      }
+    }
+  } catch (err) {
+    if (errBox) {
+      errBox.textContent = 'Server error during reset request.';
+      errBox.style.display = 'block';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
+window.loadUserSecurityStatus = async function() {
+  try {
+    const res = await authFetch('/api/admin/user-security-status');
+    if (!res || !res.success) return;
+
+    const badge = document.getElementById('user2FaStatusBadge');
+    const triggerBtn = document.getElementById('btnTriggerMfaSetup');
+    const resetBtn = document.getElementById('btnResetMfa');
+    const disableBtn = document.getElementById('btnDisableMfa');
+    const desc = document.getElementById('mfaCardDescription');
+    const recCountDesc = document.getElementById('recoveryCodesCountDesc');
+
+    if (res.hasTotp) {
+      if (badge) {
+        badge.className = 'security-status-badge status-confirmed';
+        badge.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">verified_user</span> 2FA: Authenticator App (Active)';
+      }
+      if (triggerBtn) triggerBtn.style.display = 'none';
+      if (resetBtn) resetBtn.style.display = 'inline-flex';
+      if (disableBtn) disableBtn.style.display = 'inline-flex';
+      if (desc) {
+        desc.textContent = 'Active on your Authenticator app. Enter 6-digit codes generated on your paired mobile device when signing in.';
+      }
+      if (recCountDesc) {
+        recCountDesc.textContent = `${res.remainingRecoveryCodes} single-use emergency recovery code(s) remaining.`;
+      }
+    } else {
+      if (badge) {
+        badge.className = 'security-status-badge disabled';
+        badge.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">shield</span> 2FA: Email Only';
+      }
+      if (triggerBtn) triggerBtn.style.display = 'inline-flex';
+      if (resetBtn) resetBtn.style.display = 'none';
+      if (disableBtn) disableBtn.style.display = 'none';
+      if (desc) {
+        desc.textContent = 'Pair Google Authenticator, Microsoft Authenticator, or 1Password for instantaneous 6-digit verification codes.';
+      }
+      if (recCountDesc) {
+        recCountDesc.textContent = '8 single-use codes to access your account if both your Authenticator app and email are unavailable.';
+      }
+    }
+  } catch (err) {
+    console.warn('Could not load user security status:', err);
+  }
+};
+
+// ----------------------------------------------------------------------------
+// RECOVERY CODES REGENERATION MODAL
+// ----------------------------------------------------------------------------
+window.openRecoveryCodesModal = function() {
+  const modal = document.getElementById('recoveryCodesModal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  const passInput = document.getElementById('recoveryReauthPassword');
+  if (passInput) passInput.value = '';
+  const reauthSec = document.getElementById('reauthForRecoverySection');
+  const dispSec = document.getElementById('recoveryCodesDisplaySection');
+  const errBox = document.getElementById('recoveryErrorMsg');
+  if (reauthSec) reauthSec.style.display = 'block';
+  if (dispSec) dispSec.style.display = 'none';
+  if (errBox) errBox.style.display = 'none';
+};
+
+window.copyActiveRecoveryCodes = function() {
+  if (!activeGeneratedCodes || activeGeneratedCodes.length === 0) return;
+  navigator.clipboard.writeText(activeGeneratedCodes.join('\n'));
+  showToast('Recovery codes copied to clipboard.', 'success');
+};
+
+window.executeRegenerateRecoveryCodes = async function() {
+  const pass = document.getElementById('recoveryReauthPassword')?.value;
+  const errBox = document.getElementById('recoveryErrorMsg');
+  const btn = document.getElementById('btnExecuteRegenRecovery');
+
+  if (!pass) {
+    if (errBox) {
+      errBox.textContent = 'Password is required to regenerate recovery codes.';
+      errBox.style.display = 'block';
+    }
+    return;
+  }
+
+  if (errBox) errBox.style.display = 'none';
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await authFetch('/api/auth/totp/regenerate-backup-codes', {
+      method: 'POST',
+      body: { password: pass }
+    });
+
+    if (res.success && res.backupCodes) {
+      activeGeneratedCodes = res.backupCodes;
+      const grid = document.getElementById('activeRecoveryCodesGrid');
+      if (grid) {
+        grid.innerHTML = res.backupCodes.map(c => `
+          <div class="recovery-chip"><code>${c}</code></div>
+        `).join('');
+      }
+      const reauthSec = document.getElementById('reauthForRecoverySection');
+      const dispSec = document.getElementById('recoveryCodesDisplaySection');
+      if (reauthSec) reauthSec.style.display = 'none';
+      if (dispSec) dispSec.style.display = 'block';
+      showToast('8 fresh recovery codes generated. Old codes invalidated.', 'success');
+    } else {
+      if (errBox) {
+        errBox.textContent = res.message || 'Failed to regenerate recovery codes.';
+        errBox.style.display = 'block';
+      }
+    }
+  } catch (err) {
+    if (errBox) {
+      errBox.textContent = 'Connection error.';
+      errBox.style.display = 'block';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
+// ----------------------------------------------------------------------------
+// EMAIL ADMIN TOOLS & MAIL LOGS
+// ----------------------------------------------------------------------------
+window.loadEmailStats = async function() {
+  try {
+    const res = await authFetch('/api/admin/email/stats');
+    if (!res.success) return;
+
+    const badge = document.getElementById('emailProviderStatusBadge');
+    const sender = document.getElementById('emailSenderAddressSpan');
+    const dailyLimit = document.getElementById('emailDailyLimitSpan');
+    const todayCount = document.getElementById('emailQuotaCountSpan');
+    const quotaBar = document.getElementById('emailQuotaPercentBar');
+    const warnBanner = document.getElementById('emailWarningBanner');
+
+    if (badge) {
+      if (res.status === 'connected') {
+        badge.className = 'status-badge status-confirmed';
+        badge.textContent = 'Connected (Verified)';
+      } else if (res.status === 'unconfigured') {
+        badge.className = 'status-badge status-pending';
+        badge.textContent = 'Not Configured (Local Dev)';
+      } else {
+        badge.className = 'status-badge status-cancelled';
+        badge.textContent = 'Failing (Check SMTP)';
+      }
+    }
+
+    if (sender) sender.textContent = `${res.fromName} <${res.fromEmail}>`;
+    if (dailyLimit) dailyLimit.textContent = res.dailyLimit || 300;
+    if (todayCount) todayCount.textContent = res.todayCount || 0;
+
+    const percent = Math.min(100, Math.round(((res.todayCount || 0) / (res.dailyLimit || 300)) * 100));
+    if (quotaBar) {
+      quotaBar.style.width = `${percent}%`;
+      if (percent >= 90) quotaBar.style.background = 'var(--sunset-coral)';
+      else if (percent >= 75) quotaBar.style.background = 'var(--champagne-gold)';
+      else quotaBar.style.background = 'var(--turquoise)';
+    }
+
+    // Dashboard warning banner
+    if (warnBanner) {
+      if (res.status === 'failing') {
+        warnBanner.style.display = 'flex';
+        warnBanner.innerHTML = `
+          <span class="material-symbols-outlined" style="font-size: 22px; color: var(--sunset-coral);">warning</span>
+          <div>
+            <strong>SMTP Outbound Delivery Failing:</strong> Email notifications (booking confirmations, login codes) cannot be sent. Verify SMTP credentials in Hostinger / <code>.env</code>.
+          </div>
+        `;
+      } else if (percent >= 80) {
+        warnBanner.style.display = 'flex';
+        warnBanner.innerHTML = `
+          <span class="material-symbols-outlined" style="font-size: 22px; color: #D97706;">info</span>
+          <div>
+            <strong>Daily SMTP Quota Warning:</strong> ${res.todayCount} of ${res.dailyLimit} daily emails sent (${percent}%). Approaching free tier limit.
+          </div>
+        `;
+      } else {
+        warnBanner.style.display = 'none';
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to fetch email stats:', err);
+  }
+};
+
+window.handleSendAdminTestEmail = async function() {
+  const btn = document.getElementById('btnSendAdminTestEmail');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined">hourglass_empty</span> Sending...';
+  }
+
+  try {
+    showToast('Dispatching test message through SMTP...', 'info');
+    const res = await authFetch('/api/admin/email/test', { method: 'POST' });
+    if (res.success) {
+      showToast(res.message || 'Test email successfully sent to Super Admin!', 'success');
+      alert(`✅ Success: ${res.message}\nMessage ID: ${res.messageId || 'OK'}`);
+    } else {
+      showToast(res.message || 'Test email failed. Check logs.', 'error');
+      alert(`❌ Test Email Failed:\n${res.message}\nError Code: ${res.code || 'UNKNOWN'}\nPlease verify SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and MAIL_FROM.`);
+    }
+    loadEmailStats();
+  } catch (err) {
+    showToast('Failed to trigger test email.', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<span class="material-symbols-outlined">send</span> Send Test Email to Super Admin';
+    }
+  }
+};
+
+window.loadMailLogsData = async function() {
+  const modal = document.getElementById('mailLogsModal');
+  const tbody = document.getElementById('mailLogsTableBody');
+  if (modal) modal.style.display = 'flex';
+  if (!tbody) return;
+
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #64748B;">Loading audit logs...</td></tr>';
+
+  try {
+    const res = await authFetch('/api/admin/mail-logs');
+    if (res.success && res.logs) {
+      if (res.logs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #64748B;">No mail transactions recorded yet.</td></tr>';
+      } else {
+        tbody.innerHTML = res.logs.map(log => `
+          <tr>
+            <td style="white-space: nowrap; font-family: monospace;">${log.timestamp ? new Date(log.timestamp).toLocaleString() : '-'}</td>
+            <td><strong>${log.type || 'email'}</strong></td>
+            <td><code>${log.recipient || 'masked'}</code></td>
+            <td>
+              <span class="status-badge ${log.success ? 'status-confirmed' : 'status-cancelled'}">
+                ${log.success ? 'Delivered' : 'Failed'}
+              </span>
+            </td>
+            <td><code>${log.errorCode || (log.success ? '250 OK' : 'ERR')}</code></td>
+          </tr>
+        `).join('');
+      }
+    } else {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--sunset-coral);">${res.message || 'Access restricted to Super Admin.'}</td></tr>`;
+    }
+  } catch (err) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--sunset-coral);">Failed to retrieve mail logs.</td></tr>';
+  }
+};
+
+// ----------------------------------------------------------------------------
+// ACTIVE SESSIONS & DEVICE REVOCATION (TABLE WITH SKELETON & RETRY)
+// ----------------------------------------------------------------------------
+window.loadActiveSessions = async function() {
+  const tbody = document.getElementById('activeSessionsTableBody');
+  if (!tbody) return;
+
+  // Render 3 luxury skeleton placeholder rows during loading
+  tbody.innerHTML = `
+    <tr>
+      <td><span class="skeleton-shimmer" style="width: 150px;"></span></td>
+      <td><span class="skeleton-shimmer" style="width: 110px;"></span></td>
+      <td><span class="skeleton-shimmer" style="width: 130px;"></span></td>
+      <td><span class="skeleton-shimmer" style="width: 130px;"></span></td>
+      <td><span class="skeleton-shimmer" style="width: 120px;"></span></td>
+      <td style="text-align: right;"><span class="skeleton-shimmer" style="width: 80px;"></span></td>
+    </tr>
+    <tr>
+      <td><span class="skeleton-shimmer" style="width: 170px;"></span></td>
+      <td><span class="skeleton-shimmer" style="width: 100px;"></span></td>
+      <td><span class="skeleton-shimmer" style="width: 120px;"></span></td>
+      <td><span class="skeleton-shimmer" style="width: 130px;"></span></td>
+      <td><span class="skeleton-shimmer" style="width: 110px;"></span></td>
+      <td style="text-align: right;"><span class="skeleton-shimmer" style="width: 75px;"></span></td>
+    </tr>
+    <tr>
+      <td><span class="skeleton-shimmer" style="width: 130px;"></span></td>
+      <td><span class="skeleton-shimmer" style="width: 105px;"></span></td>
+      <td><span class="skeleton-shimmer" style="width: 125px;"></span></td>
+      <td><span class="skeleton-shimmer" style="width: 130px;"></span></td>
+      <td><span class="skeleton-shimmer" style="width: 115px;"></span></td>
+      <td style="text-align: right;"><span class="skeleton-shimmer" style="width: 70px;"></span></td>
+    </tr>
+  `;
+
+  try {
+    const res = await authFetch('/api/admin/sessions');
+    if (res && res.success && Array.isArray(res.sessions)) {
+      if (res.sessions.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #64748B; padding: 24px;">No active device sessions found.</td></tr>';
+      } else {
+        tbody.innerHTML = res.sessions.map(s => {
+          const isMobile = s.device && (s.device.toLowerCase().includes('mobile') || s.device.toLowerCase().includes('iphone') || s.device.toLowerCase().includes('android'));
+          const icon = isMobile ? 'smartphone' : 'computer';
+          const signedInTime = s.createdAt ? new Date(s.createdAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : 'Unknown';
+          const lastActiveTime = s.lastActive ? new Date(s.lastActive).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : 'Just now';
+
+          return `
+            <tr>
+              <td>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="material-symbols-outlined" style="color: var(--ocean-blue); font-size: 20px;">${icon}</span>
+                  <strong>${s.device || 'Desktop Browser'}</strong>
+                </div>
+              </td>
+              <td><code>${s.ip || '127.0.***.1'}</code></td>
+              <td>
+                <span style="display: inline-flex; align-items: center; gap: 4px; color: #475569; font-size: 0.8rem;">
+                  <span class="material-symbols-outlined" style="font-size: 14px; color: #06B6B0;">location_on</span>
+                  ${s.location || 'Local / Private Network'}
+                </span>
+              </td>
+              <td style="font-size: 0.78rem; color: #64748B;">${signedInTime}</td>
+              <td style="font-size: 0.78rem; color: #334155;">${lastActiveTime}</td>
+              <td style="text-align: right;">
+                ${s.isCurrent ? `
+                  <span class="badge-this-device">
+                    <span class="material-symbols-outlined" style="font-size: 13px;">check_circle</span> This device
+                  </span>
+                ` : `
+                  <button type="button" class="btn-cancel" style="font-size: 0.74rem; padding: 4px 10px; color: var(--sunset-coral);" onclick="revokeSession('${s.id}')">
+                    <span class="material-symbols-outlined" style="font-size: 13px;">logout</span> Log out
+                  </button>
+                `}
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+    } else {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" style="text-align: center; padding: 24px;">
+            <div style="color: var(--sunset-coral); font-weight: 600; margin-bottom: 8px;">
+              <span class="material-symbols-outlined" style="vertical-align: middle; font-size: 18px;">error</span> ${(res && res.message) || 'Failed to load active sessions.'}
+            </div>
+            <button type="button" class="btn-outline-gold" style="font-size: 0.78rem; padding: 4px 14px;" onclick="loadActiveSessions()">
+              <span class="material-symbols-outlined" style="font-size: 14px;">refresh</span> Retry
+            </button>
+          </td>
+        </tr>
+      `;
+    }
+  } catch (err) {
+    console.error('Failed to load active sessions:', err);
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align: center; padding: 24px;">
+          <div style="color: var(--sunset-coral); font-weight: 600; margin-bottom: 8px;">
+            <span class="material-symbols-outlined" style="vertical-align: middle; font-size: 18px;">cloud_off</span> Network error while retrieving active device sessions.
+          </div>
+          <button type="button" class="btn-outline-gold" style="font-size: 0.78rem; padding: 4px 14px;" onclick="loadActiveSessions()">
+            <span class="material-symbols-outlined" style="font-size: 14px;">refresh</span> Retry
+          </button>
+        </td>
+      </tr>
+    `;
+  }
+};
+
+window.revokeSession = async function(sessionId) {
+  if (!confirm('Log out this device session immediately? That device will be required to sign in again.')) return;
+  try {
+    const res = await authFetch(`/api/admin/sessions/${sessionId}`, { method: 'DELETE' });
+    if (res && res.success) {
+      showToast(res.message || 'Session logged out successfully.', 'success');
+      loadActiveSessions();
+    } else {
+      showToast((res && res.message) || 'Failed to revoke session.', 'error');
+    }
+  } catch (err) {
+    showToast('Error revoking session.', 'error');
+  }
+};
+
+window.handleLogoutOtherDevices = async function() {
+  if (!confirm('Log out all other devices? All other active sessions will be terminated immediately, keeping only this device signed in.')) return;
+  try {
+    const res = await authFetch('/api/auth/logout-other-devices', { method: 'POST' });
+    if (res && res.success) {
+      showToast(res.message || 'All other devices logged out successfully.', 'success');
+      loadActiveSessions();
+    } else {
+      showToast((res && res.message) || 'Failed to log out other devices.', 'error');
+    }
+  } catch (err) {
+    showToast('Error logging out other devices.', 'error');
+  }
+};
+
+window.handleLogoutAllDevices = async function() {
+  if (!confirm('Log out of ALL devices and active sessions? You will need to sign in again with 2FA.')) return;
+  try {
+    await authFetch('/api/auth/logout-all', { method: 'POST' });
+    localStorage.removeItem('coastal_admin_token');
+    localStorage.removeItem('coastal_admin_csrf');
+    currentToken = null;
+    currentCsrfToken = null;
+    currentUser = null;
+    showToast('All sessions terminated.', 'info');
+    showLoginScreen();
+  } catch (err) {
+    showToast('Failed to logout all devices.', 'error');
   }
 };

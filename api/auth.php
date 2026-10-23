@@ -66,20 +66,18 @@ if ($action === 'login' || ($method === 'POST' && !$action)) {
         }
     }
 
-    $users = $db['users'] ?? [
-        ['username' => $db['admin']['username'] ?? 'admin', 'passwordHash' => $db['admin']['passwordHash'] ?? 'CoastalAdmin@2026', 'role' => 'Super Admin', 'name' => 'Anirban Das']
-    ];
+    $users = $db['users'] ?? [];
 
     $matched = null;
     foreach ($users as $u) {
-        if ($u['username'] === $username && $u['passwordHash'] === $password) {
-            $matched = $u;
-            break;
+        if (strcasecmp($u['username'], $username) === 0 || (!empty($u['email']) && strcasecmp($u['email'], $username) === 0)) {
+            // Verify password via password_verify or hash check
+            $hash = $u['passwordHash'] ?? '';
+            if (!empty($hash) && (password_verify($password, $hash) || $hash === $password)) {
+                $matched = $u;
+                break;
+            }
         }
-    }
-
-    if (!$matched && $username === ($db['admin']['username'] ?? 'admin') && $password === ($db['admin']['passwordHash'] ?? 'CoastalAdmin@2026')) {
-        $matched = ['username' => 'admin', 'role' => 'Super Admin', 'name' => 'Anirban Das'];
     }
 
     if ($matched) {

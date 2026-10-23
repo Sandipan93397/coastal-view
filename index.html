@@ -225,17 +225,6 @@
           },
           {
             "@type": "MenuItem",
-            "name": "Extra Puri",
-            "description": "Extra golden puffed puri fried fresh to order.",
-            "offers": {
-              "@type": "Offer",
-              "price": "20",
-              "priceCurrency": "INR"
-            },
-            "suitableForDiet": "https://schema.org/VegetarianDiet"
-          },
-          {
-            "@type": "MenuItem",
             "name": "Jam/Butter Toast (4 pc.)",
             "description": "Crispy toasted bread slices served with Amul butter and mixed fruit jam.",
             "offers": {
@@ -1285,7 +1274,7 @@
           <li><a href="#rooms" class="nav-link">Rooms</a></li>
           <li><a href="#amenities" class="nav-link">Amenities</a></li>
           <li><a href="#restaurant" class="nav-link">Menu</a></li>
-          <li><a href="#cocktails" class="nav-link">Cocktails</a></li>
+          <li><a href="#mocktails" class="nav-link">Mocktails</a></li>
           <li><a href="#candlelight" class="nav-link">Candlelight</a></li>
           <li><a href="#gallery" class="nav-link">Gallery</a></li>
           <li><a href="#nearby" class="nav-link">Places</a></li>
@@ -1329,7 +1318,7 @@
         <li><a href="#rooms" class="mobile-nav-link"><span class="material-symbols-outlined">hotel</span> Rooms</a></li>
         <li><a href="#amenities" class="mobile-nav-link"><span class="material-symbols-outlined">pool</span> Amenities</a></li>
         <li><a href="#restaurant" class="mobile-nav-link"><span class="material-symbols-outlined">restaurant_menu</span> Menu</a></li>
-        <li><a href="#cocktails" class="mobile-nav-link"><span class="material-symbols-outlined">local_bar</span> Cocktails</a></li>
+        <li><a href="#mocktails" class="mobile-nav-link"><span class="material-symbols-outlined">local_bar</span> Mocktails</a></li>
         <li><a href="#candlelight" class="mobile-nav-link"><span class="material-symbols-outlined">candle</span> Candlelight</a></li>
         <li><a href="#gallery" class="mobile-nav-link"><span class="material-symbols-outlined">photo_library</span> Gallery</a></li>
         <li><a href="#nearby" class="mobile-nav-link"><span class="material-symbols-outlined">explore</span> Places</a></li>
@@ -2138,7 +2127,7 @@
         <div class="menu-bottom-motto">Good Food Brings People Together ♡</div>
       </div>
 
-                                                                        <!-- Category Chips Linking to Full Menu -->
+                                                                                                                  <!-- Category Chips Linking to Full Menu -->
       <div class="menu-category-chips-row">
         <a href="/menu#cat-breakfast" class="menu-cat-chip"><span class="material-symbols-outlined">wb_sunny</span> Breakfast</a>
         <a href="/menu#cat-vegetable-dal" class="menu-cat-chip"><span class="material-symbols-outlined">eco</span> Vegetable / Dal</a>
@@ -2332,6 +2321,24 @@
             </div>
           </div>
         </div>
+
+        <!-- Prawn Malai Curry (Audit) -->
+        <div class="featured-dish-card reveal-on-scroll">
+          <div class="featured-dish-thumb-wrap">
+            <img src="assets/images/restaurant-dining.jpg" alt="Prawn Malai Curry (Audit)" loading="lazy">
+          </div>
+          <div class="featured-dish-content">
+            <div class="featured-dish-header">
+              <h4 class="featured-dish-title">Prawn Malai Curry (Audit) </h4>
+              <span class="diet-dot non-veg" title="Non-Vegetarian"></span>
+            </div>
+            <p class="featured-dish-desc">Rich coconut cream curry with freshwater tiger prawns</p>
+            <div class="featured-dish-footer">
+              <div class="dish-variants-row" style="margin-bottom:4px;"><span class="variant-chip" style="font-size:0.72rem;padding:1px 6px;">Standard (4 pcs) ₹420</span> <span class="variant-chip" style="font-size:0.72rem;padding:1px 6px;">Jumbo (6 pcs) ₹580</span></div>
+              <span class="featured-dish-badge">Chef's Special</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Big Gold CTA to Full Menu -->
@@ -2381,6 +2388,7 @@
   <section class="lounge-section" id="cocktails">
     <span id="cocktail" style="position: absolute; pointer-events: none;"></span>
     <span id="mocktails" style="position: absolute; pointer-events: none;"></span>
+    <span id="mocktail" style="position: absolute; pointer-events: none;"></span>
     <span id="lounge" style="position: absolute; pointer-events: none;"></span>
     <div class="container">
       <div class="lounge-grid">
@@ -2542,7 +2550,7 @@
       <!-- Home Gallery Showcase Grid (6 to 8 photos, gold border glow, zoom hover) -->
       <div class="gallery-showcase-grid" id="homeGalleryGrid">
         <div class="gallery-item-card reveal-on-scroll" onclick="openGalleryLightbox(currentGalleryList, 0)" title="Coastal View Grand Facade Illuminated at Night">
-          <img src="/uploads/gallery/exterior-night.jpg" alt="Coastal View luxury hotel illuminated grand exterior at night in Mandarmani" loading="lazy">
+          <img src="/uploads/gallery/exterior-night.jpg" data-media-slot="gallery" alt="Coastal View luxury hotel illuminated grand exterior at night in Mandarmani" loading="lazy">
           <div class="gallery-item-overlay">
             <span class="gallery-item-category">Hotel</span>
             <div class="gallery-item-caption">Grand Facade Illuminated at Night</div>
@@ -2591,7 +2599,7 @@
           </div>
         </div>
         <div class="gallery-item-card reveal-on-scroll" onclick="openGalleryLightbox(currentGalleryList, 7)" title="Sunset Reflection Pool">
-          <img src="/assets/images/hero-sunset-pool.jpg" alt="Sunset reflection pool overlooking the sea at Coastal View Mandarmani" loading="lazy">
+          <img src="/assets/images/hero-sunset-pool.jpg" data-media-slot="amenity:pool" alt="Sunset reflection pool overlooking the sea at Coastal View Mandarmani" loading="lazy">
           <div class="gallery-item-overlay">
             <span class="gallery-item-category">Pool & Beach</span>
             <div class="gallery-item-caption">Sunset Reflection Pool Overlooking Coast</div>
@@ -2627,7 +2635,7 @@
         <!-- Place 1: Mandarmani Beach -->
         <div class="place-card">
           <div class="place-img-box" style="cursor: pointer;" onclick="window.openDirectionsModal('Mandarmani Beach', '0 km (Direct Access)', 'https://maps.google.com/?q=Mandarmani+Beach')" title="Click to view directions">
-            <img src="assets/images/mandarmani-beach.jpg" alt="Mandarmani Beach coastline">
+            <img src="assets/images/mandarmani-beach.jpg" data-media-slot="amenity:beach" alt="Mandarmani Beach coastline">
             <div class="place-distance-badge">
               <span class="material-symbols-outlined" style="font-size: 14px;">location_on</span> 0 km (Direct Beachfront)
             </div>
@@ -2646,7 +2654,7 @@
         <!-- Place 2: Tajpur Beach -->
         <div class="place-card">
           <div class="place-img-box" style="cursor: pointer;" onclick="window.openDirectionsModal('Tajpur Beach', '18 km (approx 35 mins)', 'https://maps.google.com/?q=Tajpur+Beach+West+Bengal')" title="Click to view directions">
-            <img src="assets/images/tajpur-beach.jpg" alt="Tajpur Beach with red crabs">
+            <img src="assets/images/tajpur-beach.jpg" data-media-slot="places" alt="Tajpur Beach with red crabs">
             <div class="place-distance-badge">
               <span class="material-symbols-outlined" style="font-size: 14px;">near_me</span> 18 km
             </div>
@@ -3053,31 +3061,58 @@
   <!-- ==========================================================================
        FLOATING CHATBOT WIDGET: ANI'S COASTAL CONCIERGE
        ========================================================================== -->
-  <div class="concierge-launcher" id="conciergeLauncher" title="Chat with Ani's Coastal Concierge">
-    <span class="material-symbols-outlined">support_agent</span>
-    <span class="concierge-badge-online"></span>
+  <div class="concierge-launcher" id="conciergeLauncher" title="Chat with Ani's Coastal Concierge" aria-label="Open Ani's Coastal Concierge Chat" role="button" tabindex="0">
+    <span class="material-symbols-outlined" aria-hidden="true">support_agent</span>
+    <span class="concierge-badge-online" title="Front desk online"></span>
   </div>
 
-  <div class="concierge-chat-modal" id="conciergeChatModal">
+  <div class="concierge-chat-modal" id="conciergeChatModal" role="dialog" aria-labelledby="conciergeTitle" aria-describedby="conciergeSubtitle">
     <div class="concierge-header">
       <div class="concierge-header-left">
         <div class="concierge-avatar-box">
-          <img src="assets/images/logo-emblem.png" alt="Coastal View" class="concierge-avatar-img">
+          <img src="assets/images/logo-emblem.png" alt="Coastal View Logo" class="concierge-avatar-img">
         </div>
         <div>
-          <div class="concierge-name">Ani's Coastal Concierge</div>
-          <div class="concierge-status">Direct Front Desk Assistant</div>
+          <div class="concierge-name" id="conciergeTitle">Ani's Coastal Concierge</div>
+          <div class="concierge-status" id="conciergeSubtitle">
+            <span class="concierge-status-dot"></span> Online Desk Assistant
+          </div>
         </div>
       </div>
 
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <div class="concierge-lang-selector">
-          <button class="lang-btn active" data-lang="en">EN</button>
-          <button class="lang-btn" data-lang="bn">বাংলা</button>
-          <button class="lang-btn" data-lang="hi">हिन्दी</button>
+      <div class="concierge-header-actions">
+        <!-- Direct Phone Call Button -->
+        <a href="tel:7812027551" class="concierge-header-action" title="Call Front Desk (+91 7812027551)" aria-label="Call Front Desk">
+          <span class="material-symbols-outlined" aria-hidden="true">call</span>
+        </a>
+
+        <!-- WhatsApp Concierge Button -->
+        <a href="https://wa.me/917812027551" target="_blank" rel="noopener noreferrer" class="concierge-header-action whatsapp-btn" title="Chat on WhatsApp" aria-label="Chat on WhatsApp">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.316 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.818-.981z"/>
+          </svg>
+        </a>
+
+        <!-- Language Selector -->
+        <div class="concierge-lang-selector" role="group" aria-label="Select Chat Language">
+          <button class="lang-btn active" data-lang="en" aria-label="English">EN</button>
+          <button class="lang-btn" data-lang="bn" aria-label="বাংলা">বাংলা</button>
+          <button class="lang-btn" data-lang="hi" aria-label="हिन्दी">हिन्दी</button>
         </div>
-        <button class="concierge-close-btn" id="conciergeCloseBtn">
-          <span class="material-symbols-outlined">close</span>
+
+        <!-- Clear Chat -->
+        <button class="concierge-header-action" id="conciergeClearBtn" title="Clear Chat History" aria-label="Clear Chat History">
+          <span class="material-symbols-outlined" aria-hidden="true">delete_sweep</span>
+        </button>
+
+        <!-- Minimize Button -->
+        <button class="concierge-header-action" id="conciergeMinimizeBtn" title="Minimize Chat" aria-label="Minimize Chat">
+          <span class="material-symbols-outlined" aria-hidden="true">remove</span>
+        </button>
+
+        <!-- Close Button -->
+        <button class="concierge-close-btn" id="conciergeCloseBtn" title="Close Chat" aria-label="Close Chat">
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
         </button>
       </div>
     </div>

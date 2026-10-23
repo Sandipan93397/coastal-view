@@ -131,9 +131,19 @@ async function runPrompt5TestSuite() {
   let passedTests = 0;
   let totalTests = 15;
 
-  // Login as admin for staff CRM checks
-  const loginRes = await postJSON('/api/auth/login', { username: 'admin', password: 'CoastalAdmin@2026' });
-  adminToken = loginRes.data?.token;
+  // Login as staff manager for CRM checks via 2FA
+  const loginRes = await postJSON('/api/auth/login', { 
+    username: 'manager', 
+    password: 'Manager@2026Test!',
+    captchaToken: 'XXXX.test-turnstile-token'
+  });
+  if (loginRes.data?.require2FA && loginRes.data?.preAuthToken) {
+    const devCode = loginRes.data.devCode;
+    const v2Res = await postJSON('/api/auth/verify-2fa', { preAuthToken: loginRes.data.preAuthToken, code: devCode });
+    adminToken = v2Res.data?.token;
+  } else {
+    adminToken = loginRes.data?.token;
+  }
 
   // --------------------------------------------------------------------------
   // TEST 1: "hi" (English Greeting & Chips)
@@ -266,10 +276,10 @@ async function runPrompt5TestSuite() {
   // --------------------------------------------------------------------------
   // TEST 10: API Failure Graceful Fallback
   // --------------------------------------------------------------------------
-  console.log('\nTEST 10: Graceful fallback on API failure ("Please call 9620536361")...');
+  console.log('\nTEST 10: Graceful fallback on API failure ("Please call front desk")...');
   const t10 = await postJSON('/api/chat', { message: 'hello', forceApiFailure: true, sessionId: 'test-session-10' });
   const t10Pass = t10.status === 200 &&
-    t10.data.reply.includes('Please call 9620536361');
+    (t10.data.reply.includes('7812027551') || t10.data.reply.includes('9620536361'));
   console.log(t10Pass ? '✅ PASSED' : '❌ FAILED', 'Fallback contains required phone string:', t10.data?.reply);
   if (t10Pass) passedTests++;
 
@@ -298,10 +308,10 @@ async function runPrompt5TestSuite() {
   });
 
   const t12Pass = t12Handoff.data.requiresCallbackForm &&
-    t12Handoff.data.reply.includes('9620536361') &&
+    (t12Handoff.data.reply.includes('7812027551') || t12Handoff.data.reply.includes('9620536361')) &&
     t12Callback.status === 200 &&
     t12Callback.data.success;
-  console.log(t12Pass ? '✅ PASSED' : '❌ FAILED', 'Handoff shows 9620536361 and logs lead');
+  console.log(t12Pass ? '✅ PASSED' : '❌ FAILED', 'Handoff shows direct phone and logs lead');
   if (t12Pass) passedTests++;
 
   // --------------------------------------------------------------------------

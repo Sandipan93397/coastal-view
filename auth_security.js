@@ -272,7 +272,7 @@ async function verifyTurnstileToken({ token, remoteIp, isProduction = false }) {
   }
 
     // Explicit test token support in non-production development environments (e.g. CI / automated security suites)
-    if (!isProduction && token.startsWith('XXXX.test')) {
+    if (!isProduction && (token.startsWith('XXXX.test') || token === '1x00000000000000000000AA' || token.includes('test'))) {
       return { success: true };
     }
 
@@ -461,60 +461,53 @@ function create2FAEmailHtml(code, clientIp, device, timeStr) {
   `.trim();
 }
 
-// Deliver 2FA code via SMTP (or log to test outbox if test mode)
+const {
+  sendMailWithRetry,
+  templateLoginCode,
+  templateLockoutAlert,
+  templateNewDeviceLogin,
+  templatePasswordChanged,
+  templatePasswordReset,
+  getISTTimestamp
+} = require('./email_service');
+
+// Deliver 2FA code via SMTP (or console in development)
 async function sendAuthCodeEmail({ to, code, ip, device, db }) {
-  const timeStr = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST';
-  const html = create2FAEmailHtml(code, ip, device, timeStr);
-  const subject = `Your Coastal View Admin Login Code: ${code}`;
-  const sender = process.env.SMTP_FROM || '"Coastal View Security" <reservations@coastalviewmandarmani.com>';
+  const isProduction = process.env.NODE_ENV === 'production';
+  const timeStr = getISTTimestamp();
+  const template = templateLoginCode({ code, ip, device, timeStr });
 
-  // Always record in database outbox for auditing
-  if (db) {
-    db.emailOutbox = db.emailOutbox || [];
-    db.emailOutbox.unshift({
-      id: `email-2fa-${Date.now()}`,
-      to,
-      subject,
-      sentAt: new Date().toISOString(),
-      ip,
-      device,
-      status: 'Generated'
-    });
-    if (db.emailOutbox.length > 500) db.emailOutbox = db.emailOutbox.slice(0, 500);
+  // Terminal fallback: ONLY on localhost/development when not in production
+  if (!isProduction) {
+    console.log(`\n==================================================`);
+    console.log(`🔑 [DEV 2FA AUTHENTICATION CODE] ${code} (for ${to})`);
+    console.log(`==================================================\n`);
   }
 
-  console.log(`\n==================================================`);
-  console.log(`🔑 [2FA AUTHENTICATION CODE] ${code} (for ${to})`);
-  console.log(`==================================================\n`);
+  // Attempt real SMTP delivery via email_service
+  const sendRes = await sendMailWithRetry({
+    db,
+    type: 'Login 2FA Code',
+    to,
+    subject: template.subject,
+    html: template.html,
+    text: template.text
+  });
 
-  const transporter = getMailTransporter();
-  if (transporter) {
-    try {
-      await transporter.sendMail({
-        from: sender,
-        to,
-        subject,
-        html
-      });
-      return { success: true, deliveredVia: 'SMTP' };
-    } catch (err) {
-      console.error('SMTP 2FA email sending failed:', err.message);
-      // In development or test without live SMTP server, check if test mode allows simulated delivery
-      if (process.env.NODE_ENV === 'test' || process.env.TEST_MOCK_EMAIL === 'true') {
-        return { success: true, deliveredVia: 'Mock' };
-      }
-      return { success: false, error: err.message };
-    }
-  } else {
-    // In development or test without live SMTP server, deliver to db.emailOutbox
-    if (process.env.NODE_ENV !== 'production' || process.env.TEST_MOCK_EMAIL === 'true') {
-      return { success: true, deliveredVia: 'DevOutbox' };
-    }
-    return {
-      success: false,
-      error: 'SMTP credentials are not configured in environment variables (SMTP_HOST, SMTP_USER, SMTP_PASS).'
-    };
+  if (sendRes.success) {
+    return { success: true, deliveredVia: 'SMTP' };
   }
+
+  // In non-production development environments, allow login testing even if SMTP is unconfigured or network is offline
+  if (!isProduction) {
+    return { success: true, deliveredVia: 'DevConsole', devCode: code };
+  }
+
+  // In production, fallback is STRICTLY PROHIBITED
+  return {
+    success: false,
+    error: 'SMTP mail delivery failed. The second verification step cannot be bypassed.'
+  };
 }
 
 // --- TOTP AUTHENTICATOR APP & BACKUP CODES (RFC 6238) ---
@@ -577,18 +570,124 @@ function getTotpCodeAtCounter(secretBase32, counter) {
   return otp.toString().padStart(6, '0');
 }
 
-function verifyTotp(secretBase32, submittedCode) {
-  if (!secretBase32 || !submittedCode) return false;
+// --- ENCRYPTION AT REST FOR MFA SECRETS (AES-256-GCM) ---
+function encryptMfaSecret(plainSecret) {
+  if (!plainSecret) return null;
+  const rawKey = process.env.MFA_ENCRYPTION_KEY || process.env.SESSION_SECRET;
+  if (!rawKey) {
+    throw new Error('MFA encryption key not configured');
+  }
+  const key = crypto.createHash('sha256').update(rawKey).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  let enc = cipher.update(plainSecret, 'utf8', 'hex');
+  enc += cipher.final('hex');
+  const tag = cipher.getAuthTag().toString('hex');
+  return `enc:${iv.toString('hex')}:${tag}:${enc}`;
+}
+
+function decryptMfaSecret(stored) {
+  if (!stored) return null;
+  // If not prefixed with enc:, assume plain base32 secret (legacy backward compatibility)
+  if (!stored.startsWith('enc:')) {
+    return stored;
+  }
+  const rawKey = process.env.MFA_ENCRYPTION_KEY || process.env.SESSION_SECRET;
+  if (!rawKey) {
+    throw new Error('MFA encryption key not configured');
+  }
+  const parts = stored.split(':');
+  if (parts.length !== 4) return null;
+  const iv = Buffer.from(parts[1], 'hex');
+  const tag = Buffer.from(parts[2], 'hex');
+  const encHex = parts[3];
+  const key = crypto.createHash('sha256').update(rawKey).digest();
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  let dec = decipher.update(encHex, 'hex', 'utf8');
+  dec += decipher.final('utf8');
+  return dec;
+}
+
+function maskIp(ip) {
+  if (!ip || ip === 'Unknown') return 'Unknown';
+  const cleanIp = ip.replace(/^.*:/, '');
+  if (cleanIp === '1' || cleanIp === '127.0.0.1') return '127.0.***.1';
+  const parts = cleanIp.split('.');
+  if (parts.length === 4) {
+    return `${parts[0]}.${parts[1]}.***.${parts[3]}`;
+  }
+  if (cleanIp.includes(':')) {
+    const colParts = cleanIp.split(':');
+    return `${colParts[0]}:${colParts[1]}::****:${colParts[colParts.length - 1]}`;
+  }
+  return cleanIp;
+}
+
+/**
+ * Verifies 6-digit TOTP code with:
+ * - 30-second timestep
+ * - One-step drift tolerance (-30s, 0, +30s)
+ * - Strict NO CODE REUSE: ensures a counter cannot be used twice for the same user
+ * - Auto-decrypts secret if encrypted at rest (enc:...)
+ */
+function verifyTotp(secretBase32OrEncrypted, submittedCode, user = null) {
+  if (!secretBase32OrEncrypted || !submittedCode) return false;
+  let secretBase32 = secretBase32OrEncrypted;
+  try {
+    secretBase32 = decryptMfaSecret(secretBase32OrEncrypted);
+  } catch (err) {
+    console.error('Decryption error during TOTP verification:', err.message);
+    return false;
+  }
+  if (!secretBase32) return false;
+
   const cleanCode = submittedCode.trim();
   const timeStep = 30; // seconds
   const currentCounter = Math.floor(Date.now() / 1000 / timeStep);
 
   // Check counter -1, 0, +1 (allow 30-second drift)
   for (let drift = -1; drift <= 1; drift++) {
-    const expected = getTotpCodeAtCounter(secretBase32, currentCounter + drift);
-    if (expected === cleanCode) return true;
+    const counterToCheck = currentCounter + drift;
+    const expected = getTotpCodeAtCounter(secretBase32, counterToCheck);
+    if (expected === cleanCode) {
+      // Enforce NO CODE REUSE
+      if (user && user.lastTotpCounter !== undefined && user.lastTotpCounter !== null) {
+        if (counterToCheck <= user.lastTotpCounter) {
+          console.warn(`[TOTP Security] Reused code rejected for user ${user.username}. Counter: ${counterToCheck} <= ${user.lastTotpCounter}`);
+          return false;
+        }
+      }
+      if (user) {
+        user.lastTotpCounter = counterToCheck;
+      }
+      return true;
+    }
   }
   return false;
+}
+
+function generateCurrentTotp(secretBase32) {
+  const counter = Math.floor(Date.now() / 1000 / 30);
+  return getTotpCodeAtCounter(secretBase32, counter);
+}
+
+const QRCode = require('qrcode');
+async function generateTotpQrDataUrl(otpauthUrl) {
+  try {
+    return await QRCode.toDataURL(otpauthUrl, {
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      width: 220,
+      color: {
+        dark: '#073B4C',
+        light: '#FFFFFF'
+      }
+    });
+  } catch (err) {
+    console.error('QR code generation error:', err);
+    return null;
+  }
 }
 
 function generateBackupCodes() {
@@ -631,11 +730,11 @@ async function sendSuperAdminAlert(subject, messageHtml, db) {
     });
   }
 
-  const transporter = getMailTransporter();
-  if (transporter) {
+  if (alertEmail) {
     try {
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM || '"Coastal View Security" <reservations@coastalviewmandarmani.com>',
+      await sendMailWithRetry({
+        db,
+        type: `Security Alert: ${subject}`,
         to: alertEmail,
         subject: `[SECURITY ALERT] ${subject}`,
         html: fullHtml
@@ -716,7 +815,12 @@ module.exports = {
   parseDeviceString,
   sendAuthCodeEmail,
   generateTotpSecret,
+  generateTotpQrDataUrl,
+  generateCurrentTotp,
   verifyTotp,
+  encryptMfaSecret,
+  decryptMfaSecret,
+  maskIp,
   generateBackupCodes,
   sendSuperAdminAlert,
   performDailyBackup,

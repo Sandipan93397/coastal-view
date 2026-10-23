@@ -160,7 +160,7 @@ function generateMenuHtml() {
                 <span class="section-tag turquoise" style="display:inline-block; margin-bottom: 8px;">Coastal Nightlife</span>
                 <h3 class="mocktail-lounge-title">The Coral Reef Lounge</h3>
                 <p class="mocktail-lounge-desc">
-                  Immerse yourself in moody ocean-view neon sophistication. Unwind to acoustic lounge beats while sipping handcrafted signature cocktails prepared by our master mixologists.
+                  Immerse yourself in moody ocean-view neon sophistication. Unwind to acoustic lounge beats while sipping handcrafted signature mocktails and refreshing drinks prepared fresh at our beachside lounge.
                 </p>
                 <div class="mocktail-lounge-badges">
                   <span class="lounge-feature-badge"><span class="material-symbols-outlined">nightlife</span> Neon Ambience</span>
@@ -241,7 +241,7 @@ ${jsonLd}
           <li><a href="/#rooms" class="nav-link">Rooms</a></li>
           <li><a href="/#amenities" class="nav-link">Amenities</a></li>
           <li><a href="/menu" class="nav-link active">Menu</a></li>
-          <li><a href="/#cocktails" class="nav-link">Cocktails</a></li>
+          <li><a href="/#mocktails" class="nav-link">Mocktails</a></li>
           <li><a href="/#candlelight" class="nav-link">Candlelight</a></li>
           <li><a href="/gallery" class="nav-link">Gallery</a></li>
           <li><a href="/#nearby" class="nav-link">Places</a></li>
@@ -286,7 +286,7 @@ ${jsonLd}
         <li><a href="/#rooms" class="mobile-nav-link"><span class="material-symbols-outlined">hotel</span> Rooms</a></li>
         <li><a href="/#amenities" class="mobile-nav-link"><span class="material-symbols-outlined">pool</span> Amenities</a></li>
         <li><a href="/menu" class="mobile-nav-link active"><span class="material-symbols-outlined">restaurant_menu</span> Menu</a></li>
-        <li><a href="/#cocktails" class="mobile-nav-link"><span class="material-symbols-outlined">local_bar</span> Cocktails</a></li>
+        <li><a href="/#mocktails" class="mobile-nav-link"><span class="material-symbols-outlined">local_bar</span> Mocktails</a></li>
         <li><a href="/#candlelight" class="mobile-nav-link"><span class="material-symbols-outlined">candle</span> Candlelight</a></li>
         <li><a href="/gallery" class="mobile-nav-link"><span class="material-symbols-outlined">photo_library</span> Gallery</a></li>
         <li><a href="/#nearby" class="mobile-nav-link"><span class="material-symbols-outlined">explore</span> Places</a></li>

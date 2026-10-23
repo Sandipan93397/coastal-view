@@ -35,12 +35,18 @@ const {
   parseDeviceString,
   sendAuthCodeEmail,
   generateTotpSecret,
+  generateTotpQrDataUrl,
   verifyTotp,
+  encryptMfaSecret,
+  decryptMfaSecret,
+  maskIp,
   generateBackupCodes,
   sendSuperAdminAlert,
   performDailyBackup,
   exportEncryptedDatabase
 } = require('./auth_security');
+
+const emailService = require('./email_service');
 
 const {
   PHOTO_SLOTS,
@@ -50,7 +56,11 @@ const {
   recordMediaVersion,
   performUndo,
   restoreFromHistory,
-  applyUrlToSlot
+  applyUrlToSlot,
+  createUndoToken,
+  resolveSlotUrl,
+  withVersion,
+  UPLOADS_ROOT
 } = require('./media_security');
 
 // Run daily database backup routine on server start
@@ -86,6 +96,13 @@ app.disable('x-powered-by');
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 const DB_PATH = path.join(__dirname, 'data', 'db.json');
+
+// Map a public "/uploads/..." URL to a safe absolute path inside the persistent uploads folder
+function uploadsPathFromUrl(url) {
+  const rel = String(url || '').split('?')[0].replace(/^\/uploads\//, '');
+  const abs = path.resolve(UPLOADS_ROOT, rel);
+  return abs.startsWith(path.resolve(UPLOADS_ROOT) + path.sep) ? abs : null;
+}
 
 // --- HELPER FUNCTIONS FOR DATABASE ---
 function readDB() {
@@ -334,19 +351,20 @@ async function sendBookingConfirmationEmail(booking, db) {
     status: 'Recorded in Outbox'
   };
 
-  if (recipientEmail && mailTransporter) {
+  if (recipientEmail) {
     try {
-      await mailTransporter.sendMail({
-        from: `"Coastal View, Managed By Ani's" <${hotelEmail}>`,
+      const sendRes = await emailService.sendMailWithRetry({
+        db,
+        type: 'Booking Confirmation',
         to: recipientEmail,
         subject: outboxEntry.subject,
         html: emailHtml,
         attachments
       });
-      outboxEntry.status = 'Sent via SMTP';
+      outboxEntry.status = sendRes.success ? 'Sent via SMTP' : `Queued in Outbox (${sendRes.error})`;
     } catch (err) {
-      console.warn('SMTP delivery notice:', err.message);
-      outboxEntry.status = 'Queued in Outbox (SMTP Error: ' + err.message + ')';
+      console.warn('Booking confirmation email notice:', err.message);
+      outboxEntry.status = 'Queued in Outbox (Error: ' + err.message + ')';
     }
   }
 
@@ -538,10 +556,25 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 // Serve static frontend files
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 app.use('/admin/assets', express.static(path.join(__dirname, 'assets')));
-app.use('/admin/uploads', express.static(path.join(__dirname, 'uploads')));
+// Uploaded photos live in a persistent folder (UPLOADS_DIR, default ./uploads) OUTSIDE the build
+// output. Only image files are served, never as executable/HTML content.
+const uploadStaticOpts = {
+  index: false,
+  dotfiles: 'deny',
+  maxAge: '7d',
+  setHeaders: (res) => { res.setHeader('X-Content-Type-Options', 'nosniff'); }
+};
+const imageOnlyGuard = (req, res, next) => (/\.(webp|png|jpe?g|gif|avif|svg|ico)$/i.test(req.path) ? next() : res.status(404).end());
+app.use('/admin/uploads', imageOnlyGuard, express.static(UPLOADS_ROOT, uploadStaticOpts));
 app.use('/admin', express.static(path.join(__dirname, 'admin')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use(express.static(path.join(__dirname)));
+app.use('/uploads', imageOnlyGuard, express.static(UPLOADS_ROOT, uploadStaticOpts));
+// SECURITY: do NOT serve the whole project folder (it contained data/db.json with password hashes,
+// server.js, etc.). Only explicit public root files are exposed.
+const PUBLIC_ROOT_FILES = ['index.html', 'gallery.html', 'menu.html', 'robots.txt', 'sitemap.xml', 'llms.txt'];
+app.get(['/', ...PUBLIC_ROOT_FILES.map(f => '/' + f)], (req, res) => {
+  const f = req.path === '/' ? 'index.html' : req.path.slice(1);
+  res.sendFile(path.join(__dirname, f));
+});
 
 // Health Check endpoint for Render & 24/7 Keep-Alive Uptime Pings
 app.get('/health', (req, res) => {
@@ -629,6 +662,7 @@ function verifyCsrf(req, res, next) {
     '/api/concierge',
     '/api/auth/login',
     '/api/auth/verify-2fa',
+    '/api/auth/request-email-code',
     '/api/auth/resend-code',
     '/api/auth/captcha',
     '/api/auth/forgot-password',
@@ -891,11 +925,47 @@ app.post('/api/auth/login', async (req, res) => {
       }
     }
 
-    // MANDATORY STEP 2: Issue 6-digit cryptographic code via Email
-    const rawCode = generateAuthCode();
-    const codeHash = hashAuthCode(rawCode);
     const preAuthToken = crypto.randomBytes(32).toString('hex');
     const device = parseDeviceString(req.headers['user-agent']);
+    const hasTotp = Boolean(user.totpSecret);
+    const maskedEmail = user.email ? emailService.maskEmail(user.email) : 'Registered Email';
+
+    // PRIMARY 2FA: If TOTP is configured, prompt for Authenticator app (no immediate email send)
+    if (hasTotp) {
+      preAuthStore.set(preAuthToken, {
+        username: user.username,
+        name: user.name,
+        role: user.role,
+        email: user.email,
+        codeHash: null,
+        lastCodeSentAt: null,
+        codeAttempts: 0,
+        totpSecret: user.totpSecret,
+        backupCodes: user.backupCodes || [],
+        hasTotp: true,
+        primaryMode: 'totp',
+        requireMfaSetup: false,
+        ip: clientIp,
+        device,
+        expiresAt: Date.now() + CODE_EXPIRY_MS
+      });
+
+      return res.json({
+        success: true,
+        require2FA: true,
+        hasTotp: true,
+        primaryMode: 'totp',
+        mfaType: 'totp',
+        preAuthToken,
+        maskedEmail,
+        requireMfaSetup: false,
+        message: 'Please enter the 6-digit code from your Authenticator app.'
+      });
+    }
+
+    // BACKUP / INITIAL SETUP: Issue 6-digit cryptographic code via Email
+    const rawCode = generateAuthCode();
+    const codeHash = hashAuthCode(rawCode);
 
     preAuthStore.set(preAuthToken, {
       username: user.username,
@@ -903,16 +973,18 @@ app.post('/api/auth/login', async (req, res) => {
       role: user.role,
       email: user.email,
       codeHash,
+      lastCodeSentAt: Date.now(),
       codeAttempts: 0,
-      totpSecret: user.totpSecret || null,
+      totpSecret: null,
       backupCodes: user.backupCodes || [],
-      hasTotp: !!user.totpSecret,
+      hasTotp: false,
+      primaryMode: 'email',
+      requireMfaSetup: user.requireMfaSetup !== false,
       ip: clientIp,
       device,
       expiresAt: Date.now() + CODE_EXPIRY_MS
     });
 
-    // Send code via SMTP
     const emailResult = await sendAuthCodeEmail({
       to: user.email,
       code: rawCode,
@@ -932,17 +1004,18 @@ app.post('/api/auth/login', async (req, res) => {
     logAudit(db, user, '2FA Code Dispatched', `6-digit login verification code sent to ${user.email} from IP ${clientIp}.`, req);
     writeDB(db);
 
-    const maskedEmail = user.email ? user.email.replace(/(.{2})(.*)(@.*)/, '$1••••$3') : 'Registered Email';
-
-    const isDevWithoutSmtp = process.env.NODE_ENV !== 'production' && !process.env.SMTP_USER;
+    const isDev = !isProduction && !process.env.SMTP_USER;
 
     return res.json({
       success: true,
       require2FA: true,
+      hasTotp: false,
+      primaryMode: 'email',
+      mfaType: 'email',
       preAuthToken,
       maskedEmail,
-      devCode: isDevWithoutSmtp ? rawCode : undefined,
-      hasTotp: !!user.totpSecret,
+      devCode: isDev ? rawCode : undefined,
+      requireMfaSetup: user.requireMfaSetup !== false,
       message: `A 6-digit verification code has been dispatched to ${maskedEmail}. Enter the code within 10 minutes to access the admin portal.`
     });
   } catch (err) {
@@ -951,7 +1024,71 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// 3. Resend 2FA Code
+// 2b. Request Backup 6-Digit Email Code (For TOTP Users)
+app.post('/api/auth/request-email-code', async (req, res) => {
+  const { preAuthToken } = req.body;
+  if (!preAuthToken) {
+    return res.status(400).json({ success: false, message: 'Missing pre-authentication session token.' });
+  }
+
+  const preAuth = preAuthStore.get(preAuthToken);
+  if (!preAuth || Date.now() > preAuth.expiresAt) {
+    preAuthStore.delete(preAuthToken);
+    return res.status(401).json({ success: false, message: 'Verification session expired. Please sign in again.' });
+  }
+
+  // 60-Second Cooldown Enforcement
+  if (preAuth.lastCodeSentAt && (Date.now() - preAuth.lastCodeSentAt < 60000)) {
+    const remainingSecs = Math.ceil((60000 - (Date.now() - preAuth.lastCodeSentAt)) / 1000);
+    return res.status(429).json({
+      success: false,
+      cooldown: true,
+      remainingSeconds: remainingSecs,
+      message: `Please wait ${remainingSecs} second(s) before requesting another email code.`
+    });
+  }
+
+  const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').replace(/^.*:/, '');
+  const throttleCheck = canRequestCode(`${preAuth.username}_${clientIp}`);
+  if (!throttleCheck.allowed) {
+    return res.status(429).json({ success: false, message: throttleCheck.message });
+  }
+
+  const newCode = generateAuthCode();
+  preAuth.codeHash = hashAuthCode(newCode);
+  preAuth.lastCodeSentAt = Date.now();
+  preAuth.codeAttempts = 0;
+  preAuth.expiresAt = Date.now() + CODE_EXPIRY_MS;
+
+  const db = readDB();
+  const emailResult = await sendAuthCodeEmail({
+    to: preAuth.email,
+    code: newCode,
+    ip: clientIp,
+    device: preAuth.device,
+    db
+  });
+
+  if (!emailResult.success) {
+    return res.status(502).json({ success: false, message: 'Failed to deliver email code. Please check SMTP settings.' });
+  }
+
+  if (db) writeDB(db);
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isDev = !isProduction && !process.env.SMTP_USER;
+  const maskedEmail = emailService.maskEmail(preAuth.email);
+
+  res.json({
+    success: true,
+    maskedEmail,
+    devCode: isDev ? newCode : undefined,
+    cooldownSeconds: 60,
+    message: `A fresh 6-digit authentication code has been sent to ${maskedEmail}.`
+  });
+});
+
+// 3. Resend 2FA Code (with 60-second cooldown and 3 per 10 mins throttle)
 app.post('/api/auth/resend-code', async (req, res) => {
   const { preAuthToken } = req.body;
   if (!preAuthToken) {
@@ -964,6 +1101,17 @@ app.post('/api/auth/resend-code', async (req, res) => {
     return res.status(401).json({ success: false, message: 'Session expired. Please sign in again.' });
   }
 
+  // 60-Second Cooldown Enforcement
+  if (preAuth.lastCodeSentAt && (Date.now() - preAuth.lastCodeSentAt < 60000)) {
+    const remainingSecs = Math.ceil((60000 - (Date.now() - preAuth.lastCodeSentAt)) / 1000);
+    return res.status(429).json({
+      success: false,
+      cooldown: true,
+      remainingSeconds: remainingSecs,
+      message: `Please wait ${remainingSecs} second(s) before requesting another code.`
+    });
+  }
+
   const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').replace(/^.*:/, '');
   const throttleCheck = canRequestCode(`${preAuth.username}_${clientIp}`);
   if (!throttleCheck.allowed) {
@@ -972,6 +1120,7 @@ app.post('/api/auth/resend-code', async (req, res) => {
 
   const newCode = generateAuthCode();
   preAuth.codeHash = hashAuthCode(newCode);
+  preAuth.lastCodeSentAt = Date.now();
   preAuth.codeAttempts = 0;
   preAuth.expiresAt = Date.now() + CODE_EXPIRY_MS;
 
@@ -990,11 +1139,13 @@ app.post('/api/auth/resend-code', async (req, res) => {
 
   if (db) writeDB(db);
 
-  const isDevWithoutSmtp = process.env.NODE_ENV !== 'production' && !process.env.SMTP_USER;
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isDev = !isProduction && !process.env.SMTP_USER;
 
   res.json({
     success: true,
-    devCode: isDevWithoutSmtp ? newCode : undefined,
+    devCode: isDev ? newCode : undefined,
+    cooldownSeconds: 60,
     message: 'A fresh 6-digit authentication code has been sent to your email.'
   });
 });
@@ -1003,7 +1154,7 @@ app.post('/api/auth/resend-code', async (req, res) => {
 app.post('/api/auth/verify-2fa', async (req, res) => {
   const { preAuthToken, code, rememberDevice } = req.body;
   if (!preAuthToken || !code) {
-    return res.status(400).json({ success: false, message: 'Please provide both preAuthToken and the 6-digit verification code.' });
+    return res.status(400).json({ success: false, message: 'Please provide both preAuthToken and the verification code.' });
   }
 
   const preAuth = preAuthStore.get(preAuthToken);
@@ -1019,32 +1170,37 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
 
   const cleanCode = code.trim();
   let isValid = false;
+  let codeTypeUsed = 'Email';
+  const db = readDB();
+  const user = (db.users || []).find(u => u.username === preAuth.username);
 
-  // A. Check Email 6-Digit Code
-  const inputHash = hashAuthCode(cleanCode);
-  if (inputHash === preAuth.codeHash) {
-    isValid = true;
-  }
-
-  // B. Check TOTP Authenticator App if enabled
+  // A. Check TOTP Authenticator App (with strict anti-replay / no reuse)
   if (!isValid && preAuth.totpSecret) {
-    isValid = verifyTotp(preAuth.totpSecret, cleanCode);
+    isValid = verifyTotp(preAuth.totpSecret, cleanCode, user);
+    if (isValid) {
+      codeTypeUsed = 'TOTP Authenticator';
+      writeDB(db);
+    }
   }
 
-  // C. Check One-time Backup Codes
-  if (!isValid && Array.isArray(preAuth.backupCodes) && preAuth.backupCodes.length > 0) {
+  // B. Check Email 6-Digit Code
+  if (!isValid && preAuth.codeHash) {
+    const inputHash = hashAuthCode(cleanCode);
+    if (inputHash === preAuth.codeHash) {
+      isValid = true;
+      codeTypeUsed = 'Email Code';
+    }
+  }
+
+  // C. Check One-time Backup Recovery Codes (8-character hex, single use)
+  if (!isValid && user && Array.isArray(user.backupCodes) && user.backupCodes.length > 0) {
     const backupHash = crypto.createHash('sha256').update(cleanCode.toUpperCase()).digest('hex');
-    const backupIdx = preAuth.backupCodes.indexOf(backupHash);
+    const backupIdx = user.backupCodes.indexOf(backupHash);
     if (backupIdx !== -1) {
       isValid = true;
-      // Consume backup code
-      preAuth.backupCodes.splice(backupIdx, 1);
-      const db = readDB();
-      const user = (db.users || []).find(u => u.username === preAuth.username);
-      if (user) {
-        user.backupCodes = preAuth.backupCodes;
-        writeDB(db);
-      }
+      codeTypeUsed = 'Emergency Recovery Code';
+      user.backupCodes.splice(backupIdx, 1); // Single-use consumption
+      writeDB(db);
     }
   }
 
@@ -1053,7 +1209,7 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
     const remaining = 5 - preAuth.codeAttempts;
     if (preAuth.codeAttempts >= 5) {
       preAuthStore.delete(preAuthToken);
-      return res.status(429).json({ success: false, message: 'Maximum attempts exceeded. Code invalidated.' });
+      return res.status(429).json({ success: false, message: 'Maximum attempts (5) exceeded. Code invalidated. Please sign in again.' });
     }
     return res.status(401).json({
       success: false,
@@ -1062,6 +1218,7 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
   }
 
   // Code verified! Remove preAuth
+  const requireMfaSetup = Boolean(preAuth.requireMfaSetup || (user && user.requireMfaSetup));
   preAuthStore.delete(preAuthToken);
 
   const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').replace(/^.*:/, '');
@@ -1076,6 +1233,7 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
     role: preAuth.role,
     name: preAuth.name,
     email: preAuth.email,
+    requireMfaSetup,
     csrfToken,
     ip: clientIp,
     device,
@@ -1085,23 +1243,24 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
 
   activeSessions.set(token, sessionData);
 
+  const isProduction = process.env.NODE_ENV === 'production';
+
   // Set HttpOnly, SameSite=Strict cookies
   res.cookie('admin_session', token, {
     httpOnly: true,
     sameSite: 'strict',
-    secure: process.env.COOKIE_SECURE === 'true',
+    secure: isProduction || process.env.COOKIE_SECURE === 'true',
     path: '/',
     maxAge: IDLE_TIMEOUT_MS
   });
 
   res.cookie('admin_csrf', csrfToken, {
     sameSite: 'strict',
-    secure: process.env.COOKIE_SECURE === 'true',
+    secure: isProduction || process.env.COOKIE_SECURE === 'true',
     path: '/',
     maxAge: IDLE_TIMEOUT_MS
   });
 
-  const db = readDB();
   db.loginHistory = db.loginHistory || [];
 
   // Check if new device / new IP
@@ -1115,6 +1274,7 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
     role: preAuth.role,
     ip: clientIp,
     device,
+    method: codeTypeUsed,
     status: 'Success'
   });
   if (db.loginHistory.length > 500) db.loginHistory = db.loginHistory.slice(0, 500);
@@ -1135,19 +1295,19 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
     res.cookie('remember_device', rawDeviceToken, {
       httpOnly: true,
       sameSite: 'strict',
-      secure: process.env.COOKIE_SECURE === 'true',
+      secure: isProduction || process.env.COOKIE_SECURE === 'true',
       path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
   }
 
-  logAudit(db, sessionData, 'Staff Login Success', `${sessionData.role} "${sessionData.username}" signed in with verified 2FA code from IP ${clientIp}.`, req);
+  logAudit(db, sessionData, 'Staff Login Success', `${sessionData.role} "${sessionData.username}" signed in via ${codeTypeUsed} from IP ${clientIp}.`, req);
 
   // Send alert if new device
   if (isNewDeviceOrIp) {
     sendSuperAdminAlert(
       `New Device Sign-In: ${preAuth.username}`,
-      `A successful 2FA login was completed for user <strong>${preAuth.username}</strong> from a new IP address <code>${clientIp}</code> (${device}). If this wasn’t authorized, change your password immediately.`,
+      `A successful 2FA login was completed for user <strong>${preAuth.username}</strong> from a new IP address <code>${clientIp}</code> (${device}). If this wasn't you, change your password immediately.`,
       db
     );
   }
@@ -1162,7 +1322,8 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
       username: sessionData.username,
       role: sessionData.role,
       name: sessionData.name,
-      email: sessionData.email
+      email: sessionData.email,
+      requireMfaSetup
     },
     message: 'Two-factor authentication verified. Welcome to Coastal View Management.'
   });
@@ -1315,15 +1476,22 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   });
 
   const resetLink = `http://localhost:${PORT}/admin/?reset_token=${resetToken}`;
+  const timeStr = emailService.getISTTimestamp();
+  const template = emailService.templatePasswordReset({
+    resetUrl: resetLink,
+    resetToken,
+    ip: clientIp,
+    device: parseDeviceString(req.headers['user-agent']),
+    timeStr
+  });
 
-  db.emailOutbox = db.emailOutbox || [];
-  db.emailOutbox.unshift({
-    id: `reset-${Date.now()}`,
+  await emailService.sendMailWithRetry({
+    db,
+    type: 'Password Reset',
     to: user.email,
-    subject: 'Coastal View Admin - Single-Use 30-Minute Password Reset Link',
-    html: `<p>Hello ${user.name},</p><p>A password reset was requested for your Coastal View account. This link expires in 30 minutes and can only be used once:</p><p><a href="${resetLink}">Reset Password</a></p><p>Token: <code>${resetToken}</code></p>`,
-    sentAt: new Date().toISOString(),
-    status: 'Dispatched'
+    subject: template.subject,
+    html: template.html,
+    text: template.text
   });
 
   logAudit(db, user, 'Password Reset Requested', `Single-use 30-minute password reset token generated for ${user.username}.`, req);
@@ -1335,9 +1503,9 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   });
 });
 
-// 11. Reset Password Flow: Apply New Password & Invalidate All Sessions
+// 11. Reset Password Flow: Requires 2FA verification, Applies Argon2id & Invalidates All Sessions
 app.post('/api/auth/reset-password', async (req, res) => {
-  const { resetToken, newPassword } = req.body;
+  const { resetToken, newPassword, code } = req.body;
   if (!resetToken || !newPassword) {
     return res.status(400).json({ success: false, message: 'Missing token or password.' });
   }
@@ -1362,74 +1530,559 @@ app.post('/api/auth/reset-password', async (req, res) => {
     return res.status(404).json({ success: false, message: 'User account not found.' });
   }
 
+  // If user has 2FA configured (TOTP or backup codes), require 2FA verification before resetting
+  if (user.totpSecret || (user.backupCodes && user.backupCodes.length > 0)) {
+    if (!code) {
+      return res.status(400).json({
+        success: false,
+        require2FA: true,
+        message: 'Two-factor verification code is required to complete password reset.'
+      });
+    }
+
+    const cleanCode = code.trim();
+    let is2faValid = false;
+
+    // Check TOTP
+    if (user.totpSecret) {
+      is2faValid = verifyTotp(user.totpSecret, cleanCode, user);
+    }
+
+    // Check Backup Recovery Codes
+    if (!is2faValid && Array.isArray(user.backupCodes)) {
+      const backupHash = crypto.createHash('sha256').update(cleanCode.toUpperCase()).digest('hex');
+      const bIdx = user.backupCodes.indexOf(backupHash);
+      if (bIdx !== -1) {
+        is2faValid = true;
+        user.backupCodes.splice(bIdx, 1);
+      }
+    }
+
+    if (!is2faValid) {
+      return res.status(401).json({
+        success: false,
+        require2FA: true,
+        message: 'Invalid two-factor code. Please enter a valid authenticator or recovery code.'
+      });
+    }
+  }
+
   user.passwordHash = await hashPassword(newPassword);
   item.used = true; // Single-use!
   db.passwordResetTokens.splice(tokenIdx, 1);
 
-  // Terminate ALL sessions for this user
+  // Terminate ALL sessions for this user across all devices
+  let terminatedCount = 0;
   for (const [t, s] of activeSessions.entries()) {
-    if (s.username === user.username) activeSessions.delete(t);
+    if (s.username === user.username) {
+      activeSessions.delete(t);
+      terminatedCount++;
+    }
   }
 
-  logAudit(db, user, 'Password Reset Completed', `Password successfully updated via expiring reset token for ${user.username}. All active sessions invalidated.`, req);
+  logAudit(db, user, 'Password Reset Completed', `Password successfully updated via expiring reset token for ${user.username}. All active sessions (${terminatedCount}) invalidated.`, req);
+
+  // Send security alert email
+  const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').replace(/^.*:/, '');
+  const device = parseDeviceString(req.headers['user-agent']);
+  const timeStr = emailService.getISTTimestamp();
+  const alertTemplate = emailService.templatePasswordChanged({
+    username: user.username,
+    ip: clientIp,
+    device,
+    timeStr
+  });
+
+  await emailService.sendMailWithRetry({
+    db,
+    type: 'Security Alert: Password Changed',
+    to: user.email,
+    subject: alertTemplate.subject,
+    html: alertTemplate.html,
+    text: alertTemplate.text
+  });
+
   writeDB(db);
 
-  res.json({ success: true, message: 'Password reset successfully with Argon2id! Please sign in with your new password.' });
+  res.json({ success: true, message: 'Password reset successfully with Argon2id! All existing sessions have been signed out. Please sign in with your new password.' });
 });
 
-// 12. Optional TOTP Authenticator Setup
-app.post('/api/auth/totp/setup', requireAdmin, requireReauth, (req, res) => {
+// 12. TOTP Authenticator Setup (generates secret, QR code data URL, and 8 backup codes)
+// Supports both GET and POST for seamless client compatibility
+const handleTotpSetup = async (req, res) => {
+  try {
+    const rawKey = process.env.MFA_ENCRYPTION_KEY || process.env.SESSION_SECRET;
+    if (!rawKey) {
+      console.error('[MFA Security Error] Neither MFA_ENCRYPTION_KEY nor SESSION_SECRET is configured.');
+      return res.status(500).json({
+        success: false,
+        message: 'MFA encryption key not configured'
+      });
+    }
+
+    const secret = generateTotpSecret();
+    const manualKeyGrouped = secret.match(/.{1,4}/g).join(' ');
+    const { codes, hashed } = generateBackupCodes();
+    const issuer = 'Coastal View';
+    const accountName = 'Coastal View Admin';
+    const otpauthUrl = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(accountName)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}`;
+
+    let qrCodeDataUrl = null;
+    try {
+      qrCodeDataUrl = await generateTotpQrDataUrl(otpauthUrl);
+      if (!qrCodeDataUrl) throw new Error('QR code generator returned empty data');
+    } catch (qrErr) {
+      console.error('Server failed to generate QR code:', qrErr);
+      return res.status(500).json({
+        success: false,
+        message: "Couldn't generate QR code. Please try again."
+      });
+    }
+
+    const db = readDB();
+    const user = (db.users || []).find(u => u.username === req.user.username);
+    if (user) {
+      // Secret is encrypted at rest using AES-256-GCM
+      user.pendingTotpSecret = encryptMfaSecret(secret);
+      user.pendingBackupCodes = hashed;
+      user.pendingPlainBackupCodes = codes;
+      user.pendingCodeVerified = false;
+      writeDB(db);
+    }
+
+    res.json({
+      success: true,
+      secret,
+      manualKeyGrouped,
+      issuer,
+      accountName,
+      otpauthUrl,
+      qrDataUrl: qrCodeDataUrl,
+      qrCodeDataUrl,
+      backupCodes: codes,
+      message: 'Scan the QR code or enter the manual key in your authenticator app.'
+    });
+  } catch (err) {
+    console.error('TOTP setup error:', err);
+    res.status(500).json({
+      success: false,
+      message: err.message === 'MFA encryption key not configured' 
+        ? 'MFA encryption key not configured' 
+        : 'Failed to generate authenticator setup: ' + err.message
+    });
+  }
+};
+
+app.get('/api/auth/totp/setup', requireAdmin, handleTotpSetup);
+app.post('/api/auth/totp/setup', requireAdmin, handleTotpSetup);
+
+// 12a. Step 2: Verify 6-digit code during setup
+app.post('/api/auth/totp/verify-setup', requireAdmin, async (req, res) => {
+  const { code } = req.body;
+  if (!code || String(code).trim().length !== 6) {
+    return res.status(400).json({ success: false, message: 'Please enter a valid 6-digit code from your Authenticator app.' });
+  }
+
+  const db = readDB();
+  const user = (db.users || []).find(u => u.username === req.user.username);
+  if (!user || !user.pendingTotpSecret) {
+    return res.status(400).json({ success: false, message: 'No active setup session found. Please click Set Up Authenticator again.' });
+  }
+
+  const isValid = verifyTotp(user.pendingTotpSecret, String(code).trim(), null);
+  if (!isValid) {
+    return res.status(400).json({ success: false, message: 'Invalid or expired code. Please check your device clock and try again.' });
+  }
+
+  user.pendingCodeVerified = true;
+  writeDB(db);
+
+  res.json({
+    success: true,
+    message: 'Code verified successfully! Please save your emergency recovery codes to complete setup.'
+  });
+});
+
+// 12b. Step 3: Confirm saved recovery codes and activate TOTP
+app.post('/api/auth/totp/activate', requireAdmin, async (req, res) => {
+  const { confirmedSaved } = req.body;
+  if (confirmedSaved !== true) {
+    return res.status(400).json({ success: false, message: 'You must confirm that you have saved your emergency recovery codes before enabling TOTP.' });
+  }
+
+  const db = readDB();
+  const user = (db.users || []).find(u => u.username === req.user.username);
+  if (!user || !user.pendingTotpSecret || !user.pendingCodeVerified) {
+    return res.status(400).json({ success: false, message: 'Setup code has not been verified. Please complete Step 2 first.' });
+  }
+
+  user.totpSecret = user.pendingTotpSecret;
+  user.backupCodes = user.pendingBackupCodes || [];
+  user.lastTotpCounter = null;
+  user.requireMfaSetup = false;
+  delete user.pendingTotpSecret;
+  delete user.pendingBackupCodes;
+  delete user.pendingPlainBackupCodes;
+  delete user.pendingCodeVerified;
+
+  if (req.user) {
+    req.user.requireMfaSetup = false;
+  }
+
+  logAudit(db, req.user, 'TOTP 2FA Configured', `Authenticator app 2FA enabled for ${req.user.username}.`, req);
+  sendSuperAdminAlert(
+    `Authenticator 2FA Enabled: ${req.user.username}`,
+    `Staff user <strong>${req.user.username}</strong> has successfully configured and activated Authenticator App (TOTP) two-factor authentication.`,
+    db
+  );
+  writeDB(db);
+
+  res.json({
+    success: true,
+    message: 'Authenticator app enabled successfully! Two-factor authentication is active.'
+  });
+});
+
+// Backward-compatible single-step confirm handler
+app.post('/api/auth/totp/confirm', requireAdmin, async (req, res) => {
+  const { code } = req.body;
+  if (!code) {
+    return res.status(400).json({ success: false, message: '6-digit verification code is required.' });
+  }
+
+  const db = readDB();
+  const user = (db.users || []).find(u => u.username === req.user.username);
+  if (!user || !user.pendingTotpSecret) {
+    return res.status(400).json({ success: false, message: 'No setup session found. Please click Setup Authenticator again.' });
+  }
+
+  const isValid = verifyTotp(user.pendingTotpSecret, String(code).trim(), user);
+  if (!isValid) {
+    return res.status(400).json({ success: false, message: 'Invalid authenticator code. Check your device clock and try again.' });
+  }
+
+  user.totpSecret = user.pendingTotpSecret;
+  user.backupCodes = user.pendingBackupCodes || [];
+  user.requireMfaSetup = false;
+  delete user.pendingTotpSecret;
+  delete user.pendingBackupCodes;
+  delete user.pendingPlainBackupCodes;
+  delete user.pendingCodeVerified;
+
+  if (req.user) req.user.requireMfaSetup = false;
+
+  logAudit(db, req.user, 'TOTP 2FA Configured', `Authenticator app 2FA enabled for ${req.user.username}.`, req);
+  sendSuperAdminAlert(
+    `Authenticator 2FA Enabled: ${req.user.username}`,
+    `Staff user <strong>${req.user.username}</strong> has enabled Authenticator App (TOTP) 2FA.`,
+    db
+  );
+  writeDB(db);
+
+  res.json({
+    success: true,
+    message: 'Authenticator app enabled successfully! Two-factor authentication is active.'
+  });
+});
+
+// 12c. Disable TOTP Authenticator (Requires Password + Current Code)
+app.post('/api/auth/totp/disable', requireAdmin, async (req, res) => {
+  const { password, code } = req.body;
+  if (!password || !code) {
+    return res.status(400).json({ success: false, message: 'Both your account password and a current verification code are required to disable Authenticator 2FA.' });
+  }
+
+  const db = readDB();
+  const user = (db.users || []).find(u => u.username === req.user.username);
+  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+  // 1. Verify Argon2id Password
+  const isMatch = await verifyPassword(password, user.passwordHash, user, db);
+  if (!isMatch) {
+    return res.status(401).json({ success: false, message: 'Incorrect account password.' });
+  }
+
+  // 2. Verify current TOTP code or recovery code
+  const cleanCode = String(code).trim();
+  let codeValid = false;
+  if (user.totpSecret && verifyTotp(user.totpSecret, cleanCode, user)) {
+    codeValid = true;
+  } else if (Array.isArray(user.backupCodes) && user.backupCodes.length > 0) {
+    const hashed = crypto.createHash('sha256').update(cleanCode.toUpperCase()).digest('hex');
+    const idx = user.backupCodes.indexOf(hashed);
+    if (idx !== -1) {
+      codeValid = true;
+      user.backupCodes.splice(idx, 1); // Consume recovery code
+    }
+  }
+
+  if (!codeValid) {
+    return res.status(400).json({ success: false, message: 'Invalid authenticator code or recovery code.' });
+  }
+
+  user.totpSecret = null;
+  user.backupCodes = [];
+  user.lastTotpCounter = null;
+
+  logAudit(db, req.user, 'TOTP 2FA Disabled', `Authenticator app 2FA disabled for ${req.user.username}. Reverted to Email 2FA.`, req);
+  sendSuperAdminAlert(
+    `Authenticator 2FA Disabled: ${req.user.username}`,
+    `Staff user <strong>${req.user.username}</strong> has disabled Authenticator 2FA. The account has reverted to 6-digit Email 2FA.`,
+    db
+  );
+  writeDB(db);
+
+  res.json({ success: true, message: 'Authenticator app disabled. Email 2FA remains active.' });
+});
+
+// 12d. Reset Authenticator (Requires Password + Current Code, then starts new setup)
+app.post('/api/auth/totp/reset', requireAdmin, async (req, res) => {
+  const { password, code } = req.body;
+  if (!password || !code) {
+    return res.status(400).json({ success: false, message: 'Both your account password and current verification code are required to reset Authenticator 2FA.' });
+  }
+
+  const db = readDB();
+  const user = (db.users || []).find(u => u.username === req.user.username);
+  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+  // 1. Verify Argon2id Password
+  const isMatch = await verifyPassword(password, user.passwordHash, user, db);
+  if (!isMatch) {
+    return res.status(401).json({ success: false, message: 'Incorrect account password.' });
+  }
+
+  // 2. Verify current TOTP code or recovery code
+  const cleanCode = String(code).trim();
+  let codeValid = false;
+  if (user.totpSecret && verifyTotp(user.totpSecret, cleanCode, user)) {
+    codeValid = true;
+  } else if (Array.isArray(user.backupCodes) && user.backupCodes.length > 0) {
+    const hashed = crypto.createHash('sha256').update(cleanCode.toUpperCase()).digest('hex');
+    const idx = user.backupCodes.indexOf(hashed);
+    if (idx !== -1) {
+      codeValid = true;
+      user.backupCodes.splice(idx, 1);
+    }
+  }
+
+  if (!codeValid) {
+    return res.status(400).json({ success: false, message: 'Invalid authenticator code or recovery code.' });
+  }
+
+  // 3. Reset and generate new secret
   const secret = generateTotpSecret();
+  const manualKeyGrouped = secret.match(/.{1,4}/g).join(' ');
   const { codes, hashed } = generateBackupCodes();
-  const issuer = process.env.TOTP_ISSUER || 'CoastalViewMandarmani';
-  const otpauthUrl = `otpauth://totp/${issuer}:${req.user.username}?secret=${secret}&issuer=${issuer}`;
+  const issuer = 'Coastal View';
+  const accountName = 'Coastal View Admin';
+  const otpauthUrl = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(accountName)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}`;
+
+  let qrCodeDataUrl = null;
+  try {
+    qrCodeDataUrl = await generateTotpQrDataUrl(otpauthUrl);
+    if (!qrCodeDataUrl) throw new Error('QR generator failed');
+  } catch (qrErr) {
+    console.error('Server failed to generate QR code on reset:', qrErr);
+    return res.status(500).json({ success: false, message: "Couldn't generate QR code. Please try again." });
+  }
+
+  user.totpSecret = null;
+  user.backupCodes = [];
+  user.lastTotpCounter = null;
+  user.pendingTotpSecret = encryptMfaSecret(secret);
+  user.pendingBackupCodes = hashed;
+  user.pendingPlainBackupCodes = codes;
+  user.pendingCodeVerified = false;
+
+  logAudit(db, req.user, 'TOTP 2FA Reset', `Authenticator 2FA reset initiated by ${req.user.username}.`, req);
+  sendSuperAdminAlert(
+    `Authenticator 2FA Reset: ${req.user.username}`,
+    `Staff user <strong>${req.user.username}</strong> has reset Authenticator 2FA and initiated new device pairing.`,
+    db
+  );
+  writeDB(db);
 
   res.json({
     success: true,
     secret,
+    manualKeyGrouped,
+    issuer,
+    accountName,
     otpauthUrl,
+    qrDataUrl: qrCodeDataUrl,
+    qrCodeDataUrl,
     backupCodes: codes,
-    hashedBackupCodes: hashed,
-    message: 'Scan the QR code or enter the secret in your authenticator app, then confirm with a 6-digit code.'
+    message: 'Authenticator reset successfully. Please pair your new authenticator key.'
   });
 });
 
-app.post('/api/auth/totp/confirm', requireAdmin, (req, res) => {
-  const { secret, code, hashedBackupCodes } = req.body;
-  if (!secret || !code) {
-    return res.status(400).json({ success: false, message: 'Secret and verification code are required.' });
-  }
-
-  const isValid = verifyTotp(secret, code);
-  if (!isValid) {
-    return res.status(400).json({ success: false, message: 'Invalid authenticator code. Check your device clock.' });
-  }
-
+// 12e. User Security Status Endpoint
+app.get('/api/admin/user-security-status', requireAdmin, (req, res) => {
   const db = readDB();
   const user = (db.users || []).find(u => u.username === req.user.username);
   if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-  user.totpSecret = secret;
-  user.backupCodes = hashedBackupCodes || [];
-
-  logAudit(db, req.user, 'TOTP 2FA Enabled', `Authenticator app 2FA enabled for ${req.user.username}.`, req);
-  writeDB(db);
-
-  res.json({ success: true, message: 'Authenticator app enabled successfully for your account!' });
+  res.json({
+    success: true,
+    hasTotp: Boolean(user.totpSecret),
+    mfaType: user.totpSecret ? 'totp' : 'email',
+    remainingRecoveryCodes: Array.isArray(user.backupCodes) ? user.backupCodes.length : 0,
+    username: user.username,
+    email: user.email
+  });
 });
 
-app.post('/api/auth/totp/disable', requireAdmin, requireReauth, (req, res) => {
+// 12f. Regenerate Emergency Recovery Codes (requires password confirmation)
+app.post('/api/auth/totp/regenerate-backup-codes', requireAdmin, async (req, res) => {
+  const { password, code } = req.body;
   const db = readDB();
   const user = (db.users || []).find(u => u.username === req.user.username);
   if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-  user.totpSecret = null;
-  user.backupCodes = [];
+  let authenticated = false;
+  if (password) {
+    authenticated = await verifyPassword(password, user.passwordHash, user, db);
+  } else if (code && user.totpSecret) {
+    authenticated = verifyTotp(user.totpSecret, code, user);
+  }
 
-  logAudit(db, req.user, 'TOTP 2FA Disabled', `Authenticator app 2FA disabled for ${req.user.username}.`, req);
+  if (!authenticated) {
+    return res.status(401).json({ success: false, message: 'Re-authentication failed. Please provide your current password.' });
+  }
+
+  const { codes, hashed } = generateBackupCodes();
+  user.backupCodes = hashed;
+
+  logAudit(db, req.user, 'Regenerated Recovery Codes', `User ${req.user.username} regenerated 8 one-time backup recovery codes.`, req);
   writeDB(db);
 
-  res.json({ success: true, message: 'Authenticator app removed. Email 2FA remains active.' });
+  res.json({
+    success: true,
+    backupCodes: codes,
+    message: '8 fresh one-time recovery codes generated. Store them safely.'
+  });
+});
+
+// 12g. Active Sessions Management for Current Staff Member
+app.get('/api/admin/sessions', requireAnyStaff, (req, res) => {
+  const currentUsername = req.user.username;
+  const sessions = [];
+  for (const [t, s] of activeSessions.entries()) {
+    if (s.username === currentUsername) {
+      const isLocal = (!s.ip || s.ip === '127.0.0.1' || s.ip === '::1' || s.ip === '1' || s.ip.startsWith('192.168.') || s.ip.startsWith('10.'));
+      sessions.push({
+        id: t.slice(0, 10),
+        device: s.device || 'Desktop Browser',
+        ip: maskIp(s.ip),
+        location: isLocal ? 'Local / Private Network' : 'Kolkata, WB (IN)',
+        createdAt: s.createdAt,
+        lastActive: s.lastActive,
+        isCurrent: (t === req.token)
+      });
+    }
+  }
+  res.json({ success: true, sessions });
+});
+
+app.delete('/api/admin/sessions/:sessionId', requireAnyStaff, (req, res) => {
+  const { sessionId } = req.params;
+  const currentUsername = req.user.username;
+  let terminated = false;
+
+  for (const [t, s] of activeSessions.entries()) {
+    if (s.username === currentUsername && t.startsWith(sessionId)) {
+      if (t === req.token) {
+        return res.status(400).json({ success: false, message: 'To terminate your current session, use Log Out.' });
+      }
+      activeSessions.delete(t);
+      terminated = true;
+      break;
+    }
+  }
+
+  if (terminated) {
+    const db = readDB();
+    logAudit(db, req.user, 'Terminated Device Session', `User ${currentUsername} terminated session ID ${sessionId}.`, req);
+    writeDB(db);
+    return res.json({ success: true, message: 'Session terminated successfully.' });
+  }
+
+  res.status(404).json({ success: false, message: 'Session not found.' });
+});
+
+// 12h. Log Out All Other Devices
+app.post('/api/auth/logout-other-devices', requireAnyStaff, (req, res) => {
+  const currentUsername = req.user.username;
+  let count = 0;
+
+  for (const [t, s] of activeSessions.entries()) {
+    if (s.username === currentUsername && t !== req.token) {
+      activeSessions.delete(t);
+      count++;
+    }
+  }
+
+  const db = readDB();
+  logAudit(db, req.user, 'Log Out Other Devices', `User ${currentUsername} terminated ${count} other active device session(s).`, req);
+  writeDB(db);
+
+  res.json({
+    success: true,
+    count,
+    message: count > 0 ? `Successfully logged out ${count} other device(s).` : 'No other active device sessions found.'
+  });
+});
+
+// 12f. Recent Login History for Current Staff Member
+app.get('/api/admin/login-history', requireAnyStaff, (req, res) => {
+  const db = readDB();
+  const history = (db?.loginHistory || [])
+    .filter(l => l.username === req.user.username)
+    .slice(0, 25);
+  res.json({ success: true, history });
+});
+
+// 12g. Email Management & Health Check APIs (Super Admin Only)
+app.get('/api/admin/email/stats', requireSuperAdmin, (req, res) => {
+  const db = readDB();
+  const stats = emailService.getEmailStats(db);
+  res.json({ success: true, ...stats });
+});
+
+app.post('/api/admin/email/test', requireSuperAdmin, async (req, res) => {
+  const db = readDB();
+  const recipient = process.env.ADMIN_EMAIL || req.user.email;
+  const timeStr = emailService.getISTTimestamp();
+  const template = emailService.templateTestEmail({ recipient, timeStr });
+
+  const result = await emailService.sendMailWithRetry({
+    db,
+    type: 'Admin Test Email',
+    to: recipient,
+    subject: template.subject,
+    html: template.html,
+    text: template.text
+  });
+
+  if (result.success) {
+    logAudit(db, req.user, 'SMTP Test Email Sent', `Super Admin dispatched test email to ${recipient}.`, req);
+    writeDB(db);
+    return res.json({ success: true, message: `Test email successfully sent to ${recipient}!` });
+  } else {
+    logAudit(db, req.user, 'SMTP Test Email Failed', `Test email failed to ${recipient}: ${result.error}`, req);
+    writeDB(db);
+    return res.status(502).json({
+      success: false,
+      errorCode: result.errorCode,
+      message: `Failed to deliver test email: ${result.error}. Check SMTP settings in .env.`
+    });
+  }
+});
+
+app.get('/api/admin/mail-logs', requireSuperAdmin, (req, res) => {
+  const db = readDB();
+  res.json({ success: true, logs: db?.mailLogs || [] });
 });
 
 // 13. Super Admin Encrypted Database Export (AES-256-GCM)
@@ -2897,7 +3550,7 @@ app.put('/api/admin/settings/invoice', requireManager, (req, res) => {
 });
 
 // 12. Super Admin: Upload Signature Image
-app.post('/api/admin/settings/invoice/signature', requireSuperAdmin, (req, res) => {
+app.post('/api/admin/settings/invoice/signature', requireSuperAdmin, async (req, res) => {
   const { imageBase64, clear = false } = req.body;
   const db = readDB();
   db.settings = db.settings || {};
@@ -2914,7 +3567,7 @@ app.post('/api/admin/settings/invoice/signature', requireSuperAdmin, (req, res) 
   }
 
   try {
-    const savedPath = saveBase64Image(imageBase64, 'signatures', 'owner-signature');
+    const savedPath = await saveBase64ImageSecure(imageBase64, 'signatures', 'owner-signature');
     db.settings.signatureImageUrl = savedPath;
     logAudit(db, req.user, 'Owner Signature Uploaded', `Super Admin ${req.user.name} uploaded new owner signature image (${savedPath}).`, req);
     writeDB(db);
@@ -2925,7 +3578,7 @@ app.post('/api/admin/settings/invoice/signature', requireSuperAdmin, (req, res) 
 });
 
 // 13. Super Admin: Upload Invoice Logo
-app.post('/api/admin/settings/invoice/logo', requireSuperAdmin, (req, res) => {
+app.post('/api/admin/settings/invoice/logo', requireSuperAdmin, async (req, res) => {
   const { imageBase64, reset = false } = req.body;
   const db = readDB();
   db.settings = db.settings || {};
@@ -2942,7 +3595,7 @@ app.post('/api/admin/settings/invoice/logo', requireSuperAdmin, (req, res) => {
   }
 
   try {
-    const savedPath = saveBase64Image(imageBase64, 'logos', 'invoice-logo');
+    const savedPath = await saveBase64ImageSecure(imageBase64, 'logos', 'invoice-logo');
     db.settings.invoiceLogo = savedPath;
     logAudit(db, req.user, 'Invoice Logo Uploaded', `Super Admin ${req.user.name} uploaded custom invoice logo (${savedPath}).`, req);
     writeDB(db);
@@ -3132,7 +3785,7 @@ app.post('/api/menu/item', requireManager, (req, res) => {
   res.json({ success: true, item: cleanItem, message: `"${cleanItem.name}" saved successfully.` });
 });
 
-app.post('/api/menu/upload-image', requireManager, (req, res) => {
+app.post('/api/menu/upload-image', requireManager, async (req, res) => {
   const { dishId, imageBase64, mimeType = 'image/webp' } = req.body;
   if (!dishId || !imageBase64) {
     return res.status(400).json({ success: false, message: 'dishId and imageBase64 are required.' });
@@ -3155,23 +3808,14 @@ app.post('/api/menu/upload-image', requireManager, (req, res) => {
     }
 
     const buffer = Buffer.from(rawData, 'base64');
-    if (buffer.length > 5 * 1024 * 1024) {
-      return res.status(400).json({ success: false, message: 'Image size exceeds maximum limit of 5 MB.' });
+    if (buffer.length > 8 * 1024 * 1024) {
+      return res.status(400).json({ success: false, message: 'File too large (max 8 MB).' });
     }
 
-    const ext = detectedMime.includes('webp') ? 'webp' : (detectedMime.includes('png') ? 'png' : 'jpg');
+    // Secure pipeline: real file-type check, EXIF strip, WebP re-encode, random file name
     const safeDishId = dishId.replace(/[^a-zA-Z0-9_-]/g, '');
-    const filename = `dish-${safeDishId}-${Date.now()}.${ext}`;
-    const uploadDir = path.join(__dirname, 'uploads', 'menu');
-    
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
-    const filePath = path.join(uploadDir, filename);
-    fs.writeFileSync(filePath, buffer);
-
-    const publicUrl = `/uploads/menu/${filename}`;
+    const publicUrl = await saveBase64ImageSecure(imageBase64, 'menu', `dish-${safeDishId}`);
+    const filename = publicUrl.split('/').pop();
     dish.image = publicUrl;
     dish.thumbImage = publicUrl;
 
@@ -3272,12 +3916,13 @@ app.get('/api/settings', (req, res) => {
   res.json({ success: true, settings: db?.settings || {} });
 });
 
-app.post('/api/settings', requireAdmin, (req, res) => {
+app.post('/api/settings', requireManager, (req, res) => {
   const db = readDB();
+  if (!db) return res.status(500).json({ success: false, message: 'Database error' });
   db.settings = { ...(db.settings || {}), ...(req.body || {}) };
-  logAudit(db, req.user || 'Admin', 'Settings Updated', 'Settings updated by admin', req);
+  logAudit(db, req.user, 'Settings Updated', `${req.user?.name || 'Staff'} updated hotel settings.`, req);
   writeDB(db);
-  res.json({ success: true, settings: db.settings });
+  res.json({ success: true, settings: db.settings, message: 'Hotel settings updated successfully.' });
 });
 
 // Admin Get Add-ons settings (Breakfast, Vehicles, Candlelight)
@@ -3469,6 +4114,7 @@ async function handleChatEndpoint(req, res) {
       topic: result.topic,
       leadStatus: result.leadStatus,
       requiresCallbackForm: result.requiresCallbackForm,
+      toolsCalled: result.toolsCalled || [],
       sessionId: actualSessionId
     })}\n\n`);
     res.end();
@@ -3490,7 +4136,8 @@ async function handleChatEndpoint(req, res) {
       lang: result.lang || lang,
       topic: result.topic,
       leadStatus: result.leadStatus,
-      requiresCallback: result.requiresCallbackForm
+      requiresCallback: result.requiresCallbackForm,
+      toolsCalled: result.toolsCalled || []
     });
     writeDB(db);
 
@@ -3502,6 +4149,37 @@ async function handleChatEndpoint(req, res) {
 app.post('/api/chat', handleChatEndpoint);
 app.post('/api/concierge/chat', handleChatEndpoint);
 
+// Admin Dedicated Chat Test Panel Endpoint
+app.post('/api/admin/chat/test', requireAnyStaff, async (req, res) => {
+  const { message, lang = 'en', forceApiFailure = false } = req.body || {};
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false, message: 'Database unavailable' });
+
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1';
+  const testSessionId = `test-panel-${Date.now()}`;
+
+  const result = await processChatRequest({
+    message,
+    lang,
+    sessionId: testSessionId,
+    stream: false,
+    clientIp,
+    db,
+    forceApiFailure,
+    skipRateLimit: true
+  });
+
+  res.json({
+    success: true,
+    reply: result.reply,
+    toolsCalled: result.toolsCalled || [],
+    lang: result.lang,
+    topic: result.topic,
+    actionChips: result.actionChips,
+    requiresCallbackForm: result.requiresCallbackForm
+  });
+});
+
 // Public Callback Lead Capture
 function handleCallbackEndpoint(req, res) {
   const { name, phone, message, sessionId } = req.body;
@@ -3509,6 +4187,7 @@ function handleCallbackEndpoint(req, res) {
 
   const db = readDB();
   db.callbackRequests = db.callbackRequests || [];
+  const deskPhone = db.settings?.phone || DIRECT_PHONE_NUMBER;
   const request = {
     id: `req-${Date.now()}`,
     name,
@@ -3534,7 +4213,7 @@ function handleCallbackEndpoint(req, res) {
   writeDB(db);
   res.json({
     success: true,
-    message: `Callback request received. Front desk will contact you promptly at ${DIRECT_PHONE_NUMBER}.`,
+    message: `Callback request received. Front desk will contact you promptly at ${deskPhone}.`,
     request
   });
 }
@@ -3558,7 +4237,7 @@ app.patch('/api/concierge/callback/:id', requireAnyStaff, (req, res) => {
 // ADMIN CHATBOT CRM & SETTINGS ENDPOINTS
 // ----------------------------------------------------------------------------
 
-// 1. Get All Conversations with Search & Filters
+// 1. Get All Conversations with Search, Filters & Role Masking
 function handleGetConversations(req, res) {
   const db = readDB();
   if (!db) return res.status(500).json({ success: false, message: 'Database unavailable' });
@@ -3611,6 +4290,18 @@ function handleGetConversations(req, res) {
     });
   }
 
+  // Role Security: Front Desk staff sees masked guest phone numbers (Super Admin and Manager see full)
+  if (req.user && req.user.role === 'Front Desk') {
+    conversations = conversations.map(c => {
+      const orig = c.guestPhone || '';
+      const masked = orig.length > 5 ? orig.slice(0, 3) + '••••' + orig.slice(-2) : (orig ? '••••••' : '');
+      return {
+        ...c,
+        guestPhone: masked
+      };
+    });
+  }
+
   res.json({
     success: true,
     inquiries: conversations,
@@ -3649,7 +4340,14 @@ function handleGetConversationById(req, res) {
     return res.status(404).json({ success: false, message: 'Conversation not found' });
   }
 
-  res.json({ success: true, conversation: conv });
+  let finalConv = { ...conv };
+  if (req.user && req.user.role === 'Front Desk' && finalConv.guestPhone) {
+    finalConv.guestPhone = finalConv.guestPhone.length > 5
+      ? finalConv.guestPhone.slice(0, 3) + '••••' + finalConv.guestPhone.slice(-2)
+      : '••••••';
+  }
+
+  res.json({ success: true, conversation: finalConv });
 }
 
 app.get('/api/admin/concierge/conversations/:id', requireAnyStaff, handleGetConversationById);
@@ -3720,11 +4418,14 @@ function handleConversationReply(req, res) {
 app.post('/api/admin/concierge/conversations/:id/reply', requireAnyStaff, handleConversationReply);
 app.post('/api/admin/chat/conversations/:id/reply', requireAnyStaff, handleConversationReply);
 
-// 5. Export Full Transcripts CSV
+// 5. Export Full Transcripts CSV (Manager / Super Admin Only, Logged)
 function handleExportChatCSV(req, res) {
   const db = readDB();
   const conversations = db.chatConversations || [];
   const csvContent = exportConversationsToCSV(conversations);
+
+  logAudit(db, req.user, 'Chat Transcripts Exported', `${req.user.name} exported full chat conversations CSV (${conversations.length} records).`, req);
+  writeDB(db);
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="coastal-view-chat-transcripts-${Date.now()}.csv"`);
@@ -3737,6 +4438,7 @@ app.get('/api/admin/chat/export-csv', requireManager, handleExportChatCSV);
 // 6. Bot Settings (Super Admin / Manager)
 function handleGetBotSettings(req, res) {
   const db = readDB();
+  const deskPhone = db?.settings?.phone || DIRECT_PHONE_NUMBER;
   const botSettings = db.botSettings || {
     botEnabled: true,
     welcomeMessage: {
@@ -3750,15 +4452,17 @@ function handleGetBotSettings(req, res) {
       "Menu",
       "Candlelight dinner",
       "Nearby places",
-      "Book / Call us"
+      "Tours",
+      "Call us"
     ],
     toneInstructions: "Provide warm, authentic coastal hospitality. Highlight our direct sea-view and fresh local Hilsa catch.",
     offlineMessage: {
-      en: `Our concierge desk is currently operating with high volume. Please call ${DIRECT_PHONE_NUMBER}.`,
-      bn: `আমাদের ফ্রন্ট ডেস্ক বর্তমানে ব্যস্ত আছে। সরাসরি কল করুন: ${DIRECT_PHONE_NUMBER}।`,
-      hi: `हमारा डेस्क इस समय व्यस्त है। कृपया सीधे कॉल करें: ${DIRECT_PHONE_NUMBER}।`
+      en: `Our concierge desk is currently operating with high volume. Please call ${deskPhone}.`,
+      bn: `আমাদের ফ্রন্ট ডেস্ক বর্তমানে ব্যস্ত আছে। সরাসরি কল করুন: ${deskPhone}।`,
+      hi: `हमारा डेस्क इस समय व्यस्त है। कृपया सीधे कॉल करें: ${deskPhone}।`
     },
-    dailyMessageLimit: 500
+    dailyMessageLimit: 500,
+    logRetentionDays: 90
   };
 
   const stats = getChatStats(db);
@@ -3775,7 +4479,8 @@ function handleSaveBotSettings(req, res) {
     quickReplyChips,
     toneInstructions,
     offlineMessage,
-    dailyMessageLimit
+    dailyMessageLimit,
+    logRetentionDays
   } = req.body;
 
   const db = readDB();
@@ -3787,8 +4492,9 @@ function handleSaveBotSettings(req, res) {
   if (toneInstructions !== undefined) db.botSettings.toneInstructions = toneInstructions;
   if (offlineMessage) db.botSettings.offlineMessage = offlineMessage;
   if (dailyMessageLimit !== undefined) db.botSettings.dailyMessageLimit = parseInt(dailyMessageLimit, 10) || 500;
+  if (logRetentionDays !== undefined) db.botSettings.logRetentionDays = parseInt(logRetentionDays, 10) || 90;
 
-  logAudit(db, req.user, 'Bot Settings Updated', `${req.user.name} updated multi-lingual bot settings & prompt instructions.`, req);
+  logAudit(db, req.user, 'Bot Settings Updated', `${req.user.name} updated multi-lingual bot settings & retention policy.`, req);
   writeDB(db);
 
   res.json({ success: true, message: 'Bot settings saved successfully.', botSettings: db.botSettings });
@@ -4173,8 +4879,137 @@ app.post('/api/admin/seo/refresh-sitemap', requireManager, (req, res) => {
 });
 
 // ============================================================================
+// DASHBOARD: LIVE STOCK / LOW-AVAILABILITY SUMMARY + PAYMENT RECORDING
+// ============================================================================
+
+const PAYMENT_MODES = ['Cash', 'UPI / QR', 'Card', 'Bank Transfer'];
+
+function isoDateOffset(base, days) {
+  const d = new Date(base + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// Per-room-type stock for tonight plus low-availability alerts for the next 45 nights.
+// Uses the same getRoomAvailability() engine as the booking flow, so numbers always match.
+app.get('/api/admin/dashboard', requireAnyStaff, (req, res) => {
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false, message: 'Database error' });
+
+  const today = new Date().toISOString().slice(0, 10);
+  const rooms = (db.rooms || []).filter(r => !r.isArchived);
+  const stock = [];
+  const alerts = [];
+
+  rooms.forEach(room => {
+    const tonight = getRoomAvailability(db, room.id, today, isoDateOffset(today, 1));
+    stock.push({
+      roomId: room.id,
+      name: room.name,
+      total: tonight.total,
+      booked: tonight.booked,
+      blocked: tonight.blocked,
+      available: tonight.available
+    });
+
+    const seenStatus = new Set();
+    for (let i = 0; i < 45; i++) {
+      const night = isoDateOffset(today, i);
+      const a = getRoomAvailability(db, room.id, night, isoDateOffset(night, 1));
+      const lowThreshold = Math.max(2, Math.ceil(a.total * 0.25));
+      if (a.available > lowThreshold) continue;
+      const status = a.available <= 0 ? 'Sold Out' : (a.available === 1 ? 'Critical' : 'Low');
+      if (seenStatus.has(status)) continue; // first date per severity per room is enough
+      seenStatus.add(status);
+      alerts.push({ roomId: room.id, name: room.name, date: night, left: a.available, total: a.total, status });
+    }
+  });
+
+  const rank = { 'Sold Out': 0, 'Critical': 1, 'Low': 2 };
+  alerts.sort((x, y) => rank[x.status] - rank[y.status] || x.date.localeCompare(y.date));
+
+  const totalUnits = stock.reduce((n, r) => n + r.total, 0);
+  const occupiedUnits = stock.reduce((n, r) => n + r.booked, 0);
+
+  res.json({
+    success: true,
+    today,
+    stock,
+    alerts: alerts.slice(0, 8),
+    occupancy: { totalUnits, occupiedUnits, percent: totalUnits ? Math.round((occupiedUnits / totalUnits) * 100) : 0 }
+  });
+});
+
+// Record an advance / balance payment against a booking (feeds the "Payment Summary" card)
+app.post('/api/bookings/:bookingId/payments', requireAnyStaff, (req, res) => {
+  const { type, mode, amount, note = '' } = req.body || {};
+  const amt = Math.round(Number(amount));
+  if (!['advance', 'balance'].includes(type)) {
+    return res.status(400).json({ success: false, message: 'Payment type must be advance or balance.' });
+  }
+  if (!PAYMENT_MODES.includes(mode)) {
+    return res.status(400).json({ success: false, message: 'Choose a payment mode: ' + PAYMENT_MODES.join(', ') + '.' });
+  }
+  if (!Number.isFinite(amt) || amt <= 0 || amt > 10000000) {
+    return res.status(400).json({ success: false, message: 'Enter a valid amount.' });
+  }
+
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false, message: 'Database error' });
+  const booking = (db.bookings || []).find(b => b.bookingId === req.params.bookingId);
+  if (!booking) return res.status(404).json({ success: false, message: 'Booking not found.' });
+
+  booking.payments = booking.payments || [];
+  const entry = {
+    id: 'pay-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+    type, mode, amount: amt,
+    note: String(note).slice(0, 200),
+    at: new Date().toISOString(),
+    by: req.user.username
+  };
+  booking.payments.push(entry);
+  logAudit(db, req.user, 'Payment Recorded', `${req.user.name} recorded ${type} payment of Rs.${amt} (${mode}) for booking ${booking.bookingId}.`, req);
+  writeDB(db);
+  res.json({ success: true, message: 'Payment recorded.', payment: entry });
+});
+
+// ============================================================================
 // PHOTOS & MEDIA MANAGER APIS (SUPER ADMIN & MANAGER ONLY)
 // ============================================================================
+
+// 0. PUBLIC live-media feed used by the website (no auth). Returns every slot URL with a
+//    cache-busting ?v= version so a replaced photo shows immediately and never from stale cache.
+app.get('/api/public/media', (req, res) => {
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false, message: 'Database error' });
+
+  const slots = {};
+  PHOTO_SLOTS.forEach(slot => {
+    const r = resolveSlotUrl(db, slot);
+    const v = r.updatedAt ? new Date(r.updatedAt).getTime() : null;
+    slots[slot.key] = { url: withVersion(r.url, v), alt: r.alt, custom: !!r.updatedAt || r.url !== slot.defaultUrl };
+  });
+
+  const rooms = (db.rooms || []).map(r => ({
+    id: r.id,
+    image: withVersion(r.image, (r.gallery || []).find(p => p.url === r.image)?.uploadedAt
+      ? new Date((r.gallery || []).find(p => p.url === r.image).uploadedAt).getTime() : null),
+    gallery: (r.gallery || []).map(p => ({ id: p.id, url: p.url, alt: p.alt, isCover: !!p.isCover }))
+  }));
+
+  res.set('Cache-Control', 'no-cache, must-revalidate');
+  res.json({
+    success: true,
+    slots,
+    rooms,
+    // Back-compat shape used by older public scripts
+    logo: slots.logo && slots.logo.url,
+    hero: { image: slots.hero && slots.hero.url },
+    owner: { url: slots.owner && slots.owner.url, alt: slots.owner && slots.owner.alt },
+    candlelight: { image: slots.candlelight && slots.candlelight.url },
+    cocktails: { image: slots.cocktails && slots.cocktails.url }
+  });
+});
 
 // 1. Get All Labeled Slots, Grouped by Section, with History & Room Galleries
 app.get('/api/media', requireAnyStaff, (req, res) => {
@@ -4186,24 +5021,10 @@ app.get('/api/media', requireAnyStaff, (req, res) => {
 
   // Build full slots list with live URLs
   const enrichedSlots = PHOTO_SLOTS.map(slot => {
-    let currentUrl = slot.defaultUrl;
-    let alt = slot.defaultAlt;
-    let caption = '';
-
-    // Check specific slot overrides
-    if (db.mediaSlots[slot.key]) {
-      currentUrl = db.mediaSlots[slot.key].url || currentUrl;
-      alt = db.mediaSlots[slot.key].alt || alt;
-      caption = db.mediaSlots[slot.key].caption || '';
-    } else if (slot.key === 'hero' && db.websiteContent?.hero?.heroImage) {
-      currentUrl = db.websiteContent.hero.heroImage;
-    } else if (slot.key === 'owner' && (db.websiteContent?.owner?.photo || db.mediaSlots?.owner?.photo)) {
-      currentUrl = db.websiteContent?.owner?.photo || db.mediaSlots?.owner?.photo;
-    } else if (slot.key.startsWith('room:')) {
-      const rId = slot.roomId;
-      const room = (db.rooms || []).find(r => r.id === rId);
-      if (room && room.image) currentUrl = room.image;
-    }
+    const resolved = resolveSlotUrl(db, slot);
+    const currentUrl = resolved.url;
+    const alt = (db.mediaSlots[slot.key] && db.mediaSlots[slot.key].alt) || slot.defaultAlt;
+    const caption = (db.mediaSlots[slot.key] && db.mediaSlots[slot.key].caption) || '';
 
     // Get last 5 version history for this slot
     const slotHistory = (db.mediaHistory || [])
@@ -4241,9 +5062,17 @@ app.get('/api/media', requireAnyStaff, (req, res) => {
 });
 
 // 2. Upload / Replace Photo (Enforces Magic Bytes, Strips EXIF, 30s Undo, 5-Version History)
+//    Works for: website slots (hero, owner, logo, ...), room covers, room gallery ADD, and
+//    room gallery CHANGE (photoId given -> replaces that photo in place).
 app.post('/api/media/upload', requireManager, async (req, res) => {
   try {
-    const { slotKey, roomId, imageBase64, alt = '', caption = '', isCover = false, tag = 'general' } = req.body;
+    const body = req.body || {};
+    // Accept both `slotKey` (current UI) and the legacy `slotId` field used by older dialogs.
+    let slotKey = body.slotKey || (body.slotId && body.slotId !== 'room' ? body.slotId : null);
+    let roomId = body.roomId || null;
+    const photoId = body.photoId || null;
+    const { imageBase64, alt = '', caption = '', tag = 'general' } = body;
+    let isCover = !!body.isCover;
 
     if (!imageBase64) {
       return res.status(400).json({ success: false, message: 'Please select an image file to upload.' });
@@ -4252,88 +5081,119 @@ app.post('/api/media/upload', requireManager, async (req, res) => {
     const db = readDB();
     if (!db) return res.status(500).json({ success: false, message: 'Database connection error' });
 
+    // A room cover slot ("room:<id>") is the same thing as the room's cover photo
+    if (!roomId && slotKey && slotKey.startsWith('room:')) {
+      roomId = slotKey.replace('room:', '');
+      isCover = true;
+      slotKey = null;
+    }
+
+    if (!roomId) {
+      if (!slotKey) {
+        return res.status(400).json({ success: false, message: 'Missing slotKey for media upload.' });
+      }
+      if (!PHOTO_SLOTS.some(s => s.key === slotKey)) {
+        return res.status(400).json({ success: false, message: `Unknown photo slot "${slotKey}".` });
+      }
+    }
+
     // Determine target folder
     let subDir = 'general';
     let filePrefix = 'photo';
-
     if (roomId) {
       subDir = 'rooms';
-      filePrefix = `room-${roomId}`;
-    } else if (slotKey) {
+      filePrefix = `room-${String(roomId).replace(/[^a-zA-Z0-9_-]/g, '')}`;
+    } else {
       const cleanKey = slotKey.replace(/[^a-zA-Z0-9]/g, '-');
-      subDir = ['hero', 'owner', 'logo', 'candlelight', 'cocktails', 'places', 'gallery'].some(s => cleanKey.includes(s)) ? cleanKey.split('-')[0] : 'general';
+      subDir = cleanKey.split('-')[0] || 'general';
       filePrefix = `slot-${cleanKey}`;
     }
 
-    // Securely process image: checks magic bytes, strips EXIF/GPS, re-encodes to WebP
+    // Securely process image: checks size + magic bytes, strips EXIF/GPS, re-encodes to WebP, random name
     const savedUrl = await saveBase64ImageSecure(imageBase64, subDir, filePrefix);
+    const version = Date.now();
 
-    // Case A: Room Gallery Upload
+    // ---- Room gallery (add / change) ----
     if (roomId) {
       const room = (db.rooms || []).find(r => r.id === roomId);
       if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
-
       room.gallery = room.gallery || [];
-      const previousCover = room.image;
-      const photoId = `photo-${roomId}-${Date.now()}`;
 
-      if (isCover || room.gallery.length === 0) {
-        room.gallery.forEach(p => p.isCover = false);
-        room.image = savedUrl;
+      // The cover slot of a room: replace the existing cover photo in place when there is one
+      let targetPhoto = photoId ? room.gallery.find(p => p.id === photoId) : null;
+      if (!targetPhoto && isCover && !photoId) {
+        targetPhoto = room.gallery.find(p => p.isCover || p.url === room.image) || null;
+      }
+      if (photoId && !targetPhoto) {
+        return res.status(404).json({ success: false, message: 'That photo no longer exists in the room gallery.' });
       }
 
-      const photoEntry = {
-        id: photoId,
-        url: savedUrl,
-        alt: alt || `${room.name} Photo`,
-        caption: caption || room.name,
-        tag,
-        isCover: isCover || room.gallery.length === 0,
-        uploadedAt: new Date().toISOString(),
-        uploadedBy: req.user.username
-      };
+      let versionResult = null;
+      let photoEntry;
 
-      room.gallery.push(photoEntry);
+      if (targetPhoto) {
+        // CHANGE PHOTO: replace in place (keeps order, caption, cover flag)
+        const previousUrl = targetPhoto.url;
+        targetPhoto.url = savedUrl;
+        targetPhoto.uploadedAt = new Date().toISOString();
+        targetPhoto.uploadedBy = req.user.username;
+        if (targetPhoto.isCover) room.image = savedUrl;
+        versionResult = recordMediaVersion(db, `roomphoto:${roomId}:${targetPhoto.id}`, previousUrl, req.user);
+        photoEntry = targetPhoto;
+      } else {
+        // ADD PHOTO
+        const previousCover = room.image;
+        const makeCover = isCover || room.gallery.length === 0;
+        if (makeCover) {
+          room.gallery.forEach(p => { p.isCover = false; });
+          room.image = savedUrl;
+        }
+        photoEntry = {
+          id: `photo-${roomId}-${version}`,
+          url: savedUrl,
+          alt: alt || `${room.name} Photo`,
+          caption: caption || room.name,
+          tag,
+          isCover: makeCover,
+          uploadedAt: new Date().toISOString(),
+          uploadedBy: req.user.username
+        };
+        room.gallery.push(photoEntry);
+        if (makeCover && previousCover) {
+          versionResult = recordMediaVersion(db, `room:${roomId}`, previousCover, req.user, {
+            kind: 'roomAdd', roomId, photoId: photoEntry.id, previousCover
+          });
+        } else {
+          versionResult = { undoToken: createUndoToken({ slotKey: `room:${roomId}`, kind: 'roomAdd', roomId, photoId: photoEntry.id, previousCover: null }) };
+        }
+      }
 
-      // Record version history for rollback / undo
-      const versionResult = recordMediaVersion(db, `room:${roomId}`, previousCover, req.user);
-
-      logAudit(db, req.user, 'Room Photo Uploaded', `${req.user.name} uploaded new photo for ${room.name}.`, req);
+      logAudit(db, req.user, targetPhoto ? 'Room Photo Changed' : 'Room Photo Added', `${req.user.name} ${targetPhoto ? 'changed a photo of' : 'added a photo to'} ${room.name}.`, req);
       writeDB(db);
 
       return res.json({
         success: true,
-        message: `Photo uploaded for ${room.name}! Changes are live.`,
+        message: `Photo updated for ${room.name}. Changes are live.`,
         photo: photoEntry,
+        newUrl: savedUrl,
+        version,
         room,
         undoToken: versionResult ? versionResult.undoToken : null
       });
     }
 
-    // Case B: Labeled Website Slot Upload
-    if (!slotKey) {
-      return res.status(400).json({ success: false, message: 'Missing slotKey for media upload.' });
-    }
-
-    // Find previous URL for this slot
+    // ---- Labeled website slot ----
     db.mediaSlots = db.mediaSlots || {};
-    let previousUrl = null;
-    if (db.mediaSlots[slotKey]) {
-      previousUrl = db.mediaSlots[slotKey].url;
-    } else {
-      const def = PHOTO_SLOTS.find(s => s.key === slotKey);
-      if (def) previousUrl = def.defaultUrl;
-    }
+    const slotDef = PHOTO_SLOTS.find(s => s.key === slotKey);
+    const previousUrl = resolveSlotUrl(db, slotDef).url;
 
     // Record previous version in history & create 30-second undo token
     const versionResult = recordMediaVersion(db, slotKey, previousUrl, req.user);
 
-    // Apply new URL
     applyUrlToSlot(db, slotKey, savedUrl);
-    if (alt || caption) {
-      db.mediaSlots[slotKey].alt = alt || db.mediaSlots[slotKey].alt || '';
-      db.mediaSlots[slotKey].caption = caption || db.mediaSlots[slotKey].caption || '';
-    }
+    db.mediaSlots[slotKey] = db.mediaSlots[slotKey] || {};
+    if (alt) db.mediaSlots[slotKey].alt = alt;
+    if (caption) db.mediaSlots[slotKey].caption = caption;
 
     logAudit(db, req.user, 'Photo Slot Changed', `${req.user.name} updated photo slot "${slotKey}" to ${savedUrl}.`, req);
     writeDB(db);
@@ -4343,6 +5203,7 @@ app.post('/api/media/upload', requireManager, async (req, res) => {
       message: 'Photo updated. Changes are live on the website immediately.',
       slotKey,
       newUrl: savedUrl,
+      version,
       undoToken: versionResult ? versionResult.undoToken : null,
       history: (db.mediaHistory || []).filter(h => h.slotKey === slotKey).slice(0, 5)
     });
@@ -4550,7 +5411,7 @@ app.get('/api/gallery', (req, res) => {
 });
 
 // 2. Upload photo(s) to gallery (single or bulk array with auto-conversion to WebP support)
-app.post('/api/gallery', requireManager, (req, res) => {
+app.post('/api/gallery', requireManager, async (req, res) => {
   try {
     const db = readDB();
     if (!db) return res.status(500).json({ success: false, message: 'Database error' });
@@ -4572,8 +5433,9 @@ app.post('/api/gallery', requireManager, (req, res) => {
 
       if (item.imageBase64) {
         const cleanCat = (item.category || 'Hotel').toLowerCase().replace(/[^a-z0-9]/g, '-');
-        savedUrl = saveBase64Image(item.imageBase64, 'gallery', `gallery-${cleanCat}`);
-        thumbUrl = item.thumbBase64 ? saveBase64Image(item.thumbBase64, 'gallery', `thumb-${cleanCat}`) : savedUrl;
+        // Secure pipeline: size limit, magic-byte check, EXIF/GPS strip, WebP re-encode, random name
+        savedUrl = await saveBase64ImageSecure(item.imageBase64, 'gallery', `gallery-${cleanCat}`);
+        thumbUrl = item.thumbBase64 ? await saveBase64ImageSecure(item.thumbBase64, 'gallery', `thumb-${cleanCat}`) : savedUrl;
       }
 
       const newId = item.id || `gallery-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -4607,7 +5469,7 @@ app.post('/api/gallery', requireManager, (req, res) => {
     });
   } catch (err) {
     console.error('Gallery upload error:', err);
-    res.status(500).json({ success: false, message: err.message || 'Gallery upload failed' });
+    res.status(400).json({ success: false, message: err.message || 'Gallery upload failed' });
   }
 });
 
@@ -4692,11 +5554,11 @@ app.delete('/api/gallery/:id', requireManager, (req, res) => {
   // If local file in uploads/gallery, delete file
   if (photo.url && photo.url.startsWith('/uploads/gallery/')) {
     try {
-      const filePath = path.join(__dirname, photo.url.replace(/^\//, ''));
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      const filePath = uploadsPathFromUrl(photo.url);
+      if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
       if (photo.thumbUrl && photo.thumbUrl !== photo.url && photo.thumbUrl.startsWith('/uploads/gallery/')) {
-        const thumbPath = path.join(__dirname, photo.thumbUrl.replace(/^\//, ''));
-        if (fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath);
+        const thumbPath = uploadsPathFromUrl(photo.thumbUrl);
+        if (thumbPath && fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath);
       }
     } catch (e) {
       console.warn('Could not remove file on disk:', e.message);
@@ -4709,8 +5571,11 @@ app.delete('/api/gallery/:id', requireManager, (req, res) => {
   res.json({ success: true, message: 'Photo removed from gallery.' });
 });
 
-// Global error handler (handles malformed JSON payloads gracefully)
+// Global error handler (handles malformed JSON payloads and oversized uploads gracefully)
 app.use((err, req, res, next) => {
+  if (err && (err.type === 'entity.too.large' || err.status === 413 || err.statusCode === 413)) {
+    return res.status(413).json({ success: false, message: 'File too large (max 8 MB).' });
+  }
   if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
     return res.status(400).json({ success: false, message: 'Malformed JSON payload rejected' });
   }

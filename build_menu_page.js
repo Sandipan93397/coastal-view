@@ -62,7 +62,7 @@ const menuHtml = `<!DOCTYPE html>
           <li><a href="/#rooms" class="nav-link">Rooms</a></li>
           <li><a href="/#amenities" class="nav-link">Amenities</a></li>
           <li><a href="/menu" class="nav-link active">Menu</a></li>
-          <li><a href="/#cocktail" class="nav-link">Cocktails</a></li>
+          <li><a href="/#mocktails" class="nav-link">Mocktails</a></li>
           <li><a href="/#candlelight" class="nav-link">Candlelight</a></li>
           <li><a href="/gallery" class="nav-link">Gallery</a></li>
           <li><a href="/#nearby" class="nav-link">Places</a></li>

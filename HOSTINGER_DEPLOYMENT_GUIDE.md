@@ -12,9 +12,7 @@ This project is built to be **100% production-ready for Hostinger Business Web H
 * **Management:** Managed By Ani's
 * **Host / Founder:** Anirban Das
 * **Address:** Rina Rd, Mandarmani, West Bengal 721455
-* **Ani's Tour & Travels Integration:** `https://bengal-tours-ani.preview.emergentagent.com/#enquire`
-* **Default Admin Username:** `admin`
-* **Default Admin Password:** `CoastalAdmin@2026` *(Change in Admin Panel > Settings)*
+* **Admin Account:** Created securely via `npm run create-super-admin` (reads `ADMIN_EMAIL` and prompts for custom password with Argon2id hashing)
 
 ---
 

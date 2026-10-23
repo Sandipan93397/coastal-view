@@ -16,6 +16,7 @@ scratch/
 *.tmp
 test_*.png
 admin_login_*.png
+modal_*.png
 
 # Operating System & IDE
 .DS_Store

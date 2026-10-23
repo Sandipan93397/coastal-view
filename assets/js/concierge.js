@@ -1,10 +1,12 @@
 // Coastal View - "Ani's Coastal Concierge" Multi-Lingual AI Assistant
-// Powered by LLM API & Grounded Knowledge Engine with Streaming SSE
+// Powered by LLM API & Grounded Knowledge Engine with Streaming SSE and Multi-Page Session Continuity
 
 let currentLang = 'en';
 let conciergeSessionId = null;
-
-const DIRECT_PHONE_NUMBER = '7812027551';
+let currentPhone = '7812027551';
+const STORAGE_KEY_HISTORY = 'concierge_chat_history';
+const STORAGE_KEY_LANG = 'concierge_chat_lang';
+const STORAGE_KEY_OPEN = 'concierge_chat_open';
 
 const defaultWelcomeMessages = {
   en: "Welcome to Coastal View, Managed By Ani's! 🌊\nI am your dedicated Coastal Concierge. Directly connected to our front desk, I can assist you with real-time room availability, official rates, dining menus, romantic candlelight dinners, and travel arrangements. How may I assist your Mandarmani getaway today?",
@@ -13,6 +15,13 @@ const defaultWelcomeMessages = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Fetch current phone from settings if available
+  fetch('/api/settings').then(r => r.json()).then(d => {
+    if (d.success && d.settings && d.settings.phone) {
+      currentPhone = d.settings.phone;
+    }
+  }).catch(() => {});
+
   initConcierge();
 });
 
@@ -32,41 +41,120 @@ function getOrCreateSessionId() {
   }
 }
 
+function loadSavedChatHistory() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_HISTORY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveChatHistory(history) {
+  try {
+    localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(history.slice(-30)));
+  } catch (e) {}
+}
+
 function initConcierge() {
   const launcher = document.getElementById('conciergeLauncher');
   const chatModal = document.getElementById('conciergeChatModal');
   const closeBtn = document.getElementById('conciergeCloseBtn');
+  const minimizeBtn = document.getElementById('conciergeMinimizeBtn');
+  const clearBtn = document.getElementById('conciergeClearBtn');
   const langBtns = document.querySelectorAll('.concierge-lang-selector .lang-btn');
   const sendBtn = document.getElementById('conciergeSendBtn');
   const textInput = document.getElementById('conciergeTextInput');
 
   if (!launcher || !chatModal) return;
 
-  // Append privacy note to chat modal footer if not already present
+  // Restore saved language
+  const savedLang = localStorage.getItem(STORAGE_KEY_LANG);
+  if (savedLang && ['en', 'bn', 'hi'].includes(savedLang)) {
+    currentLang = savedLang;
+    langBtns.forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-lang') === currentLang);
+    });
+  }
+
+  // Append privacy note to chat modal footer
   if (!chatModal.querySelector('.concierge-footer-privacy')) {
     const privacyEl = document.createElement('div');
     privacyEl.className = 'concierge-footer-privacy';
     privacyEl.innerHTML = `
       <span class="material-symbols-outlined" style="font-size: 13px; vertical-align: middle;">lock</span>
-      Privacy: No card details stored. Immediate help: <strong>${DIRECT_PHONE_NUMBER}</strong>
+      <span>Privacy: No card details stored. Immediate desk help: <a href="tel:${currentPhone}" style="color:inherit; font-weight:700;">${currentPhone}</a></span>
     `;
     chatModal.appendChild(privacyEl);
   }
 
+  // Restore previous chat history across pages
+  const savedHistory = loadSavedChatHistory();
+  if (savedHistory.length > 0) {
+    savedHistory.forEach(item => {
+      if (item.sender === 'user') {
+        appendUserMessage(item.text, false);
+      } else {
+        appendBotMessage(item.text, item.requiresCallback, item.actionChips, false);
+      }
+    });
+  }
+
+  // Restore open state if previously opened in this session
+  if (sessionStorage.getItem(STORAGE_KEY_OPEN) === 'true') {
+    chatModal.classList.add('open');
+  }
+
   // Toggle Chat Window
-  launcher.addEventListener('click', () => {
-    chatModal.classList.toggle('open');
-    if (chatModal.classList.contains('open') && document.querySelectorAll('#conciergeMessagesArea .chat-bubble').length === 0) {
-      appendBotMessage(defaultWelcomeMessages[currentLang]);
-      renderDefaultChips();
+  const toggleChat = () => {
+    const isOpen = chatModal.classList.toggle('open');
+    sessionStorage.setItem(STORAGE_KEY_OPEN, isOpen ? 'true' : 'false');
+    if (isOpen) {
+      if (document.querySelectorAll('#conciergeMessagesArea .chat-bubble').length === 0) {
+        appendBotMessage(defaultWelcomeMessages[currentLang]);
+        renderDefaultChips();
+      }
+      setTimeout(() => { if (textInput) textInput.focus(); }, 150);
+    }
+  };
+
+  launcher.addEventListener('click', toggleChat);
+  launcher.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      toggleChat();
     }
   });
 
   if (closeBtn) {
     closeBtn.addEventListener('click', () => {
       chatModal.classList.remove('open');
+      sessionStorage.setItem(STORAGE_KEY_OPEN, 'false');
     });
   }
+
+  if (minimizeBtn) {
+    minimizeBtn.addEventListener('click', () => {
+      chatModal.classList.remove('open');
+      sessionStorage.setItem(STORAGE_KEY_OPEN, 'false');
+    });
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      if (confirm('Clear chat history and restart conversation?')) {
+        clearConciergeChat();
+      }
+    });
+  }
+
+  // Close on Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && chatModal.classList.contains('open')) {
+      chatModal.classList.remove('open');
+      sessionStorage.setItem(STORAGE_KEY_OPEN, 'false');
+    }
+  });
 
   // Language Switcher
   langBtns.forEach(btn => {
@@ -74,6 +162,7 @@ function initConcierge() {
       langBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       currentLang = btn.getAttribute('data-lang');
+      localStorage.setItem(STORAGE_KEY_LANG, currentLang);
       appendBotMessage(defaultWelcomeMessages[currentLang]);
       renderDefaultChips();
     });
@@ -97,17 +186,25 @@ function initConcierge() {
   renderDefaultChips();
 }
 
+function clearConciergeChat() {
+  const area = document.getElementById('conciergeMessagesArea');
+  if (area) area.innerHTML = '';
+  localStorage.removeItem(STORAGE_KEY_HISTORY);
+  appendBotMessage(defaultWelcomeMessages[currentLang]);
+  renderDefaultChips();
+}
+
 function renderDefaultChips() {
   const chipsBar = document.getElementById('conciergeChipsBar');
   if (!chipsBar) return;
 
   let chips = [];
   if (currentLang === 'bn') {
-    chips = ['রুমের খালি অবস্থা', 'রুম ও ভাড়া দেখুন', 'রেস্তোরাঁ মেনু', 'ক্যান্ডেললাইট ডিনার', 'কাছাকাছি দর্শনীয় স্থান', 'বুকিং / কল করুন'];
+    chips = ['রুমের প্রাপ্যতা যাচাই', 'রুম ও ভাড়া দেখুন', 'রেস্তোরাঁ মেনু', 'ক্যান্ডেললাইট ডিনার', 'কাছাকাছি দর্শনীয় স্থান', 'অনির ট্যুর ও ট্রাভেলস', 'ফোন করুন'];
   } else if (currentLang === 'hi') {
-    chips = ['उपलब्धता चेक करें', 'कमरे और किराया', 'डाइनिंग मेनू', 'कैंडललाइट डिनर', 'आसपास के स्थान', 'बुकिंग / कॉल करें'];
+    chips = ['उपलब्धता चेक करें', 'कमरे और किराया', 'ডाइनिंग मेनू', 'कैंडललाइट डिनर', 'आसपास के स्थान', 'टूर सेवाएँ', 'कॉल करें'];
   } else {
-    chips = ['Check availability', 'Rooms & prices', 'Menu', 'Candlelight dinner', 'Nearby places', 'Book / Call us'];
+    chips = ['Check availability', 'Rooms & prices', 'Menu', 'Candlelight dinner', 'Nearby places', 'Tours', 'Call us'];
   }
 
   renderChips(chips);
@@ -122,14 +219,17 @@ function renderChips(chipsList) {
     const btn = document.createElement('button');
     btn.className = 'chip-btn';
     btn.textContent = chipText;
+    btn.setAttribute('aria-label', chipText);
     btn.onclick = () => {
       const lower = chipText.toLowerCase();
       if (lower.includes('photo') || lower.includes('gallery')) {
         window.location.href = '/gallery';
       } else if (lower.includes('full menu')) {
         window.location.href = '/menu';
-      } else if (lower.includes('call') || lower.includes('talk')) {
-        window.location.href = `tel:${DIRECT_PHONE_NUMBER}`;
+      } else if (lower === 'call us' || lower.includes('ফোন করুন') || lower.includes('कॉल करें')) {
+        window.location.href = `tel:${currentPhone}`;
+      } else if (lower === 'tours' || lower.includes('ট্যুর') || lower.includes('টুর')) {
+        sendUserMessage("Tell me about Ani's Tours and travel options");
       } else {
         sendUserMessage(chipText);
       }
@@ -138,7 +238,7 @@ function renderChips(chipsList) {
   });
 }
 
-function appendUserMessage(text) {
+function appendUserMessage(text, persist = true) {
   const area = document.getElementById('conciergeMessagesArea');
   if (!area) return;
 
@@ -147,6 +247,12 @@ function appendUserMessage(text) {
   bubble.textContent = text;
   area.appendChild(bubble);
   area.scrollTop = area.scrollHeight;
+
+  if (persist) {
+    const history = loadSavedChatHistory();
+    history.push({ sender: 'user', text, timestamp: new Date().toISOString() });
+    saveChatHistory(history);
+  }
 }
 
 function showTypingIndicator() {
@@ -156,6 +262,7 @@ function showTypingIndicator() {
   const typingEl = document.createElement('div');
   typingEl.className = 'concierge-typing-bubble';
   typingEl.id = 'conciergeTypingBubble';
+  typingEl.setAttribute('aria-live', 'polite');
   typingEl.innerHTML = `
     <span class="concierge-typing-dot"></span>
     <span class="concierge-typing-dot"></span>
@@ -180,7 +287,7 @@ function formatBotTextToHtml(text) {
     if (url.includes('#bookingSection') || url.includes('bookingSection')) {
       return `<a href="${url}" class="prefill-booking-link" onclick="handleChatBookingLinkClick(event, '${url}')">📅 ${label}</a>`;
     }
-    return `<a href="${url}" target="_blank" style="color:var(--champagne-gold,#D4A84D); text-decoration:underline;">${label}</a>`;
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#06B6B0; font-weight:700; text-decoration:underline;">${label}</a>`;
   });
 
   // 2. Convert standard prefilled booking links in raw HTML
@@ -191,17 +298,16 @@ function formatBotTextToHtml(text) {
   // 3. Newlines to <br>
   formatted = formatted.replace(/\n/g, '<br>');
 
-  // 4. Highlight Phone Number as Clickable Call
-  formatted = formatted.replace(/\b7812027551\b/g, `<a href="tel:${DIRECT_PHONE_NUMBER}" style="color:#06B6B0; font-weight:700; text-decoration:underline;">📞 7812027551</a>`);
+  // 4. Highlight Phone Number as Clickable Call link
+  formatted = formatted.replace(/\b(7812027551|9620536361)\b/g, (num) => `<a href="tel:${num}" style="color:#06B6B0; font-weight:700; text-decoration:underline;">📞 ${num}</a>`);
 
   // 5. Internal routes
-  formatted = formatted.replace(/\/gallery\b/g, '<a href="/gallery" style="color:var(--champagne-gold,#D4A84D); font-weight:700; text-decoration:underline;">/gallery (Explore Photos)</a>');
-  formatted = formatted.replace(/\/menu\b/g, '<a href="/menu" style="color:var(--champagne-gold,#D4A84D); font-weight:700; text-decoration:underline;">/menu (View Full Menu)</a>');
+  formatted = formatted.replace(/\/gallery\b/g, '<a href="/gallery" style="color:#06B6B0; font-weight:700; text-decoration:underline;">/gallery (Explore Photos)</a>');
+  formatted = formatted.replace(/\/menu\b/g, '<a href="/menu" style="color:#06B6B0; font-weight:700; text-decoration:underline;">/menu (View Full Menu)</a>');
 
   return formatted;
 }
 
-// Global click handler for prefill booking link in chat
 window.handleChatBookingLinkClick = function(e, url) {
   e.preventDefault();
   const modal = document.getElementById('conciergeChatModal');
@@ -214,7 +320,7 @@ window.handleChatBookingLinkClick = function(e, url) {
   }
 };
 
-function appendBotMessage(text, requiresCallback = false, actionChips = []) {
+function appendBotMessage(text, requiresCallback = false, actionChips = [], persist = true) {
   removeTypingIndicator();
   const area = document.getElementById('conciergeMessagesArea');
   if (!area) return;
@@ -232,6 +338,13 @@ function appendBotMessage(text, requiresCallback = false, actionChips = []) {
     renderChips(actionChips);
   }
   area.scrollTop = area.scrollHeight;
+
+  if (persist) {
+    const history = loadSavedChatHistory();
+    history.push({ sender: 'bot', text, requiresCallback, actionChips, timestamp: new Date().toISOString() });
+    saveChatHistory(history);
+  }
+
   return bubble;
 }
 
@@ -240,8 +353,8 @@ function appendCallbackForm(container) {
   formBox.className = 'callback-form-box';
   formBox.innerHTML = `
     <h5><span class="material-symbols-outlined" style="font-size: 16px; vertical-align: middle;">phone_in_talk</span> Request Front Desk Callback</h5>
-    <input type="text" id="cbGuestName" class="callback-input" placeholder="Your Full Name" required>
-    <input type="tel" id="cbGuestPhone" class="callback-input" placeholder="Your WhatsApp / Phone Number" required>
+    <input type="text" class="callback-input cbGuestName" placeholder="Your Full Name" aria-label="Your Full Name" required>
+    <input type="tel" class="callback-input cbGuestPhone" placeholder="Your WhatsApp / Phone Number" aria-label="Your WhatsApp or Phone Number" required>
     <button class="btn btn-gold" style="width: 100%; padding: 8px 12px; font-size: 0.8rem;" onclick="submitCallbackFromChat(this)">
       Submit Contact Request
     </button>
@@ -251,14 +364,13 @@ function appendCallbackForm(container) {
 
 // Send user message with full streaming SSE support & graceful fallback
 async function sendUserMessage(text) {
-  appendUserMessage(text);
+  appendUserMessage(text, true);
   const typingIndicator = showTypingIndicator();
   const area = document.getElementById('conciergeMessagesArea');
 
   const sessionId = getOrCreateSessionId();
 
   try {
-    // Primary endpoint: /api/chat (with streaming enabled)
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: {
@@ -280,7 +392,6 @@ async function sendUserMessage(text) {
     const contentType = response.headers.get('content-type') || '';
 
     if (contentType.includes('text/event-stream') && response.body && response.body.getReader) {
-      // SSE STREAMING MODE: Smooth typing effect
       removeTypingIndicator();
 
       const bubble = document.createElement('div');
@@ -299,7 +410,7 @@ async function sendUserMessage(text) {
 
         streamBuffer += decoder.decode(value, { stream: true });
         const lines = streamBuffer.split('\n\n');
-        streamBuffer = lines.pop(); // keep last incomplete chunk
+        streamBuffer = lines.pop();
 
         for (const line of lines) {
           const trimmed = line.trim();
@@ -335,30 +446,39 @@ async function sendUserMessage(text) {
       }
       area.scrollTop = area.scrollHeight;
 
+      // Persist bot reply to history
+      const history = loadSavedChatHistory();
+      history.push({
+        sender: 'bot',
+        text: accumulatedText,
+        requiresCallback: Boolean(doneMetadata?.requiresCallbackForm),
+        actionChips: doneMetadata?.actionChips || [],
+        timestamp: new Date().toISOString()
+      });
+      saveChatHistory(history);
+
     } else {
-      // STANDARD JSON FALLBACK MODE
       removeTypingIndicator();
       const data = await response.json();
       if (data.success) {
-        appendBotMessage(data.reply, data.requiresCallbackForm, data.actionChips);
+        appendBotMessage(data.reply, data.requiresCallbackForm, data.actionChips, true);
       } else {
-        appendBotMessage(`I am currently having trouble connecting to the concierge desk. Please call ${DIRECT_PHONE_NUMBER} for immediate assistance.`, true);
+        appendBotMessage(`I am currently having trouble connecting to the concierge desk. Please call ${currentPhone} for immediate assistance.`, true, ['Call ' + currentPhone], true);
       }
     }
 
   } catch (err) {
     removeTypingIndicator();
     console.error('Concierge API error:', err);
-    // Graceful Fallback Message Requirement
-    appendBotMessage(`I am currently having trouble connecting to the concierge desk. Please call ${DIRECT_PHONE_NUMBER} for immediate assistance.`, true, ['Call ' + DIRECT_PHONE_NUMBER, 'Check Rooms']);
+    appendBotMessage(`I am currently having trouble connecting to the concierge desk. Please call ${currentPhone} for immediate assistance.`, true, ['Call ' + currentPhone, 'Check Rooms'], true);
   }
 }
 
 // Global handler for callback lead submission within chat
 window.submitCallbackFromChat = async function(btn) {
   const container = btn.closest('.callback-form-box');
-  const name = container.querySelector('#cbGuestName')?.value.trim();
-  const phone = container.querySelector('#cbGuestPhone')?.value.trim();
+  const name = container.querySelector('.cbGuestName')?.value.trim();
+  const phone = container.querySelector('.cbGuestPhone')?.value.trim();
 
   if (!name || !phone) {
     alert('Please enter your name and contact phone number.');
@@ -383,20 +503,20 @@ window.submitCallbackFromChat = async function(btn) {
 
     if (data.success) {
       container.innerHTML = `
-        <div style="color: #2E7D32; font-size: 0.82rem; font-weight: 600; padding: 4px 0;">
+        <div style="color: #2E7D32; font-size: 0.82rem; font-weight: 600; padding: 6px 0;">
           <span class="material-symbols-outlined" style="font-size: 16px; vertical-align: middle;">check_circle</span>
-          Thank you, ${name}! Your callback request is confirmed. Our front desk will call you promptly at ${phone}. For instant support, you can also reach us directly at ${DIRECT_PHONE_NUMBER}.
+          Thank you, ${name}! Your callback request is confirmed. Our front desk will call you promptly at ${phone}. For instant support, reach us directly at ${currentPhone}.
         </div>
       `;
     } else {
       btn.disabled = false;
       btn.textContent = 'Submit Contact Request';
-      alert('Unable to submit callback request. Please call ' + DIRECT_PHONE_NUMBER + ' directly.');
+      alert('Unable to submit callback request. Please call ' + currentPhone + ' directly.');
     }
   } catch (err) {
     btn.disabled = false;
     btn.textContent = 'Submit Contact Request';
     console.error('Callback error:', err);
-    alert('Unable to submit callback request. Please call ' + DIRECT_PHONE_NUMBER + ' directly.');
+    alert('Unable to submit callback request. Please call ' + currentPhone + ' directly.');
   }
 };

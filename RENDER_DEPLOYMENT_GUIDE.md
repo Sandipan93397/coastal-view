@@ -85,5 +85,4 @@ If you own a custom domain (e.g. `coastalviewmandarmani.com`):
 ## Admin Panel Access on Live Site
 * **Live Website:** `https://your-app.onrender.com/`
 * **Live Admin Portal:** `https://your-app.onrender.com/admin/`
-* **Default Username:** `admin`
-* **Default Password:** `CoastalAdmin@2026` *(Change in Admin Panel > Settings)*
+* **Super Admin Setup:** In Render Shell or terminal, run `npm run create-super-admin` (reads `ADMIN_EMAIL` from environment variables, sets strong password with Argon2id, and locks itself).

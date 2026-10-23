@@ -130,11 +130,15 @@ async function main() {
 
   const db = readDB();
 
-  // Self-locking check: check if super admin is already locked
-  if (db.superAdminLocked) {
+  // Self-locking check: check if super admin is already locked or exists
+  const existingSuperAdmin = (db.users || []).find(u => u.role === 'Super Admin');
+  if (db.superAdminLocked || existingSuperAdmin) {
     console.error('⛔ ACCESS DENIED: The one-time Super Admin creation script is permanently LOCKED.');
     console.error('A Super Admin account has already been initialized. To protect security,');
-    console.error('this script cannot be executed again.\n');
+    console.error('this script cannot be executed again.');
+    console.error('To reset credentials or recover the account, use the secure reset flow:');
+    console.error('  • Web Reset:  Use the "Forgot Password" link on /admin');
+    console.error('  • Emergency:  Run "npm run recover-account" on the server.\n');
     process.exit(1);
   }
 
@@ -219,6 +223,9 @@ async function main() {
     action: 'Super Admin Created',
     details: `Super Admin account initialized for ${adminEmail}. Argon2id hashing applied. One-time setup script locked.`
   });
+
+  // Purge any legacy admin object
+  delete db.admin;
 
   writeDB(db);
 

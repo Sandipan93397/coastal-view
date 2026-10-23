@@ -92,7 +92,7 @@
           <li><a href="/#rooms" class="nav-link">Rooms</a></li>
           <li><a href="/#amenities" class="nav-link">Amenities</a></li>
           <li><a href="/menu" class="nav-link">Menu</a></li>
-          <li><a href="/#cocktails" class="nav-link">Cocktails</a></li>
+          <li><a href="/#mocktails" class="nav-link">Mocktails</a></li>
           <li><a href="/#candlelight" class="nav-link">Candlelight</a></li>
           <li><a href="/gallery" class="nav-link active">Gallery</a></li>
           <li><a href="/#nearby" class="nav-link">Places</a></li>
@@ -134,7 +134,7 @@
         <li><a href="/#rooms" class="mobile-nav-link"><span class="material-symbols-outlined">hotel</span> Rooms</a></li>
         <li><a href="/#amenities" class="mobile-nav-link"><span class="material-symbols-outlined">pool</span> Amenities</a></li>
         <li><a href="/menu" class="mobile-nav-link"><span class="material-symbols-outlined">restaurant_menu</span> Menu</a></li>
-        <li><a href="/#cocktails" class="mobile-nav-link"><span class="material-symbols-outlined">local_bar</span> Cocktails</a></li>
+        <li><a href="/#mocktails" class="mobile-nav-link"><span class="material-symbols-outlined">local_bar</span> Mocktails</a></li>
         <li><a href="/#candlelight" class="mobile-nav-link"><span class="material-symbols-outlined">candle</span> Candlelight</a></li>
         <li><a href="/gallery" class="mobile-nav-link active"><span class="material-symbols-outlined">photo_library</span> Gallery</a></li>
         <li><a href="/#nearby" class="mobile-nav-link"><span class="material-symbols-outlined">explore</span> Places</a></li>
@@ -234,6 +234,83 @@
       </div>
     </div>
   </footer>
+
+  <!-- ==========================================================================
+       FLOATING CHATBOT WIDGET: ANI'S COASTAL CONCIERGE
+       ========================================================================== -->
+  <div class="concierge-launcher" id="conciergeLauncher" title="Chat with Ani's Coastal Concierge" aria-label="Open Ani's Coastal Concierge Chat" role="button" tabindex="0">
+    <span class="material-symbols-outlined" aria-hidden="true">support_agent</span>
+    <span class="concierge-badge-online" title="Front desk online"></span>
+  </div>
+
+  <div class="concierge-chat-modal" id="conciergeChatModal" role="dialog" aria-labelledby="conciergeTitle" aria-describedby="conciergeSubtitle">
+    <div class="concierge-header">
+      <div class="concierge-header-left">
+        <div class="concierge-avatar-box">
+          <img src="assets/images/logo-emblem.png" alt="Coastal View Logo" class="concierge-avatar-img">
+        </div>
+        <div>
+          <div class="concierge-name" id="conciergeTitle">Ani's Coastal Concierge</div>
+          <div class="concierge-status" id="conciergeSubtitle">
+            <span class="concierge-status-dot"></span> Online Desk Assistant
+          </div>
+        </div>
+      </div>
+
+      <div class="concierge-header-actions">
+        <!-- Direct Phone Call Button -->
+        <a href="tel:7812027551" class="concierge-header-action" title="Call Front Desk (+91 7812027551)" aria-label="Call Front Desk">
+          <span class="material-symbols-outlined" aria-hidden="true">call</span>
+        </a>
+
+        <!-- WhatsApp Concierge Button -->
+        <a href="https://wa.me/917812027551" target="_blank" rel="noopener noreferrer" class="concierge-header-action whatsapp-btn" title="Chat on WhatsApp" aria-label="Chat on WhatsApp">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.316 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.818-.981z"/>
+          </svg>
+        </a>
+
+        <!-- Language Selector -->
+        <div class="concierge-lang-selector" role="group" aria-label="Select Chat Language">
+          <button class="lang-btn active" data-lang="en" aria-label="English">EN</button>
+          <button class="lang-btn" data-lang="bn" aria-label="বাংলা">বাংলা</button>
+          <button class="lang-btn" data-lang="hi" aria-label="हिन्दी">हिन्दी</button>
+        </div>
+
+        <!-- Clear Chat -->
+        <button class="concierge-header-action" id="conciergeClearBtn" title="Clear Chat History" aria-label="Clear Chat History">
+          <span class="material-symbols-outlined" aria-hidden="true">delete_sweep</span>
+        </button>
+
+        <!-- Minimize Button -->
+        <button class="concierge-header-action" id="conciergeMinimizeBtn" title="Minimize Chat" aria-label="Minimize Chat">
+          <span class="material-symbols-outlined" aria-hidden="true">remove</span>
+        </button>
+
+        <!-- Close Button -->
+        <button class="concierge-close-btn" id="conciergeCloseBtn" title="Close Chat" aria-label="Close Chat">
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="concierge-messages-area" id="conciergeMessagesArea">
+      <!-- Chat bubbles added via concierge.js -->
+    </div>
+
+    <!-- Quick Prompt Chips -->
+    <div class="concierge-chips-bar" id="conciergeChipsBar">
+      <!-- Rendered dynamically via concierge.js -->
+    </div>
+
+    <!-- Input Bar -->
+    <div class="concierge-input-bar">
+      <input type="text" id="conciergeTextInput" class="concierge-text-input" placeholder="Ask about rooms, rates, menu...">
+      <button class="concierge-send-btn" id="conciergeSendBtn" aria-label="Send Message">
+        <span class="material-symbols-outlined">send</span>
+      </button>
+    </div>
+  </div>
 
   <!-- Scripts -->
   <script src="assets/js/main.js"></script>

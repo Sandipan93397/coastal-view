@@ -87,7 +87,7 @@ function initSmoothNav() {
     if (!hash || hash === '#') return null;
     let target = document.querySelector(hash);
     if (!target) {
-      if (hash === '#cocktails' || hash === '#cocktail' || hash === '#mocktails') {
+      if (hash === '#cocktails' || hash === '#cocktail' || hash === '#mocktails' || hash === '#mocktail') {
         target = document.getElementById('cocktails') || document.getElementById('cocktail') || document.getElementById('lounge') || document.querySelector('.lounge-section');
       } else if (hash === '#lounge') {
         target = document.getElementById('cocktails') || document.getElementById('cocktail') || document.getElementById('lounge') || document.querySelector('.lounge-section');
@@ -170,7 +170,7 @@ function initNavbarScrollSpy() {
     { id: 'rooms', aliases: ['rooms'] },
     { id: 'amenities', aliases: ['amenities'] },
     { id: 'restaurant', aliases: ['restaurant', 'menu'] },
-    { id: 'cocktails', aliases: ['cocktails', 'cocktail', 'mocktails', 'lounge'] },
+    { id: 'cocktails', aliases: ['cocktails', 'cocktail', 'mocktails', 'mocktail', 'lounge'] },
     { id: 'candlelight', aliases: ['candlelight'] },
     { id: 'gallery', aliases: ['gallery'] },
     { id: 'nearby', aliases: ['nearby', 'places'] },
@@ -1264,7 +1264,7 @@ function initButtonRipples() {
 // 4. Live Media Sync: dynamically updates public site images from DB / API
 async function syncLiveMedia() {
   try {
-    const res = await fetch('/api/media');
+    const res = await fetch('/api/public/media', { cache: 'no-store' });
     if (!res.ok) return;
     const data = await res.json();
     if (!data.success) return;
@@ -1327,6 +1327,24 @@ async function syncLiveMedia() {
       const cocktailImg = document.querySelector('.lounge-img-wrapper img, .lounge-img-box img');
       if (cocktailImg && cocktailImg.getAttribute('src') !== data.cocktails.image) {
         cocktailImg.src = data.cocktails.image;
+      }
+    }
+
+    // G. Generic labeled slots (amenities, places, gallery highlight, Ani's Tours banner...)
+    const slots = data.slots || {};
+    document.querySelectorAll('[data-media-slot]').forEach(el => {
+      const slot = slots[el.getAttribute('data-media-slot')];
+      if (slot && slot.custom && slot.url && el.getAttribute('src') !== slot.url) {
+        el.removeAttribute('srcset');
+        el.src = slot.url;
+      }
+    });
+    if (slots.anisTours && slots.anisTours.custom) {
+      const tourBanner = document.querySelector('.tour-super-banner');
+      if (tourBanner) {
+        tourBanner.style.backgroundImage = `linear-gradient(135deg, rgba(7,59,76,0.82), rgba(7,59,76,0.55)), url('${slots.anisTours.url}')`;
+        tourBanner.style.backgroundSize = 'cover';
+        tourBanner.style.backgroundPosition = 'center';
       }
     }
   } catch (e) {

@@ -21,7 +21,7 @@ const navLinks = [
   { href: '#rooms', targetId: 'rooms' },
   { href: '#amenities', targetId: 'amenities' },
   { href: '#restaurant', targetId: 'restaurant' },
-  { href: '#cocktail', targetId: 'cocktail' },
+  { href: '#mocktails', targetId: 'mocktails' },
   { href: '#candlelight', targetId: 'candlelight' },
   { href: '#nearby', targetId: 'nearby' },
   { href: '#location', targetId: 'location' },

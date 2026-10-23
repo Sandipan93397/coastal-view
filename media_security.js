@@ -9,8 +9,13 @@ const crypto = require('crypto');
 const sharp = require('sharp');
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB limit
-const UPLOADS_ROOT = path.join(__dirname, 'uploads');
+// Persistent uploads folder. Set UPLOADS_DIR (e.g. a folder outside the deployed/build output on
+// Hostinger or a Render disk) so uploaded photos survive redeploys. Defaults to ./uploads.
+const UPLOADS_ROOT = process.env.UPLOADS_DIR
+  ? path.resolve(process.env.UPLOADS_DIR)
+  : path.join(__dirname, 'uploads');
 const DB_PATH = path.join(__dirname, 'data', 'db.json');
+try { fs.mkdirSync(UPLOADS_ROOT, { recursive: true }); } catch (e) { /* surfaced on first upload */ }
 
 // 30-second undo map: undoToken -> { slotId, roomId, photoId, previousUrl, expiresAt }
 const undoStore = new Map();
@@ -127,6 +132,16 @@ const PHOTO_SLOTS = [
     defaultUrl: 'assets/images/tajpur-beach.jpg',
     defaultAlt: 'Tajpur Beach and Red Crab Coastline Mandarmani'
   },
+  // 7b. Ani's Tours banner
+  {
+    key: 'anisTours',
+    section: 'Tours',
+    title: "Ani's Tours & Travels Banner",
+    recommendedSize: '1600 × 900 px • 16:9',
+    aspect: '16:9',
+    defaultUrl: 'assets/images/mandarmani-beach.jpg',
+    defaultAlt: "Ani's Tours luxury chauffeur driven fleet"
+  },
   // 8. Gallery
   {
     key: 'gallery',
@@ -157,7 +172,7 @@ function validateImageBuffer(buffer) {
     throw new Error('Empty image buffer provided.');
   }
   if (buffer.length > MAX_IMAGE_BYTES) {
-    throw new Error(`File too large, max 8 MB (uploaded file is ${(buffer.length / (1024 * 1024)).toFixed(2)} MB).`);
+    throw new Error(`File too large (max 8 MB). Uploaded file is ${(buffer.length / (1024 * 1024)).toFixed(1)} MB.`);
   }
 
   // Magic bytes check
@@ -169,12 +184,14 @@ function validateImageBuffer(buffer) {
   const isWebp = (buffer.length >= 12 && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP');
 
   if (!isJpeg && !isPng && !isWebp) {
-    throw new Error('Unsupported file format. Only authentic JPG, PNG, and WebP images are permitted (SVG, scripts, and disguised executables are strictly rejected).');
+    throw new Error('Only JPG, PNG, or WebP allowed. The file is not a genuine image (scripts, SVG and disguised files are rejected).');
   }
 
-  // Deep check for injected scripts, PHP tags, or SVG XML
-  const headStr = buffer.slice(0, 4096).toString('utf8').toLowerCase();
-  const dangerousTokens = ['<?php', '<?=', '<svg', 'xmlns', '<script', 'eval(', 'base64_decode', '<html', '<!doctype'];
+  // Deep check for injected scripts or PHP tags. NOTE: 'xmlns' is intentionally NOT blocked:
+  // genuine camera/Photoshop JPEGs and WebPs carry XMP metadata (xmlns:x="adobe:ns:meta/") in their
+  // first bytes, and rejecting it made valid photos fail. Sharp re-encoding strips all metadata anyway.
+  const headStr = buffer.slice(0, 4096).toString('latin1').toLowerCase();
+  const dangerousTokens = ['<?php', '<?=', '<svg', '<script', 'eval(', 'base64_decode', '<html', '<!doctype'];
   for (const token of dangerousTokens) {
     if (headStr.includes(token)) {
       throw new Error(`Potentially malicious content (${token}) detected in image payload. Upload permanently blocked.`);
@@ -195,7 +212,9 @@ async function processAndSaveImage(buffer, subDir = 'general', filePrefix = 'med
   let finalExt = 'webp';
 
   try {
-    const sharpInstance = sharp(buffer).rotate(); // auto-orient based on EXIF before stripping
+    const sharpInstance = sharp(buffer, { failOn: 'error' })
+      .rotate() // auto-orient from EXIF before the metadata is stripped
+      .resize({ width: 2560, height: 2560, fit: 'inside', withoutEnlargement: true });
     if (targetExt === 'png' && detectedFormat === 'png') {
       cleanBuffer = await sharpInstance.png({ compressionLevel: 8 }).toBuffer();
       finalExt = 'png';
@@ -240,7 +259,7 @@ async function saveBase64ImageSecure(base64Str, subDir = 'general', filePrefix =
 /**
  * Record media version history (keeps last 5 versions per slot/photo).
  */
-function recordMediaVersion(db, slotKey, previousUrl, user) {
+function recordMediaVersion(db, slotKey, previousUrl, user, extra = null) {
   if (!previousUrl) return null;
   db.mediaHistory = db.mediaHistory || [];
 
@@ -263,14 +282,19 @@ function recordMediaVersion(db, slotKey, previousUrl, user) {
   }
 
   // Create 30-second undo token
-  const undoToken = crypto.randomBytes(16).toString('hex');
-  undoStore.set(undoToken, {
-    slotKey,
-    previousUrl,
-    expiresAt: Date.now() + 30 * 1000 // 30 seconds
-  });
+  const undoToken = createUndoToken({ slotKey, previousUrl, ...(extra || {}) });
 
   return { historyEntry, undoToken };
+}
+
+/**
+ * Create a 30-second undo token for any photo change (also used for room-gallery additions
+ * that have no previous URL to restore, where undo simply removes the new photo).
+ */
+function createUndoToken(payload) {
+  const undoToken = crypto.randomBytes(16).toString('hex');
+  undoStore.set(undoToken, { ...payload, expiresAt: Date.now() + 30 * 1000 });
+  return undoToken;
 }
 
 /**
@@ -283,8 +307,21 @@ function performUndo(undoToken, db) {
     return { success: false, message: 'Undo window has expired (valid for 30 seconds after change).' };
   }
 
-  const { slotKey, previousUrl } = item;
+  const { slotKey, previousUrl, kind, roomId, photoId, previousCover } = item;
   undoStore.delete(undoToken);
+
+  if (kind === 'roomAdd') {
+    // The change was ADDING a gallery photo: undo removes it (and restores the previous cover).
+    const room = (db.rooms || []).find(r => r.id === roomId);
+    if (room) {
+      room.gallery = (room.gallery || []).filter(p => p.id !== photoId);
+      if (previousCover !== undefined && previousCover !== null) {
+        room.image = previousCover;
+        room.gallery.forEach(p => { p.isCover = (p.url === previousCover); });
+      }
+    }
+    return { success: true, slotKey, restoredUrl: previousCover || '', message: 'Photo change undone successfully. Previous image restored.' };
+  }
 
   // Restore the previous URL
   applyUrlToSlot(db, slotKey, previousUrl);
@@ -321,6 +358,18 @@ function restoreFromHistory(historyId, db) {
  */
 function applyUrlToSlot(db, slotKey, url) {
   db.mediaSlots = db.mediaSlots || {};
+
+  // Individual room gallery photo (replaced via Change Photo): roomphoto:<roomId>:<photoId>
+  if (slotKey.startsWith('roomphoto:')) {
+    const [, roomId, photoId] = slotKey.split(':');
+    const room = (db.rooms || []).find(r => r.id === roomId);
+    const photo = room && (room.gallery || []).find(p => p.id === photoId);
+    if (photo) {
+      photo.url = url;
+      if (photo.isCover) room.image = url;
+    }
+    return;
+  }
 
   // Check if room cover slot
   if (slotKey.startsWith('room:')) {
@@ -366,14 +415,41 @@ function applyUrlToSlot(db, slotKey, url) {
   }
 }
 
+/**
+ * Resolve the live URL for a labeled slot (DB override first, then legacy content fields, then default).
+ */
+function resolveSlotUrl(db, slot) {
+  const ms = (db.mediaSlots || {})[slot.key];
+  if (ms && ms.url) return { url: ms.url, alt: ms.alt || slot.defaultAlt, updatedAt: ms.updatedAt || null };
+  if (slot.key === 'hero' && db.websiteContent?.hero?.heroImage) return { url: db.websiteContent.hero.heroImage, alt: slot.defaultAlt, updatedAt: null };
+  if (slot.key === 'owner' && db.websiteContent?.owner?.photo) return { url: db.websiteContent.owner.photo, alt: slot.defaultAlt, updatedAt: null };
+  if (slot.key === 'logo' && db.settings?.invoiceLogo) return { url: db.settings.invoiceLogo, alt: slot.defaultAlt, updatedAt: null };
+  if (slot.roomId) {
+    const room = (db.rooms || []).find(r => r.id === slot.roomId);
+    if (room && room.image) return { url: room.image, alt: slot.defaultAlt, updatedAt: null };
+  }
+  return { url: slot.defaultUrl, alt: slot.defaultAlt, updatedAt: null };
+}
+
+/** Append a cache-busting version query to a local URL. */
+function withVersion(url, version) {
+  if (!url || !version || /^(data:|https?:)/i.test(url)) return url;
+  return url + (url.includes('?') ? '&' : '?') + 'v=' + version;
+}
+
 module.exports = {
   PHOTO_SLOTS,
+  UPLOADS_ROOT,
+  MAX_IMAGE_BYTES,
   validateImageBuffer,
   processAndSaveImage,
   saveBase64ImageSecure,
   recordMediaVersion,
+  createUndoToken,
   performUndo,
   restoreFromHistory,
   applyUrlToSlot,
+  resolveSlotUrl,
+  withVersion,
   undoStore
 };
