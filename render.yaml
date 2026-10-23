@@ -23,17 +23,27 @@ services:
         value: sandipanmajumder9339@gmail.com
       - key: SESSION_SECRET
         generateValue: true
+      - key: MFA_ENCRYPTION_KEY
+        generateValue: true
       - key: TOTP_ISSUER
         value: CoastalViewMandarmani
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: LLM_MODEL
+        value: gemini-1.5-flash
+      - key: LLM_API_KEY
+        sync: false
       - key: SMTP_HOST
-        value: smtp.gmail.com
+        value: smtp-relay.brevo.com
       - key: SMTP_PORT
         value: "587"
-      - key: SMTP_SECURE
-        value: "false"
       - key: SMTP_USER
-        value: ""
+        sync: false
       - key: SMTP_PASS
-        value: ""
-      - key: SMTP_FROM
-        value: Coastal View Mandarmani <reservations@coastalviewmandarmani.com>
+        sync: false
+      - key: MAIL_FROM
+        value: reservations@coastalviewmandarmani.com
+      - key: MAIL_FROM_NAME
+        value: "Coastal View Mandarmani"
+      - key: SMTP_DAILY_LIMIT
+        value: "300"
