@@ -557,25 +557,6 @@ const gridEnd = indexHtml.indexOf('<!-- Big Gold CTA to Full Menu -->', gridStar
 if (gridStart !== -1 && gridEnd !== -1) {
   const newGridBlock = `<div class="featured-dishes-grid" id="homeFeaturedDishesGrid">
 ${homeFeaturedCardsHtml}
-      </div>
-
-      <!-- Prominent Bottom Note Card -->
-      <div class="menu-bottom-policy-card">
-        <div class="policy-card-icon">
-          <span class="material-symbols-outlined">restaurant</span>
-        </div>
-        <div class="policy-card-content">
-          <h4 class="policy-card-title">Chef's Special Preparation & Restaurant Guidelines</h4>
-          <p class="policy-card-text" id="homeMenuBottomNoteText">
-            ${menuNote}
-          </p>
-          <div class="policy-card-contact">
-            <span>For custom cooking, kitchen orders, or table reservations:</span>
-            <a href="tel:${cleanPhone}" class="btn btn-gold btn-sm">
-              <span class="material-symbols-outlined" style="font-size:16px;">call</span> Call ${phone}
-            </a>
-          </div>
-        </div>
       </div>\n\n      `;
 
   indexHtml = indexHtml.slice(0, gridStart) + newGridBlock + indexHtml.slice(gridEnd);
