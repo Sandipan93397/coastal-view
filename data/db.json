@@ -31,7 +31,7 @@
     "menuPhone": "+91 7812027551",
     "invoicePrefix": "CV",
     "invoiceStartingNumber": 1001,
-    "invoiceNextNumber": 1135,
+    "invoiceNextNumber": 1136,
     "gstEnabled": false,
     "gstin": "",
     "gstRate": 12,
@@ -2236,66 +2236,58 @@
   "cocktails": [
     {
       "id": "drink-1",
-      "name": "Sunset Mojito",
-      "category": "Cocktail",
-      "price": 450,
-      "description": "White rum, muddled garden mint, zesty lime, pure cane sugar, topped with chilled sparkling water and a sunset berry float.",
+      "name": "Fresh Lime Soda",
+      "category": "Mocktail",
+      "price": 60,
+      "description": "Freshly squeezed coastal key limes topped with chilled club soda (Sweet / Salted / Mixed).",
       "available": true
     },
     {
       "id": "drink-2",
-      "name": "Coastal Blue Lagoon",
-      "category": "Cocktail",
-      "price": 480,
-      "description": "Premium vodka, blue curaçao liqueur, freshly squeezed limeade, and crushed ice served in a crystal highball.",
+      "name": "Masala Cold Drinks",
+      "category": "Mocktail",
+      "price": 80,
+      "description": "Chilled soda spiked with roasted cumin, rock salt, chaat masala, and mint.",
       "available": true
     },
     {
       "id": "drink-3",
-      "name": "Mango Margarita",
-      "category": "Cocktail",
-      "price": 490,
-      "description": "Silver tequila, triple sec, Alphonso mango puree, fresh lime juice, with a rim of smoked chili sea salt.",
+      "name": "Blue Lagoon",
+      "category": "Mocktail",
+      "price": 150,
+      "description": "Vibrant azure mocktail blending citrus blue curacao flavor, sparkling lemonade, and crushed ice.",
       "available": true
     },
     {
       "id": "drink-4",
-      "name": "Piña Colada",
-      "category": "Cocktail",
-      "price": 460,
-      "description": "Aged Caribbean rum, pressed sweet pineapple juice, and rich Mandarmani coconut cream, blended frosty smooth.",
+      "name": "Green Apple Freshness",
+      "category": "Mocktail",
+      "price": 150,
+      "description": "Tart and crisp green apple puree muddled with fresh garden mint and sparkling soda.",
       "available": true
     },
     {
       "id": "drink-5",
-      "name": "Old Fashioned",
-      "category": "Cocktail",
-      "price": 520,
-      "description": "Small-batch bourbon whiskey, Angostura aromatic bitters, brown sugar cube, finished with flamed orange oils.",
+      "name": "Orange Pool",
+      "category": "Mocktail",
+      "price": 130,
+      "description": "Zesty orange citrus splashed with sweet grenadine and effervescent bubbles.",
       "available": true
     },
     {
       "id": "drink-6",
-      "name": "Whisky Sour",
-      "category": "Cocktail",
-      "price": 480,
-      "description": "Blended Scotch whisky, fresh lemon juice, organic sugar syrup, velvety foam, topped with drops of aromatic bitters.",
+      "name": "Mango Masti",
+      "category": "Mocktail",
+      "price": 120,
+      "description": "Luscious tropical mango nectar blended with lemon juice and crushed ice.",
       "available": true
     },
     {
       "id": "drink-7",
-      "name": "Virgin Blue Ocean Fizz",
+      "name": "Pineapple Swag",
       "category": "Mocktail",
-      "price": 250,
-      "description": "Non-alcoholic blue citrus cordial, fresh mint leaves, lemon juice, sparkling soda water.",
-      "available": true
-    },
-    {
-      "id": "drink-8",
-      "name": "Mandarmani Tropical Sunset",
-      "category": "Mocktail",
-      "price": 260,
-      "description": "Mango nectar, passionfruit reduction, cranberry float, layered over crushed mountain ice.",
+      "price": 130,
+      "description": "Juicy tropical pineapple juice with a pinch of black salt and fresh mint sprig.",
       "available": true
     }
   ],
@@ -5494,6 +5486,122 @@
       "invoiceTokenExpiresAt": "2027-01-18T13:07:24.579Z",
       "invoicePdfPath": "C:\\mandarmaniproject\\data\\invoices\\CV-2026-1134.pdf",
       "invoiceGeneratedAt": "2026-10-20T13:07:24.823Z"
+    },
+    {
+      "bookingId": "CV-2026-597977",
+      "roomId": "cosy-deluxe-room",
+      "roomName": "Cosy Deluxe Room",
+      "roomPrice": 1800,
+      "checkIn": "2026-10-25",
+      "checkOut": "2026-10-30",
+      "nights": 5,
+      "adults": 4,
+      "children": 2,
+      "roomsCount": 2,
+      "needCar": true,
+      "carCount": 1,
+      "carTotal": 12500,
+      "vehicleType": "car",
+      "vehicleName": "Car",
+      "vehicleQuantity": 1,
+      "vehiclePricePerDay": 2500,
+      "vehicleDays": 5,
+      "vehicleTripType": "Pickup / Drop only",
+      "transportCost": 12500,
+      "transportSummary": "Car × 1 × 5 days",
+      "breakfast": true,
+      "breakfastGuests": 6,
+      "breakfastCount": 6,
+      "breakfastPrice": 200,
+      "breakfastUnit": "per_person_per_day",
+      "breakfastDays": 5,
+      "breakfastTotal": 6000,
+      "breakfastLine": "Breakfast × 6 guests × 5 days = ₹6,000",
+      "candlelightDinner": true,
+      "dinnerSetup": "Poolside",
+      "dinnerCount": 2,
+      "dinnerOccasion": "Proposal",
+      "dinnerTotal": 5600,
+      "roomSubtotal": 18000,
+      "taxAmount": 0,
+      "totalAmount": 42100,
+      "breakdown": {
+        "roomCost": 18000,
+        "transportCost": 12500,
+        "candlelightCost": 5600,
+        "taxAmount": 0,
+        "subtotal": 42100,
+        "totalAmount": 42100,
+        "lines": [
+          "Room: ₹1,800 × 5 nights × 2 rooms",
+          "Breakfast × 6 guests × 5 days = ₹6,000",
+          "Car × 1 × 5 days",
+          "Candlelight dinner (Poolside) × 2"
+        ],
+        "details": {
+          "room": {
+            "name": "Cosy Deluxe Room",
+            "price": 1800,
+            "nights": 5,
+            "roomsCount": 2,
+            "subtotal": 18000,
+            "line": "Room: ₹1,800 × 5 nights × 2 rooms"
+          },
+          "breakfast": {
+            "enabled": true,
+            "price": 200,
+            "unit": "per_person_per_day",
+            "quantity": 6,
+            "days": 5,
+            "subtotal": 6000,
+            "line": "Breakfast × 6 guests × 5 days = ₹6,000"
+          },
+          "transport": {
+            "vehicle": "Car",
+            "shortName": "Car",
+            "rate": 2500,
+            "quantity": 1,
+            "days": 5,
+            "subtotal": 12500,
+            "line": "Car × 1 × 5 days"
+          },
+          "candlelight": {
+            "setup": "Poolside",
+            "occasion": "Proposal",
+            "price": 2800,
+            "multiplier": 2,
+            "subtotal": 5600,
+            "line": "Candlelight dinner (Poolside) × 2"
+          },
+          "tax": null
+        }
+      },
+      "advancePercentage": 20,
+      "payNowAdvance": 8420,
+      "payAtHotelBalance": 33680,
+      "advancePolicyNote": "The 20% advance is non-refundable.",
+      "guestName": "SUMAN CHATTERJEE",
+      "guestPhone": "+917908758775",
+      "guestEmail": "sumanchatterjee251@gmail.com",
+      "specialRequests": "",
+      "status": "Confirmed",
+      "createdAt": "2026-10-23T06:05:45.176Z",
+      "invoiceNumber": "CV-2026-1135-R1",
+      "invoiceRevision": 1,
+      "invoiceToken": "bc0dbc5088088699e273ff53be7520c0506532a391443bcb",
+      "invoiceTokenExpiresAt": "2027-01-21T06:05:45.177Z",
+      "invoicePdfPath": "C:\\mandarmaniproject\\data\\invoices\\CV-2026-1135-R1.pdf",
+      "invoiceGeneratedAt": "2026-10-23T06:19:35.402Z",
+      "invoiceHistory": [
+        {
+          "invoiceNumber": "CV-2026-1135",
+          "revision": 0,
+          "pdfPath": "C:\\mandarmaniproject\\data\\invoices\\CV-2026-1135.pdf",
+          "archivedAt": "2026-10-23T06:19:35.025Z",
+          "status": "Confirmed",
+          "reason": "Booking status changed from Pending Advance to Confirmed"
+        }
+      ]
     }
   ],
   "chatInquiries": [
@@ -8372,6 +8480,106 @@
     ]
   },
   "auditLog": [
+    {
+      "id": "audit-1792736729148-930",
+      "timestamp": "2026-10-23T06:25:29.148Z",
+      "user": "sandipanmajumder9339",
+      "role": "Super Admin",
+      "name": "Super Admin",
+      "ip": "1",
+      "action": "Staff Logout",
+      "details": "Super Admin \"sandipanmajumder9339\" logged out."
+    },
+    {
+      "id": "audit-1792736555529-869",
+      "timestamp": "2026-10-23T06:22:35.529Z",
+      "user": "sandipanmajumder9339",
+      "role": "Super Admin",
+      "name": "Super Admin",
+      "ip": "1",
+      "action": "Photo Change Undone",
+      "details": "Super Admin triggered 30-second undo for slot \"amenity:beach\"."
+    },
+    {
+      "id": "audit-1792736542629-546",
+      "timestamp": "2026-10-23T06:22:22.630Z",
+      "user": "sandipanmajumder9339",
+      "role": "Super Admin",
+      "name": "Super Admin",
+      "ip": "1",
+      "action": "Photo Slot Changed",
+      "details": "Super Admin updated photo slot \"amenity:beach\" to /uploads/general/slot-amenity-beach-1792736542625-f2685c80d3dbf2b1.webp."
+    },
+    {
+      "id": "audit-1792736375402-931",
+      "timestamp": "2026-10-23T06:19:35.402Z",
+      "user": "sandipanmajumder9339",
+      "role": "Super Admin",
+      "name": "Super Admin",
+      "ip": "1",
+      "action": "Booking Status: Confirmed",
+      "details": "Super Admin Super Admin changed status of CV-2026-597977 (SUMAN CHATTERJEE) from \"Pending Advance\" to \"Confirmed\"."
+    },
+    {
+      "id": "audit-1792736313468-488",
+      "timestamp": "2026-10-23T06:18:33.468Z",
+      "user": "sandipanmajumder9339",
+      "role": "Super Admin",
+      "name": "Super Admin",
+      "ip": "1",
+      "action": "Staff Login Success",
+      "details": "Super Admin \"sandipanmajumder9339\" signed in with verified 2FA code from IP 1."
+    },
+    {
+      "id": "audit-1792736311236-828",
+      "timestamp": "2026-10-23T06:18:31.236Z",
+      "user": "sandipanmajumder9339",
+      "role": "Super Admin",
+      "name": "Super Admin",
+      "ip": "1",
+      "action": "2FA Code Dispatched",
+      "details": "6-digit login verification code sent to sandipanmajumder9339@gmail.com from IP 1."
+    },
+    {
+      "id": "audit-1792736092733-292",
+      "timestamp": "2026-10-23T06:14:52.733Z",
+      "user": "admin",
+      "role": "Super Admin",
+      "name": "System",
+      "ip": "1",
+      "action": "Failed Login Attempt",
+      "details": "Failed login attempt from IP 1 for \"admin\". Attempts: 3/5"
+    },
+    {
+      "id": "audit-1792736081156-992",
+      "timestamp": "2026-10-23T06:14:41.156Z",
+      "user": "admin",
+      "role": "Super Admin",
+      "name": "System",
+      "ip": "1",
+      "action": "Failed Login Attempt",
+      "details": "Failed login attempt from IP 1 for \"admin\". Attempts: 2/5"
+    },
+    {
+      "id": "audit-1792736053340-655",
+      "timestamp": "2026-10-23T06:14:13.340Z",
+      "user": "admin",
+      "role": "Super Admin",
+      "name": "System",
+      "ip": "1",
+      "action": "Failed Login Attempt",
+      "details": "Failed login attempt from IP 1 for \"admin\". Attempts: 1/5"
+    },
+    {
+      "id": "audit-1792735545624-344",
+      "timestamp": "2026-10-23T06:05:45.624Z",
+      "user": "Public Guest Booking",
+      "role": "Super Admin",
+      "name": "System",
+      "ip": "1",
+      "action": "Booking Created",
+      "details": "New booking CV-2026-597977 created for SUMAN CHATTERJEE (Cosy Deluxe Room × 2 room(s), 2026-10-25 to 2026-10-30, Total: ₹42100). Breakdown: Room: ₹1,800 × 5 nights × 2 rooms | Breakfast × 6 guests × 5 days = ₹6,000 | Car × 1 × 5 days | Candlelight dinner (Poolside) × 2. Invoice: CV-2026-1135."
+    },
     {
       "id": "audit-1792508990455-137",
       "timestamp": "2026-10-20T15:09:50.455Z",
@@ -14764,6 +14972,27 @@
   ],
   "emailOutbox": [
     {
+      "id": "email-2fa-1792736311235",
+      "to": "sandipanmajumder9339@gmail.com",
+      "subject": "Your Coastal View Admin Login Code: 823443",
+      "sentAt": "2026-10-23T06:18:31.235Z",
+      "ip": "1",
+      "device": "Microsoft Edge on Windows",
+      "status": "Generated"
+    },
+    {
+      "id": "email-1792735545624-869",
+      "bookingId": "CV-2026-597977",
+      "invoiceNumber": "CV-2026-1135",
+      "to": "sumanchatterjee251@gmail.com",
+      "subject": "Booking Confirmation & Invoice: CV-2026-1135 - Coastal View, Mandarmani",
+      "html": "\n    <!DOCTYPE html>\n    <html>\n    <head>\n      <meta charset=\"utf-8\">\n      <title>Booking Confirmation - CV-2026-597977</title>\n    </head>\n    <body style=\"font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #F8FAFC; margin: 0; padding: 24px; color: #1E293B;\">\n      <div style=\"max-width: 620px; margin: 0 auto; background: #FFFFFF; border-radius: 16px; overflow: hidden; border: 1.5px solid #E8C77B; box-shadow: 0 10px 30px rgba(7, 59, 76, 0.1);\">\n        <div style=\"background: #073B4C; padding: 28px 24px; text-align: center; color: #FFFFFF;\">\n          <h1 style=\"margin: 0; font-size: 26px; font-family: Georgia, serif; letter-spacing: 1px; color: #FFFFFF;\">Coastal View</h1>\n          <div style=\"font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: #E8C77B; margin-top: 4px;\">Managed By Ani's • Mandarmani Beach</div>\n          <div style=\"margin-top: 14px; display: inline-block; background: rgba(232, 199, 123, 0.18); border: 1px solid #E8C77B; padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 700; color: #E8C77B;\">\n            BOOKING ID: CV-2026-597977\n          </div>\n        </div>\n\n        <div style=\"padding: 24px 28px;\">\n          <p style=\"font-size: 15px; margin-top: 0;\">Dear <strong>SUMAN CHATTERJEE</strong>,</p>\n          <p style=\"font-size: 14px; color: #475569; line-height: 1.6;\">\n            Thank you for choosing Coastal View. Your beachfront reservation has been securely received! Below is your complete reservation and transport breakdown.\n          </p>\n\n          <table style=\"width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px;\">\n            <thead>\n              <tr style=\"background: #F1F5F9; text-align: left; font-size: 12px; text-transform: uppercase; color: #64748B;\">\n                <th style=\"padding: 8px 10px;\">Item</th>\n                <th style=\"padding: 8px 10px;\">Details</th>\n                <th style=\"padding: 8px 10px; text-align: right;\">Amount</th>\n              </tr>\n            </thead>\n            <tbody>\n              <tr>\n                <td style=\"padding: 12px; border-bottom: 1px solid #E2E8F0; font-weight: 600; color: #073B4C;\">Cosy Deluxe Room</td>\n                <td style=\"padding: 12px; border-bottom: 1px solid #E2E8F0; color: #334155;\">\n                  Room: ₹1,800 × 5 nights × 2 rooms<br>\n                  <small style=\"color: #64748B;\">2026-10-25 to 2026-10-30</small>\n                </td>\n                <td style=\"padding: 12px; border-bottom: 1px solid #E2E8F0; text-align: right; font-weight: 600; color: #073B4C;\">\n                  ₹18,000\n                </td>\n              </tr>\n              \n    <tr>\n      <td style=\"padding: 12px; border-bottom: 1px solid #E2E8F0; font-weight: 600; color: #073B4C;\">Optional Breakfast Add-On</td>\n      <td style=\"padding: 12px; border-bottom: 1px solid #E2E8F0; color: #334155;\">\n        <strong>Breakfast × 6 guests × 5 days = ₹6,000</strong>\n        <br><span style=\"color:#64748B; font-size:12px;\">Served daily 7:00 AM to 10:30 AM</span>\n      </td>\n      <td style=\"padding: 12px; border-bottom: 1px solid #E2E8F0; text-align: right; font-weight: 600; color: #073B4C;\">\n        ₹6,000\n      </td>\n    </tr>\n  \n              \n    <tr>\n      <td style=\"padding: 12px; border-bottom: 1px solid #E2E8F0; font-weight: 600; color: #073B4C;\">Private Transport (Ani's Travels)</td>\n      <td style=\"padding: 12px; border-bottom: 1px solid #E2E8F0; color: #334155;\">\n        <strong>Car × 1 × 5 days</strong>\n        <br><span style=\"display:inline-block; margin-top:3px; padding:2px 8px; border-radius:4px; background:#E0F2FE; color:#0369A1; font-size:12px;\">Pickup / Drop only</span>\n      </td>\n      <td style=\"padding: 12px; border-bottom: 1px solid #E2E8F0; text-align: right; font-weight: 600; color: #073B4C;\">\n        ₹12,500\n      </td>\n    </tr>\n  \n              \n    <tr>\n      <td style=\"padding: 12px; border-bottom: 1px solid #E2E8F0; font-weight: 600; color: #073B4C;\">Candlelight Dinner Add-On</td>\n      <td style=\"padding: 12px; border-bottom: 1px solid #E2E8F0; color: #334155;\">\n        Candlelight dinner (Poolside) × 2 (Proposal)\n      </td>\n      <td style=\"padding: 12px; border-bottom: 1px solid #E2E8F0; text-align: right; font-weight: 600; color: #073B4C;\">\n        ₹5,600\n      </td>\n    </tr>\n  \n              \n            </tbody>\n          </table>\n\n          \n          <div style=\"background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 16px; margin: 16px 0; font-size: 13px; color: #475569;\">\n            <strong style=\"color: #073B4C; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;\">Itemized Breakdown:</strong>\n            <ul style=\"margin: 6px 0 0 0; padding-left: 18px; line-height: 1.6;\">\n              <li>Room: ₹1,800 × 5 nights × 2 rooms</li><li>Breakfast × 6 guests × 5 days = ₹6,000</li><li>Car × 1 × 5 days</li><li>Candlelight dinner (Poolside) × 2</li>\n            </ul>\n          </div>\n\n          <div style=\"background: #FAF6EE; border: 1px solid #E8C77B; border-radius: 12px; padding: 16px 20px; margin: 20px 0;\">\n            <div style=\"display: flex; justify-content: space-between; font-size: 16px; font-weight: 700; color: #073B4C; margin-bottom: 8px;\">\n              <span>Total Estimated Amount:</span>\n              <span style=\"color: #073B4C;\">₹42,100</span>\n            </div>\n            <div style=\"display: flex; justify-content: space-between; font-size: 14px; color: #FF6B5E; font-weight: 700; margin-bottom: 4px;\">\n              <span>20% Advance Payable Now:</span>\n              <span>₹8,420</span>\n            </div>\n            <div style=\"display: flex; justify-content: space-between; font-size: 14px; color: #06B6B0; font-weight: 700;\">\n              <span>80% Balance at Hotel:</span>\n              <span>₹33,680</span>\n            </div>\n            <div style=\"font-size: 11px; color: #FF6B5E; margin-top: 8px; font-weight: 600;\">\n              * The 20% advance is non-refundable.\n            </div>\n          </div>\n\n          <div style=\"background: #FFFDF9; border: 1.5px solid #E8C77B; border-radius: 12px; padding: 18px 20px; margin: 20px 0; text-align: center;\">\n            <div style=\"font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #06B6B0; font-weight: 700; margin-bottom: 6px;\">\n              OFFICIAL BOOKING INVOICE & CONFIRMATION\n            </div>\n            <div style=\"font-size: 14px; font-weight: 700; color: #073B4C; margin-bottom: 12px;\">\n              Invoice No: <span style=\"font-family: monospace;\">CV-2026-1135</span>\n            </div>\n            \n            <a href=\"https://coastalviewmandarmani.com/api/invoices/public/download/bc0dbc5088088699e273ff53be7520c0506532a391443bcb\" style=\"display: inline-block; background: #06B6B0; color: #FFFFFF; font-weight: 700; text-decoration: none; padding: 12px 26px; border-radius: 8px; font-size: 13px; box-shadow: 0 4px 12px rgba(6, 182, 176, 0.25);\">\n              📥 Download Invoice PDF\n            </a>\n            \n            <div style=\"font-size: 11px; color: #64748B; margin-top: 8px;\">\n              * A print-ready luxury A4 PDF document is attached directly to this confirmation email.\n            </div>\n          </div>\n\n          <div style=\"background: #F8FAFC; border-radius: 10px; border: 1px solid #E2E8F0; padding: 14px 16px; font-size: 13px; color: #334155; margin-bottom: 20px;\">\n            <strong style=\"color: #073B4C;\">Payment Information for 20% Advance:</strong><br>\n            • UPI ID: <strong>coastalview@upi</strong><br>\n            • Bank Account: HDFC Bank, Contai Branch | A/C: 50200012345678 | IFSC: HDFC0001234<br>\n            • WhatsApp Confirmation: <strong>+91 98300 12345</strong>\n          </div>\n\n          <p style=\"font-size: 13px; color: #64748B; margin-bottom: 0;\">\n            For any changes or special requests, please contact host <strong>Anirban Das</strong> at <strong>+91 98300 12345</strong>.\n          </p>\n        </div>\n      </div>\n    </body>\n    </html>\n  ",
+      "hasInvoiceAttachment": true,
+      "invoiceAttachment": "Invoice-CV-2026-1135.pdf",
+      "sentAt": "2026-10-23T06:05:45.624Z",
+      "status": "Recorded in Outbox"
+    },
+    {
       "id": "email-2fa-1792508988090",
       "to": "sandipanmajumder9339@gmail.com",
       "subject": "Your Coastal View Admin Login Code: 327767",
@@ -16886,30 +17115,6 @@
       "html": "\n    <!DOCTYPE html>\n    <html>\n    <head>\n      <meta charset=\"utf-8\">\n      <title>Booking Confirmation - CV-2026-542428</title>\n    </head>\n    <body style=\"font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #F8FAFC; margin: 0; padding: 24px; color: #1E293B;\">\n      <div style=\"max-width: 620px; margin: 0 auto; background: #FFFFFF; border-radius: 16px; overflow: hidden; border: 1.5px solid #E8C77B; box-shadow: 0 10px 30px rgba(7, 59, 76, 0.1);\">\n        <div style=\"background: #073B4C; padding: 28px 24px; text-align: center; color: #FFFFFF;\">\n          <h1 style=\"margin: 0; font-size: 26px; font-family: Georgia, serif; letter-spacing: 1px; color: #FFFFFF;\">Coastal View</h1>\n          <div style=\"font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: #E8C77B; margin-top: 4px;\">Managed By Ani's • Mandarmani Beach</div>\n          <div style=\"margin-top: 14px; display: inline-block; background: rgba(232, 199, 123, 0.18); border: 1px solid #E8C77B; padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 700; color: #E8C77B;\">\n            BOOKING ID: CV-2026-542428\n          </div>\n        </div>\n\n        <div style=\"padding: 24px 28px;\">\n          <p style=\"font-size: 15px; margin-top: 0;\">Dear <strong>Double Booking Test</strong>,</p>\n          <p style=\"font-size: 14px; color: #475569; line-height: 1.6;\">\n            Thank you for choosing Coastal View. Your beachfront reservation has been securely received! Below is your complete reservation and transport breakdown.\n          </p>\n\n          <table style=\"width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px;\">\n            <thead>\n              <tr style=\"background: #F1F5F9; text-align: left; font-size: 12px; text-transform: uppercase; color: #64748B;\">\n                <th style=\"padding: 8px 10px;\">Item</th>\n                <th style=\"padding: 8px 10px;\">Details</th>\n                <th style=\"padding: 8px 10px; text-align: right;\">Amount</th>\n              </tr>\n            </thead>\n            <tbody>\n              <tr>\n                <td style=\"padding: 12px; border-bottom: 1px solid #E2E8F0; font-weight: 600; color: #073B4C;\">The Pool Haven Room</td>\n                <td style=\"padding: 12px; border-bottom: 1px solid #E2E8F0; color: #334155;\">\n                  1 room × 3 night(s)<br>\n                  <small style=\"color: #64748B;\">2026-10-24 to 2026-10-27</small>\n                </td>\n                <td style=\"padding: 12px; border-bottom: 1px solid #E2E8F0; text-align: right; font-weight: 600; color: #073B4C;\">\n                  ₹21,600\n                </td>\n              </tr>\n              \n              \n            </tbody>\n          </table>\n\n          <div style=\"background: #FAF6EE; border: 1px solid #E8C77B; border-radius: 12px; padding: 16px 20px; margin: 20px 0;\">\n            <div style=\"display: flex; justify-content: space-between; font-size: 16px; font-weight: 700; color: #073B4C; margin-bottom: 8px;\">\n              <span>Total Estimated Amount:</span>\n              <span style=\"color: #073B4C;\">₹21,600</span>\n            </div>\n            <div style=\"display: flex; justify-content: space-between; font-size: 14px; color: #FF6B5E; font-weight: 700; margin-bottom: 4px;\">\n              <span>20% Advance Payable Now:</span>\n              <span>₹4,320</span>\n            </div>\n            <div style=\"display: flex; justify-content: space-between; font-size: 14px; color: #06B6B0; font-weight: 700;\">\n              <span>80% Balance at Hotel:</span>\n              <span>₹17,280</span>\n            </div>\n            <div style=\"font-size: 11px; color: #FF6B5E; margin-top: 8px; font-weight: 600;\">\n              * The 20% advance is non-refundable.\n            </div>\n          </div>\n\n          <div style=\"background: #F8FAFC; border-radius: 10px; border: 1px solid #E2E8F0; padding: 14px 16px; font-size: 13px; color: #334155; margin-bottom: 20px;\">\n            <strong style=\"color: #073B4C;\">Payment Information for 20% Advance:</strong><br>\n            • UPI ID: <strong>coastalview@upi</strong><br>\n            • Bank Account: HDFC Bank, Contai Branch | A/C: 50200012345678 | IFSC: HDFC0001234<br>\n            • WhatsApp Confirmation: <strong>+91 98300 12345</strong>\n          </div>\n\n          <p style=\"font-size: 13px; color: #64748B; margin-bottom: 0;\">\n            For any changes or special requests, please contact host <strong>Anirban Das</strong> at <strong>+91 98300 12345</strong>.\n          </p>\n        </div>\n      </div>\n    </body>\n    </html>\n  ",
       "sentAt": "2026-10-16T04:07:52.680Z",
       "status": "Recorded in Outbox"
-    },
-    {
-      "id": "alert-1792123672595",
-      "to": "reservations@coastalviewmandarmani.com",
-      "subject": "Security Alert: Admin Login by Rina Das (Front Desk)",
-      "html": "<p>A secure login was completed for <strong>Rina Das</strong> (Front Desk) from IP <code>1</code> at 16/10/2026, 9:37:52 am.</p>",
-      "sentAt": "2026-10-16T04:07:52.595Z",
-      "status": "Alert Logged"
-    },
-    {
-      "id": "alert-1792123672477",
-      "to": "reservations@coastalviewmandarmani.com",
-      "subject": "Security Alert: Admin Login by Anirban Das (Super Admin)",
-      "html": "<p>A secure login was completed for <strong>Anirban Das</strong> (Super Admin) from IP <code>1</code> at 16/10/2026, 9:37:52 am.</p>",
-      "sentAt": "2026-10-16T04:07:52.477Z",
-      "status": "Alert Logged"
-    },
-    {
-      "id": "alert-1792122948980",
-      "to": "reservations@coastalviewmandarmani.com",
-      "subject": "Security Alert: Admin Login by Anirban Das (Super Admin)",
-      "html": "<p>A secure login was completed for <strong>Anirban Das</strong> (Super Admin) from IP <code>1</code> at 16/10/2026, 9:25:48 am.</p>",
-      "sentAt": "2026-10-16T03:55:49.001Z",
-      "status": "Alert Logged"
     }
   ],
   "websiteContent": {
@@ -17160,6 +17365,36 @@
     "dailyMessageLimit": 600
   },
   "loginHistory": [
+    {
+      "id": "login-1792736313468",
+      "timestamp": "2026-10-23T06:18:33.468Z",
+      "username": "sandipanmajumder9339",
+      "role": "Super Admin",
+      "ip": "1",
+      "device": "Microsoft Edge on Windows",
+      "status": "Success"
+    },
+    {
+      "id": "login-1792736092733",
+      "timestamp": "2026-10-23T06:14:52.733Z",
+      "username": "admin",
+      "ip": "1",
+      "status": "Failed"
+    },
+    {
+      "id": "login-1792736081156",
+      "timestamp": "2026-10-23T06:14:41.156Z",
+      "username": "admin",
+      "ip": "1",
+      "status": "Failed"
+    },
+    {
+      "id": "login-1792736053340",
+      "timestamp": "2026-10-23T06:14:13.340Z",
+      "username": "admin",
+      "ip": "1",
+      "status": "Failed"
+    },
     {
       "id": "login-1792508990455",
       "timestamp": "2026-10-20T15:09:50.455Z",
@@ -18477,9 +18712,22 @@
       "prevUrl": null,
       "alt": "Coastal View Illuminated Swimming Pool and Deck",
       "caption": "Luxury Infinity Swimming Pool & Sun Deck"
+    },
+    "amenity:beach": {
+      "slotKey": "amenity:beach",
+      "url": "assets/images/mandarmani-beach.jpg",
+      "updatedAt": "2026-10-23T06:22:35.527Z"
     }
   },
   "mediaHistory": [
+    {
+      "id": "hist-1792736542628-863",
+      "slotKey": "amenity:beach",
+      "url": "assets/images/mandarmani-beach.jpg",
+      "replacedAt": "2026-10-23T06:22:22.628Z",
+      "replacedBy": "Super Admin",
+      "replacedByRole": "Super Admin"
+    },
     {
       "id": "hist-1792508765668-517",
       "slotKey": "hero",
