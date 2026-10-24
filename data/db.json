@@ -6037,6 +6037,16 @@
   },
   "auditLog": [
     {
+      "id": "audit-1792818105648-238",
+      "timestamp": "2026-10-24T05:01:45.648Z",
+      "user": "manager@coastalviewmandarmani.com",
+      "role": "Super Admin",
+      "name": "System",
+      "ip": "127.0.0.1",
+      "action": "Failed Login Attempt",
+      "details": "Failed login attempt from IP 127.0.0.1 for \"manager@coastalviewmandarmani.com\". Attempts: 1/5"
+    },
+    {
       "id": "audit-1792817965294-931",
       "timestamp": "2026-10-24T04:59:25.294Z",
       "user": "admin",
@@ -16025,16 +16035,6 @@
       "ip": "1",
       "action": "Staff User Updated",
       "details": "Super Admin updated account details for mgr_subir (Manager)."
-    },
-    {
-      "id": "audit-1792128199411-90",
-      "timestamp": "2026-10-16T05:23:19.411Z",
-      "user": "admin",
-      "role": "Super Admin",
-      "name": "Anirban Das",
-      "ip": "1",
-      "action": "Staff API Login Success",
-      "details": "Staff \"admin\" authenticated via direct API integration from IP 1."
     }
   ],
   "users": [
@@ -18965,6 +18965,13 @@
     }
   },
   "loginHistory": [
+    {
+      "id": "login-1792818105648",
+      "timestamp": "2026-10-24T05:01:45.648Z",
+      "username": "manager@coastalviewmandarmani.com",
+      "ip": "127.0.0.1",
+      "status": "Failed"
+    },
     {
       "id": "login-1792817965294",
       "timestamp": "2026-10-24T04:59:25.294Z",

@@ -3546,8 +3546,26 @@
     }).catch(()=>{});
   </script>
   <!-- Floating Back to Top Button -->
-  <button class="back-to-top-btn" id="backToTopBtn" aria-label="Back to top of page" title="Back to top">
-    <span class="material-symbols-outlined">arrow_upward</span>
-  </button>
+  <!-- Mobile Sticky Bottom Action Bar (Safe-Area Aware, Always Accessible <= 768px) -->
+  <nav class="mobile-bottom-bar" id="mobileBottomBar" aria-label="Mobile quick actions">
+    <button type="button" class="m-bar-btn m-bar-book" id="mBarBookBtn">
+      <span class="material-symbols-outlined">hotel</span>
+      <span class="m-bar-text">Book Now</span>
+    </button>
+    <a href="tel:+917812027551" class="m-bar-btn" id="mBarCallBtn" aria-label="Call Hotel Front Desk">
+      <span class="material-symbols-outlined">call</span>
+      <span class="m-bar-text">Call</span>
+    </a>
+    <a href="https://wa.me/917812027551?text=Hi%20Coastal%20View%2C%20I%20would%20like%20to%20inquire%20about%20booking%20a%20stay" target="_blank" rel="noopener noreferrer" class="m-bar-btn" id="mBarWhatsAppBtn" aria-label="WhatsApp Hotel">
+      <svg class="m-bar-svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+        <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2zm.01 18.11c-1.48 0-2.93-.4-4.2-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.082 8.082 0 0 1-1.24-4.29c0-4.47 3.64-8.11 8.12-8.11 2.17 0 4.21.84 5.74 2.38 1.53 1.54 2.38 3.58 2.38 5.75 0 4.47-3.64 8.13-8.11 8.13z"/>
+      </svg>
+      <span class="m-bar-text">WhatsApp</span>
+    </a>
+    <button type="button" class="m-bar-btn" id="mBarChatBtn" aria-label="Open Concierge Chatbot">
+      <span class="material-symbols-outlined">support_agent</span>
+      <span class="m-bar-text">Chat</span>
+    </button>
+  </nav>
 </body>
 </html>
