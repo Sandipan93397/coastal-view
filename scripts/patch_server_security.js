@@ -94,7 +94,7 @@ app.use((req, res, next) => {
     "connect-src 'self' https: https://challenges.cloudflare.com https://*.hcaptcha.com https://www.google.com/recaptcha/",
     "img-src 'self' data: https: blob:",
     "font-src 'self' https: data:",
-    "style-src 'self' 'unsafe-inline' https:",
+    "style-src 'self' 'unsafe-inline' https: https://challenges.cloudflare.com",
     "frame-ancestors 'none'",
     "object-src 'none'"
   ].join('; '));

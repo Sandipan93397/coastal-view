@@ -340,6 +340,8 @@ function initAuth() {
   }
 }
 
+let turnstileScriptCheckCount = 0;
+
 // Cloudflare Turnstile Configuration & Lifecycle Management
 async function initTurnstile() {
   try {
@@ -348,13 +350,90 @@ async function initTurnstile() {
       turnstileSiteKey = res.siteKey;
       captchaPolicy = res.policy || 'smart';
       isCaptchaRequired = !!res.required;
-      // Always show and render Turnstile widget on page load
-      showTurnstileWidget();
+
+      // Show widget only when needed (after 2 failed logins or if policy is 'always')
+      if (isCaptchaRequired || captchaPolicy === 'always') {
+        showTurnstileWidget();
+        setLoginStep(2);
+      } else {
+        const wrapper = document.getElementById('turnstileWrapper');
+        if (wrapper) wrapper.style.display = 'none';
+        setLoginStep(1);
+      }
     }
   } catch (err) {
     console.warn('Captcha configuration fetch issue:', err);
   }
 }
+
+// Global script error handler invoked if challenges.cloudflare.com script tag fails
+function handleTurnstileScriptError() {
+  showTurnstileError('SCRIPT_BLOCKED', 'Cloudflare Turnstile script failed to load (blocked by browser or network)');
+}
+window.handleTurnstileScriptError = handleTurnstileScriptError;
+
+function showTurnstileError(code, details) {
+  currentTurnstileToken = null;
+  const widgetContainer = document.getElementById('turnstileWidget');
+  const errorBox = document.getElementById('turnstileErrorBox');
+  const wrapper = document.getElementById('turnstileWrapper');
+
+  if (wrapper) wrapper.style.display = 'flex';
+  if (widgetContainer) widgetContainer.style.display = 'none';
+  if (errorBox) errorBox.style.display = 'block';
+
+  // Log real cause to server telemetry
+  try {
+    fetch('/api/auth/turnstile-error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: String(code || 'WIDGET_ERROR'),
+        details: String(details || ''),
+        siteKey: turnstileSiteKey || '',
+        host: window.location.host
+      })
+    }).catch(() => {});
+  } catch (e) {}
+}
+
+function retryTurnstile() {
+  const widgetContainer = document.getElementById('turnstileWidget');
+  const errorBox = document.getElementById('turnstileErrorBox');
+  if (errorBox) errorBox.style.display = 'none';
+  if (widgetContainer) {
+    widgetContainer.style.display = 'flex';
+    widgetContainer.innerHTML = '';
+  }
+
+  turnstileScriptCheckCount = 0;
+  if (window.turnstile && turnstileWidgetId !== null) {
+    try {
+      window.turnstile.remove(turnstileWidgetId);
+    } catch (e) {}
+    turnstileWidgetId = null;
+  }
+
+  // If script was blocked or never loaded, reload script element
+  if (!window.turnstile) {
+    const existing = document.querySelector('script[src*="challenges.cloudflare.com/turnstile"]');
+    if (existing) existing.remove();
+
+    const script = document.createElement('script');
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    script.async = true;
+    script.defer = true;
+    script.onerror = handleTurnstileScriptError;
+    document.head.appendChild(script);
+  }
+
+  initTurnstile().then(() => {
+    if (turnstileSiteKey) {
+      renderTurnstileWidget();
+    }
+  });
+}
+window.retryTurnstile = retryTurnstile;
 
 // Fetch Math CAPTCHA Challenge & Populate Question
 async function fetchNewCaptcha() {
@@ -379,7 +458,11 @@ async function fetchNewCaptcha() {
 
 function showTurnstileWidget() {
   const wrapper = document.getElementById('turnstileWrapper');
+  const widgetContainer = document.getElementById('turnstileWidget');
+  const errorBox = document.getElementById('turnstileErrorBox');
   if (wrapper) wrapper.style.display = 'flex';
+  if (errorBox) errorBox.style.display = 'none';
+  if (widgetContainer) widgetContainer.style.display = 'flex';
   renderTurnstileWidget();
 }
 
@@ -393,6 +476,11 @@ function renderTurnstileWidget() {
   const container = document.getElementById('turnstileWidget');
   if (!container) return;
 
+  const errorBox = document.getElementById('turnstileErrorBox');
+  if (errorBox && errorBox.style.display === 'block') {
+    return; // Don't re-render while error state is active unless retried
+  }
+
   if (window.turnstile) {
     if (turnstileWidgetId === null) {
       try {
@@ -405,6 +493,7 @@ function renderTurnstileWidget() {
             if (errBox && errBox.textContent === 'Please complete the security check') {
               errBox.style.display = 'none';
             }
+            if (errorBox) errorBox.style.display = 'none';
           },
           'expired-callback': function() {
             currentTurnstileToken = null;
@@ -414,17 +503,28 @@ function renderTurnstileWidget() {
               errBox.style.display = 'block';
             }
           },
-          'error-callback': function() {
+          'error-callback': function(errorCode) {
             currentTurnstileToken = null;
+            showTurnstileError(errorCode || '300030', 'Turnstile widget error callback triggered (Unable to connect to website or domain mismatch)');
+          },
+          'timeout-callback': function() {
+            currentTurnstileToken = null;
+            showTurnstileError('TIMEOUT', 'Turnstile interactive challenge timed out');
           }
         });
       } catch (err) {
         console.warn('Turnstile render warning:', err);
+        showTurnstileError('RENDER_EXCEPTION', err.message);
       }
     }
   } else {
     // Retry shortly if script is still downloading/parsing
-    setTimeout(renderTurnstileWidget, 250);
+    turnstileScriptCheckCount++;
+    if (turnstileScriptCheckCount > 16) { // ~4 seconds
+      showTurnstileError('SCRIPT_TIMEOUT', 'Cloudflare Turnstile script failed to load within timeout');
+    } else {
+      setTimeout(renderTurnstileWidget, 250);
+    }
   }
 }
 
@@ -7103,7 +7203,7 @@ async function renderUsersTab() {
     if (res.success && Array.isArray(res.users)) {
       tbody.innerHTML = res.users.map(u => {
         const isActive = u.active !== false;
-        const isSuperAdminAccount = u.username === 'sandipanmajumder9339' || u.role === 'Super Admin';
+        const isSuperAdminAccount = u.role === 'Super Admin' || u.is_superadmin;
         return `
         <tr>
           <td data-label="Username"><strong>${u.username}</strong></td>

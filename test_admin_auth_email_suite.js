@@ -438,7 +438,7 @@ async function runTestSuite() {
     console.log('\n--- TEST 8: SMTP Resilience & Append-Only Mail Log Masking ---');
     
     // Test email service maskEmail helper
-    const masked1 = emailService.maskEmail('sandipan@gmail.com');
+    const masked1 = emailService.maskEmail('staffmember@gmail.com');
     const masked2 = emailService.maskEmail('admin@coastalviewmandarmani.com');
     recordTest('Email masking hides sensitive addresses (s***@gmail.com)',
       masked1 === 's***@gmail.com' && masked2 === 'a***@coastalviewmandarmani.com',

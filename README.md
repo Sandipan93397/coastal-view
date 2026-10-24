@@ -47,6 +47,9 @@ cp .env.example .env
 
 ### 3. Database Migration & Build Command
 ```bash
+# Run database schema migration and integrity checks
+node migrate_db.js
+
 # Compiles dynamic menu categories, updates index.html, and verifies db integrity
 npm run build
 ```

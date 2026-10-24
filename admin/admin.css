@@ -239,17 +239,69 @@ body {
 
 .turnstile-wrapper {
   display: none;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
-  margin: 16px 0;
+  margin: 14px 0 16px 0;
   min-height: 65px;
   width: 100%;
+  box-sizing: border-box;
+  clear: both;
 }
 
 .turnstile-widget {
   margin: 0 auto;
   display: flex;
   justify-content: center;
+  align-items: center;
+  min-height: 65px;
+  width: 100%;
+  max-width: 300px;
+}
+
+.turnstile-error-box {
+  width: 100%;
+  max-width: 340px;
+  margin: 4px auto;
+  padding: 12px 16px;
+  background: #FFF1F2;
+  border: 1px solid #FECDD3;
+  border-radius: 10px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.turnstile-error-msg {
+  color: #BE123C;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+
+.btn-turnstile-retry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 16px;
+  background: #BE123C;
+  color: #FFFFFF;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.btn-turnstile-retry:hover {
+  background: #9F1239;
+  transform: translateY(-1px);
+}
+
+.btn-turnstile-retry .material-symbols-outlined {
+  font-size: 16px;
 }
 
 .login-lockout-text {

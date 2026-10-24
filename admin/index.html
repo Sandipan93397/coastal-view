@@ -11,7 +11,7 @@
   <script src="vendor/chart.umd.js"></script>
   <script src="vendor/cropper.min.js"></script>
   <!-- Cloudflare Turnstile Explicit Render API -->
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer onerror="if(window.handleTurnstileScriptError)window.handleTurnstileScriptError()"></script>
 </head>
 <body>
 
@@ -77,6 +77,12 @@
         <!-- Cloudflare Turnstile Bot Protection (Live Widget) -->
         <div class="turnstile-wrapper" id="turnstileWrapper">
           <div id="turnstileWidget" class="turnstile-widget"></div>
+          <div id="turnstileErrorBox" class="turnstile-error-box" style="display: none;">
+            <div class="turnstile-error-msg">Security check couldn't load. Check your connection, disable blockers, or try again</div>
+            <button type="button" id="btnRetryTurnstile" class="btn-turnstile-retry" onclick="retryTurnstile()">
+              <span class="material-symbols-outlined">refresh</span> Retry
+            </button>
+          </div>
         </div>
 
         <!-- Security Math CAPTCHA Box (Shown if required or fallback) -->

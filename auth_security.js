@@ -249,9 +249,24 @@ function isCaptchaRequired(identifier, ip, policy = 'smart') {
   return userCount >= 2 || ipCount >= 10 || ipLocked;
 }
 
-async function verifyTurnstileToken({ token, remoteIp, isProduction = false }) {
-  const secretKey = process.env.TURNSTILE_SECRET_KEY || process.env.CF_TURNSTILE_SECRET_KEY ||
-    (!isProduction ? '1x0000000000000000000000000000000AA' : '');
+async function verifyTurnstileToken({ token, remoteIp, isProduction = false, host = '' }) {
+  const CF_TEST_SECRET_KEY = '1x0000000000000000000000000000000AA';
+  const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '';
+  const rawSecretKey = (process.env.TURNSTILE_SECRET_KEY || process.env.CF_TURNSTILE_SECRET_KEY || '').trim();
+
+  let secretKey;
+  if (isProduction) {
+    // In production, use ONLY real keys
+    secretKey = rawSecretKey;
+  } else {
+    // When NODE_ENV is not production:
+    // On localhost, automatically use Cloudflare's official test secret key
+    if (isLocalhost || token.startsWith('XXXX.') || token === '1x00000000000000000000AA' || token.includes('test')) {
+      secretKey = CF_TEST_SECRET_KEY;
+    } else {
+      secretKey = rawSecretKey || CF_TEST_SECRET_KEY;
+    }
+  }
 
   if (!token || typeof token !== 'string' || !token.trim()) {
     return {
@@ -261,20 +276,31 @@ async function verifyTurnstileToken({ token, remoteIp, isProduction = false }) {
     };
   }
 
-  // In production, never skip or accept empty/dummy keys silently
-  if (isProduction && !secretKey) {
-    console.error('[SECURITY AUDIT] Cloudflare Turnstile secret key (TURNSTILE_SECRET_KEY) is missing in production environment!');
-    return {
-      success: false,
-      code: 'SERVICE_UNAVAILABLE',
-      message: 'Security check unavailable, please try again or contact the administrator'
-    };
+  // In production, never skip or accept empty/dummy keys or test tokens
+  if (isProduction) {
+    if (!secretKey) {
+      console.error('[SECURITY AUDIT] Cloudflare Turnstile secret key (TURNSTILE_SECRET_KEY) is missing in production environment!');
+      return {
+        success: false,
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Security check unavailable, please try again or contact the administrator'
+      };
+    }
+
+    if (token.startsWith('XXXX.') || token.includes('test') || token === '1x00000000000000000000AA') {
+      console.error('[SECURITY AUDIT] Test token rejected in production environment!');
+      return {
+        success: false,
+        code: 'INVALID_TOKEN',
+        message: 'Security check failed. Please try again.'
+      };
+    }
   }
 
-    // Explicit test token support in non-production development environments (e.g. CI / automated security suites)
-    if (!isProduction && (token.startsWith('XXXX.test') || token === '1x00000000000000000000AA' || token.includes('test'))) {
-      return { success: true };
-    }
+  // Explicit test token support in non-production development environments (e.g. CI / automated security suites)
+  if (!isProduction && (token.startsWith('XXXX.test') || token === '1x00000000000000000000AA' || token === 'test-turnstile-token')) {
+    return { success: true };
+  }
 
   try {
     const formData = new URLSearchParams();
@@ -301,6 +327,8 @@ async function verifyTurnstileToken({ token, remoteIp, isProduction = false }) {
     }
 
     const errorCodes = cfData['error-codes'] || [];
+    console.error(`[TURNSTILE AUDIT] Turnstile siteverify rejected token: ${errorCodes.join(', ')} (Host: ${host || 'localhost'}, isProduction: ${isProduction})`);
+
     if (errorCodes.includes('timeout-or-duplicate')) {
       return {
         success: false,
@@ -315,14 +343,7 @@ async function verifyTurnstileToken({ token, remoteIp, isProduction = false }) {
       message: 'Security check failed. Please try again.'
     };
   } catch (err) {
-    console.error('Turnstile verification request issue:', err.message);
-
-    // Development fallback for localhost test tokens if network is offline
-    if (!isProduction && secretKey === '1x0000000000000000000000000000000AA') {
-      if (token.startsWith('XXXX.') || token.includes('test') || token.length > 10) {
-        return { success: true };
-      }
-    }
+    console.error('[TURNSTILE AUDIT] Turnstile verification network issue:', err.message);
 
     if (isProduction) {
       console.error('[SECURITY AUDIT] Cloudflare Turnstile service is unreachable in production:', err.message);
@@ -331,6 +352,13 @@ async function verifyTurnstileToken({ token, remoteIp, isProduction = false }) {
         code: 'SERVICE_UNAVAILABLE',
         message: 'Security check unavailable, please try again or contact the administrator'
       };
+    }
+
+    // Development fallback for localhost test tokens if network is offline
+    if (!isProduction && secretKey === CF_TEST_SECRET_KEY) {
+      if (token.startsWith('XXXX.') || token.includes('test') || token.length > 10) {
+        return { success: true };
+      }
     }
 
     return {
@@ -343,12 +371,39 @@ async function verifyTurnstileToken({ token, remoteIp, isProduction = false }) {
 
 function getCaptchaConfig(req, db) {
   const isProduction = process.env.NODE_ENV === 'production';
-  const rawSiteKey = process.env.TURNSTILE_SITE_KEY || process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || process.env.CF_TURNSTILE_SITE_KEY;
-  const siteKey = rawSiteKey || (!isProduction ? '1x00000000000000000000AA' : '');
-  const policy = process.env.CAPTCHA_POLICY || db?.settings?.captchaPolicy || 'smart';
+  const rawSiteKey = (process.env.TURNSTILE_SITE_KEY || process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || process.env.CF_TURNSTILE_SITE_KEY || '').trim();
+  const host = (req && req.headers && req.headers.host ? req.headers.host : '').split(':')[0].toLowerCase();
+  const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '';
 
-  const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').replace(/^.*:/, '');
-  const username = (req.query && req.query.username) ? req.query.username : '';
+  // Cloudflare Official Test Site Key (Always Passes)
+  const CF_TEST_SITE_KEY = '1x00000000000000000000AA';
+
+  let siteKey;
+  let isTestKey = false;
+
+  if (isProduction) {
+    // In production, use ONLY real keys
+    siteKey = rawSiteKey;
+    isTestKey = false;
+    if (!siteKey) {
+      console.error('[SECURITY AUDIT] Cloudflare Turnstile public site key (TURNSTILE_SITE_KEY) is missing in production!');
+    }
+  } else {
+    // When NODE_ENV is not production:
+    // On localhost, automatically use Cloudflare's official test site key so development login always works
+    if (isLocalhost) {
+      siteKey = CF_TEST_SITE_KEY;
+      isTestKey = true;
+    } else {
+      // Non-production on custom/real domain: use real key if configured, otherwise fallback to test key
+      siteKey = rawSiteKey || CF_TEST_SITE_KEY;
+      isTestKey = siteKey === CF_TEST_SITE_KEY;
+    }
+  }
+
+  const policy = process.env.CAPTCHA_POLICY || db?.settings?.captchaPolicy || 'smart';
+  const clientIp = (req && req.headers && (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '127.0.0.1') || '127.0.0.1').replace(/^.*:/, '');
+  const username = (req && req.query && req.query.username) ? req.query.username : '';
   const required = isCaptchaRequired(username, clientIp, policy);
 
   return {
@@ -357,7 +412,7 @@ function getCaptchaConfig(req, db) {
     policy,
     required,
     isDev: !isProduction,
-    isTestKey: !rawSiteKey && !isProduction
+    isTestKey
   };
 }
 

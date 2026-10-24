@@ -21,6 +21,10 @@ uploads/
 data/backups/
 data/invoices/*.pdf
 data/invoices/*.zip
+data/*.bak*
+data/*.backup*
+data/db.json.bak*
+data/db.backup*
 scratch/
 logs/
 *.log

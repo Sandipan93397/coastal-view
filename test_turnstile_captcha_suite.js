@@ -53,22 +53,35 @@ async function runCaptchaSuite() {
     }
   }
 
-  // 1. CAPTCHA Config Endpoint Test
-  console.log('--- Test 1: GET /api/auth/captcha-config ---');
+  // 1. CAPTCHA Config Endpoint Test (Localhost Development -> Official Test Key)
+  console.log('--- Test 1: GET /api/auth/captcha-config on localhost ---');
   const cfgRes = await request({ path: '/api/auth/captcha-config', method: 'GET' });
   assert(cfgRes.status === 200, 'Endpoint returns HTTP 200');
   assert(cfgRes.data.success === true, 'Success is true');
   assert(cfgRes.data.provider === 'turnstile', 'Provider is turnstile');
-  assert(cfgRes.data.siteKey && cfgRes.data.siteKey.startsWith('0x4AAAAAA'), 'Configured with live Cloudflare Turnstile Site Key: ' + cfgRes.data.siteKey);
+  assert(cfgRes.data.siteKey === '1x00000000000000000000AA', 'Localhost in dev automatically uses Cloudflare official test site key (1x00000000000000000000AA)');
+  assert(cfgRes.data.isTestKey === true, 'isTestKey is true on localhost');
   assert(cfgRes.data.policy === 'smart', 'Policy defaults to smart');
   assert(cfgRes.data.required === false, 'Fresh client does not require CAPTCHA initially in smart mode');
 
-  // 2. CSP Headers Verification
+  // 1B. CAPTCHA Config with Real Production Domain
+  console.log('\n--- Test 1B: GET /api/auth/captcha-config on Real Domain ---');
+  const prodDomainCfg = await request({
+    path: '/api/auth/captcha-config',
+    method: 'GET',
+    headers: { host: 'coastalviewmandarmani.com' }
+  });
+  assert(prodDomainCfg.status === 200, 'Real domain returns HTTP 200');
+  assert(prodDomainCfg.data.siteKey && prodDomainCfg.data.siteKey.startsWith('0x4AAAAAA'), 'Real domain returns live Cloudflare Turnstile Site Key: ' + prodDomainCfg.data.siteKey);
+
+  // 2. CSP Headers Verification (script-src, frame-src, connect-src, style-src)
   console.log('\n--- Test 2: Content-Security-Policy (CSP) Directives ---');
   const cspHeader = cfgRes.headers['content-security-policy'] || '';
-  assert(cspHeader.includes('https://challenges.cloudflare.com'), 'CSP script-src/frame-src/connect-src allows challenges.cloudflare.com');
-  assert(cspHeader.includes('frame-src'), 'CSP explicitly defines frame-src');
-  assert(cspHeader.includes('connect-src'), 'CSP explicitly defines connect-src');
+  assert(cspHeader.includes('https://challenges.cloudflare.com'), 'CSP allows challenges.cloudflare.com');
+  assert(cspHeader.includes('script-src') && cspHeader.includes('https://challenges.cloudflare.com'), 'CSP script-src explicitly allows challenges.cloudflare.com');
+  assert(cspHeader.includes('frame-src') && cspHeader.includes('https://challenges.cloudflare.com'), 'CSP frame-src explicitly allows challenges.cloudflare.com');
+  assert(cspHeader.includes('connect-src') && cspHeader.includes('https://challenges.cloudflare.com'), 'CSP connect-src explicitly allows challenges.cloudflare.com');
+  assert(cspHeader.includes('style-src') && cspHeader.includes('https://challenges.cloudflare.com'), 'CSP style-src explicitly allows challenges.cloudflare.com');
 
   // 3. Normal Login with CAPTCHA Hidden (Smooth login on Attempt 1)
   console.log('\n--- Test 3: Attempt 1 with Valid Credentials (No CAPTCHA required) ---');
@@ -105,6 +118,16 @@ async function runCaptchaSuite() {
   assert(noTokenRes.data.message === 'Please complete the security check', 'Message is "Please complete the security check"');
   assert(noTokenRes.data.requireCaptcha === true, 'requireCaptcha remains true');
 
+  // 6B. Attempt with test CAPTCHA token on localhost (should pass captcha check, fail on password)
+  console.log('\n--- Test 6B: Attempt with valid test CAPTCHA token on localhost ---');
+  const withTestTokenRes = await request({ path: '/api/auth/login', method: 'POST' }, {
+    username: testUser,
+    password: 'WrongPassword4!',
+    captchaToken: 'XXXX.test-turnstile-token'
+  });
+  assert(withTestTokenRes.status === 401, 'HTTP 401: Security check passed, password failed as expected');
+  assert(withTestTokenRes.data.message === 'Wrong email or password', 'Security check passed; wrong password reported');
+
   // 4. Test Expired Token Handling
   console.log('\n--- Test 7: Expired / Duplicate Token Handling ---');
   const expiredMockRes = {
@@ -130,12 +153,22 @@ async function runCaptchaSuite() {
     'Shows clear message: "Security check unavailable, please try again or contact the administrator"');
   process.env.TURNSTILE_SECRET_KEY = origKey;
 
-  // 6. Test Live Cloudflare API Verification for Invalid / Spoofed Token
+  // 5B. Test Token strictly rejected in Production Mode (No bypass in production)
+  console.log('\n--- Test 8B: Never skip or accept test token in Production Mode ---');
+  const prodTestTokenCheck = await verifyTurnstileToken({
+    token: 'XXXX.test-turnstile-token',
+    remoteIp: '127.0.0.1',
+    isProduction: true
+  });
+  assert(prodTestTokenCheck.success === false, 'Test token strictly rejected in production mode');
+
+  // 6. Test Live Cloudflare API Verification for Invalid / Spoofed Token (on Real Domain with Live Key)
   console.log('\n--- Test 9: Cloudflare Siteverify API Rejection of Fake / Spoofed Token ---');
   const fakeTokenCheck = await verifyTurnstileToken({
     token: 'fake-spoofed-token-12345',
     remoteIp: '127.0.0.1',
-    isProduction: false
+    isProduction: false,
+    host: 'coastalviewmandarmani.com'
   });
   assert(fakeTokenCheck.success === false, 'Cloudflare rejects fake / spoofed token with live secret key');
   assert(fakeTokenCheck.message === 'Security check failed. Please try again.', 'Accurate message: "Security check failed. Please try again."');
@@ -145,6 +178,18 @@ async function runCaptchaSuite() {
   const { isCaptchaRequired } = require('./auth_security');
   assert(isCaptchaRequired('brand_new_user', '192.168.1.50', 'always') === true, 'In "always" mode, CAPTCHA is required even for 0 failed attempts');
   assert(isCaptchaRequired('brand_new_user', '192.168.1.50', 'smart') === false, 'In "smart" mode, CAPTCHA is not required for 0 failed attempts');
+
+  // 8. Turnstile Error Telemetry Endpoint Test
+  console.log('\n--- Test 11: Real Cause Error Logging Endpoint (/api/auth/turnstile-error) ---');
+  const errReportRes = await request({ path: '/api/auth/turnstile-error', method: 'POST' }, {
+    code: '300030',
+    reason: 'error-callback',
+    details: 'Unable to connect to website or domain mismatch',
+    siteKey: '0x4AAAAAA-test',
+    host: 'localhost'
+  });
+  assert(errReportRes.status === 200, 'Error logging endpoint returns HTTP 200');
+  assert(errReportRes.data.success === true, 'Error logging reports success: true');
 
   console.log('\n====================================================');
   console.log(`RESULTS: ${passed} PASSED, ${failed} FAILED`);

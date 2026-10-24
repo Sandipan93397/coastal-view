@@ -583,7 +583,7 @@ app.use((req, res, next) => {
     "connect-src 'self' https: https://challenges.cloudflare.com https://*.hcaptcha.com https://www.google.com/recaptcha/",
     "img-src 'self' data: https: blob:",
     "font-src 'self' https: data:",
-    "style-src 'self' 'unsafe-inline' https:",
+    "style-src 'self' 'unsafe-inline' https: https://challenges.cloudflare.com",
     "frame-ancestors 'none'",
     "object-src 'none'"
   ].join('; '));
@@ -779,6 +779,18 @@ app.get('/api/auth/captcha', (req, res) => {
   });
 });
 
+// Real cause Turnstile error telemetry & audit logging
+app.post('/api/auth/turnstile-error', (req, res) => {
+  const { code, reason, details, siteKey, host } = req.body || {};
+  const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').replace(/^.*:/, '');
+  console.error(`[TURNSTILE AUDIT] Client widget error from IP ${clientIp} (${host || 'unknown'}): Code=${code || 'N/A'}, Reason=${reason || 'N/A'}, SiteKey=${siteKey || 'N/A'}, Details=${details || 'N/A'}`);
+  const db = readDB();
+  if (db) {
+    logAudit(db, 'Anonymous', 'Turnstile Load Error', `Turnstile widget check failure on host "${host || 'localhost'}" from IP ${clientIp}: Code=${code || 'N/A'}, Reason=${reason || 'Load failed'}, Details=${details || ''}`, req);
+  }
+  res.json({ success: true });
+});
+
 // 2. Step 1: Primary Authentication (Email/Username + Password + Turnstile CAPTCHA)
 app.post('/api/auth/login', async (req, res) => {
   try {
@@ -849,7 +861,8 @@ app.post('/api/auth/login', async (req, res) => {
       const verifyRes = await verifyTurnstileToken({
         token: captchaToken,
         remoteIp: clientIp,
-        isProduction
+        isProduction,
+        host: (req.headers.host || '').split(':')[0].toLowerCase()
       });
 
       if (verifyRes.success) {
@@ -5288,7 +5301,7 @@ app.patch('/api/admin/users/:username', requireSuperAdmin, requireReauth, async 
   if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
   // Guard: Cannot disable or demote primary Super Admin account
-  if (user.username === 'sandipanmajumder9339' || user.is_superadmin) {
+  if (user.role === 'Super Admin' || user.is_superadmin) {
     if (active === false) {
       return res.status(400).json({ success: false, message: 'Cannot disable primary Super Admin account' });
     }
