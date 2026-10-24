@@ -68,17 +68,23 @@ async function runLiveApiTests() {
     test('Auto exists with services matrix', !!auto && !!auto.services && auto.capacity === 3);
     test('Car exists with Tour = ₹2,500 active', !!car && car.services.tour.price === 2500 && car.services.tour.enabled === true);
 
-    // 2. Admin Login to get token for management
+    // 2. Admin Token for Price Matrix Editing
     console.log('\n2. Testing Admin Token for Price Matrix Editing...');
-    // We can generate a token or login with manager
-    const jwt = require('jsonwebtoken');
-    const JWT_SECRET = process.env.JWT_SECRET || 'coastal-view-secret-key-2026';
-    const managerToken = jwt.sign({
-      id: 'usr-admin-test',
-      username: 'manager_test',
-      role: 'Manager'
-    }, JWT_SECRET, { expiresIn: '1h' });
-    test('Generated valid Manager JWT for audit logging', !!managerToken);
+    const { activeSessions } = require('./auth.js');
+    const crypto = require('crypto');
+    const managerToken = crypto.randomBytes(32).toString('hex');
+    activeSessions.set(managerToken, {
+      token: managerToken,
+      username: 'test_manager',
+      role: 'Super Admin',
+      name: 'Test Manager',
+      email: 'manager@test.com',
+      csrfToken: 'test_csrf',
+      lastActive: Date.now(),
+      createdAt: Date.now(),
+      reauthUntil: Date.now() + 600000
+    });
+    test('Generated valid Manager session token for audit logging', !!managerToken);
 
     // 3. Edit Cell via API: POST /api/vehicles/toto/cell (Set Pickup = ₹800, enabled = true)
     console.log('\n3. Testing Matrix Cell Price Editing with Audit Trail...');
