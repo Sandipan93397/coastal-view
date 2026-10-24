@@ -812,8 +812,10 @@ textarea:focus-visible,
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: var(--border-radius-sm);
   color: #FFFFFF;
-  padding: 12px 14px;
-  font-size: 0.92rem;
+  padding: 10px 14px;
+  font-size: 16px;
+  min-height: 48px;
+  box-sizing: border-box;
   font-family: var(--font-sans);
   transition: var(--transition-smooth);
 }
@@ -4064,11 +4066,13 @@ section[id],
 
 .callback-input {
   width: 100%;
-  padding: 8px 12px;
-  font-size: 0.82rem;
+  padding: 10px 14px;
+  font-size: 16px;
+  min-height: 48px;
   border: 1px solid #D0D7DE;
-  border-radius: 6px;
+  border-radius: 8px;
   margin-bottom: 8px;
+  box-sizing: border-box;
 }
 
 /* Typing Indicator & Privacy Note */
@@ -4340,7 +4344,7 @@ section[id],
   background: rgba(4, 27, 36, 0.8);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  z-index: 2000;
+  z-index: 10050 !important;
   display: flex;
   align-items: center;
   justify-content: center;

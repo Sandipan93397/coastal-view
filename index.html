@@ -1838,6 +1838,14 @@
             </div>
             <span class="m-addon-switch"></span>
           </label>
+          <div class="m-bf-suboptions" id="mBfSuboptions" style="display: none; padding: 10px 14px; background: rgba(255,255,255,0.05); border-radius: 12px; margin-top: 6px; justify-content: space-between; align-items: center; border: 1px dashed rgba(232,199,123,0.3);">
+            <span id="mBfSelectorLabel" style="font-size:0.8rem; color:var(--champagne-gold); font-weight:600;">Guests:</span>
+            <div class="vehicle-stepper-wrap" style="height: 38px;">
+              <button type="button" class="vehicle-stepper-btn" id="mBfQtyMinus" aria-label="Decrease breakfast guests">−</button>
+              <input type="number" id="mBfQtyInput" class="booking-input vehicle-qty-input" value="2" readonly style="width: 44px; height: 36px; padding: 2px; font-size: 16px;">
+              <button type="button" class="vehicle-stepper-btn" id="mBfQtyPlus" aria-label="Increase breakfast guests">+</button>
+            </div>
+          </div>
 
           <!-- Vehicle / Transfer -->
           <label class="m-addon-card" id="mVehicleCard">
@@ -1849,14 +1857,33 @@
             </div>
             <span class="m-addon-switch"></span>
           </label>
-          <div class="m-vehicle-suboptions" id="mVehicleSuboptions" style="display: none;">
-            <div style="font-size:0.85rem; color:var(--champagne-gold); margin-bottom: 6px;">Select Service:</div>
-            <select id="mVehicleServiceSelect" class="m-input" style="height:44px; margin-bottom: 8px;">
-              <option value="pickup">Airport / Station Pickup</option>
-              <option value="drop">Drop to Station / Kolkata</option>
-              <option value="pickup_drop">Round Trip Pickup & Drop</option>
-              <option value="tour">Mandarmani & Coastal Sightseeing Tour</option>
-            </select>
+          <div class="m-vehicle-suboptions" id="mVehicleSuboptions" style="display: none; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 12px; margin-top: 6px; border: 1px dashed rgba(6,182,176,0.35);">
+            <div style="margin-bottom: 8px;">
+              <label for="mVehicleTypeSelect" style="font-size:0.78rem; color:var(--turquoise); font-weight:600; display: block; margin-bottom: 4px;">Vehicle Type:</label>
+              <select id="mVehicleTypeSelect" class="m-input" style="height:48px; min-height:48px; font-size:16px;">
+                <option value="car" selected>Car (Up to 4 passengers)</option>
+                <option value="toto">Toto (Up to 4 passengers)</option>
+                <option value="auto">Auto (Up to 3 passengers)</option>
+              </select>
+            </div>
+            <div style="margin-bottom: 8px;">
+              <label for="mVehicleServiceSelect" style="font-size:0.78rem; color:var(--turquoise); font-weight:600; display: block; margin-bottom: 4px;">Service Type:</label>
+              <select id="mVehicleServiceSelect" class="m-input" style="height:48px; min-height:48px; font-size:16px;">
+                <option value="tour" selected>Tour (Sightseeing per day)</option>
+                <option value="pickup">Airport / Station Pickup</option>
+                <option value="drop">Drop to Station / Kolkata</option>
+                <option value="pickup_drop">Round Trip Pickup & Drop</option>
+              </select>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-size:0.78rem; color:var(--turquoise); font-weight:600;">Quantity:</span>
+              <div class="vehicle-stepper-wrap" style="height: 38px;">
+                <button type="button" class="vehicle-stepper-btn" id="mVehicleQtyMinus" aria-label="Decrease vehicle quantity">−</button>
+                <input type="number" id="mVehicleQtyInput" class="booking-input vehicle-qty-input" value="1" readonly style="width: 44px; height: 36px; padding: 2px; font-size: 16px;">
+                <button type="button" class="vehicle-stepper-btn" id="mVehicleQtyPlus" aria-label="Increase vehicle quantity">+</button>
+              </div>
+            </div>
+            <div id="mVehicleRateStrip" style="font-size:0.82rem; color:#A5D8D5; font-weight: 600; text-align: right;"></div>
           </div>
 
           <!-- Candlelight Dinner -->
@@ -1869,6 +1896,23 @@
             </div>
             <span class="m-addon-switch"></span>
           </label>
+          <div class="m-candle-suboptions" id="mCandleSuboptions" style="display: none; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 12px; margin-top: 6px; border: 1px dashed rgba(255,107,94,0.35);">
+            <div style="margin-bottom: 8px;">
+              <label for="mDinnerSetupSelect" style="font-size:0.78rem; color:var(--sunset-coral); font-weight:600; display: block; margin-bottom: 4px;">Setup Setting:</label>
+              <select id="mDinnerSetupSelect" class="m-input" style="height:48px; min-height:48px; font-size:16px;">
+                <option value="Beachside" selected>Beachside Canopy (₹3,500)</option>
+                <option value="Poolside">Poolside Romance (₹2,800)</option>
+              </select>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size:0.78rem; color:var(--sunset-coral); font-weight:600;">Dinners:</span>
+              <div class="vehicle-stepper-wrap" style="height: 38px;">
+                <button type="button" class="vehicle-stepper-btn" id="mDinnerQtyMinus" aria-label="Decrease dinners">−</button>
+                <input type="number" id="mDinnerQtyInput" class="booking-input vehicle-qty-input" value="1" readonly style="width: 44px; height: 36px; padding: 2px; font-size: 16px;">
+                <button type="button" class="vehicle-stepper-btn" id="mDinnerQtyPlus" aria-label="Increase dinners">+</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -2382,7 +2426,7 @@
         <div class="menu-bottom-motto">Good Food Brings People Together ♡</div>
       </div>
 
-                                                                                                                                                <!-- Category Chips Linking to Full Menu -->
+                                                                                                                                                                              <!-- Category Chips Linking to Full Menu -->
       <div class="menu-category-chips-row">
         <a href="/menu#cat-breakfast" class="menu-cat-chip"><span class="material-symbols-outlined">wb_sunny</span> Breakfast</a>
         <a href="/menu#cat-vegetable-dal" class="menu-cat-chip"><span class="material-symbols-outlined">eco</span> Vegetable / Dal</a>
@@ -3404,27 +3448,32 @@
       <div class="modal-body">
         <div id="modalPriceSummaryBox"></div>
 
-        <form id="checkoutReservationForm">
+        <form id="checkoutReservationForm" novalidate>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;">
             <div>
-              <label style="font-size: 0.78rem; font-weight: 700; color: var(--ocean-blue); text-transform: uppercase;">Full Name *</label>
-              <input type="text" id="guestNameInput" class="callback-input" style="padding: 10px; margin-top: 4px;" placeholder="e.g. Rahul Sharma" required>
+              <label for="guestNameInput" style="font-size: 0.78rem; font-weight: 700; color: var(--ocean-blue); text-transform: uppercase;">Full Name *</label>
+              <input type="text" id="guestNameInput" class="callback-input" style="padding: 10px; margin-top: 4px; min-height: 48px; font-size: 16px;" placeholder="e.g. Rahul Sharma" required>
+              <div class="field-error" id="nameFieldError" style="display:none; color:#EF4444; font-size:0.75rem; margin-top:3px; font-weight:600;"></div>
             </div>
             <div>
-              <label style="font-size: 0.78rem; font-weight: 700; color: var(--ocean-blue); text-transform: uppercase;">Phone / WhatsApp *</label>
-              <input type="tel" id="guestPhoneInput" class="callback-input" style="padding: 10px; margin-top: 4px;" placeholder="+91 98300 00000" required>
+              <label for="guestPhoneInput" style="font-size: 0.78rem; font-weight: 700; color: var(--ocean-blue); text-transform: uppercase;">Phone / WhatsApp *</label>
+              <input type="tel" id="guestPhoneInput" class="callback-input" style="padding: 10px; margin-top: 4px; min-height: 48px; font-size: 16px;" placeholder="+91 98300 00000" required>
+              <div class="field-error" id="phoneFieldError" style="display:none; color:#EF4444; font-size:0.75rem; margin-top:3px; font-weight:600;"></div>
             </div>
           </div>
 
           <div style="margin-bottom: 14px;">
-            <label style="font-size: 0.78rem; font-weight: 700; color: var(--ocean-blue); text-transform: uppercase;">Email Address (For Confirmation Voucher)</label>
-            <input type="email" id="guestEmailInput" class="callback-input" style="padding: 10px; margin-top: 4px;" placeholder="rahul@example.com">
+            <label for="guestEmailInput" style="font-size: 0.78rem; font-weight: 700; color: var(--ocean-blue); text-transform: uppercase;">Email Address (For Confirmation Voucher)</label>
+            <input type="email" id="guestEmailInput" class="callback-input" style="padding: 10px; margin-top: 4px; min-height: 48px; font-size: 16px;" placeholder="rahul@example.com">
+            <div class="field-error" id="emailFieldError" style="display:none; color:#EF4444; font-size:0.75rem; margin-top:3px; font-weight:600;"></div>
           </div>
 
           <div style="margin-bottom: 20px;">
-            <label style="font-size: 0.78rem; font-weight: 700; color: var(--ocean-blue); text-transform: uppercase;">Special Requests & Arrival Time</label>
-            <textarea id="guestSpecialRequests" class="callback-input" style="padding: 10px; margin-top: 4px; height: 75px;" placeholder="e.g. Ground floor preferred, arriving approx 1:30 PM, honeymoon anniversary cake..."></textarea>
+            <label for="guestSpecialRequests" style="font-size: 0.78rem; font-weight: 700; color: var(--ocean-blue); text-transform: uppercase;">Special Requests & Arrival Time</label>
+            <textarea id="guestSpecialRequests" class="callback-input" style="padding: 10px; margin-top: 4px; height: 75px; font-size: 16px;" placeholder="e.g. Ground floor preferred, arriving approx 1:30 PM, honeymoon anniversary cake..."></textarea>
           </div>
+
+          <div class="form-error-banner" id="checkoutFormErrorBanner" style="display:none; background:rgba(239,68,68,0.12); border:1px solid #EF4444; color:#F87171; border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.82rem; font-weight:500;"></div>
 
           <div style="display: flex; justify-content: flex-end; gap: 12px;">
             <button type="button" class="btn btn-outline-gold" onclick="document.getElementById('checkoutModal').classList.remove('open')">Cancel</button>

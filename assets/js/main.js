@@ -1769,31 +1769,155 @@ function initMobileExperience() {
 
   // 7. Addon Toggles in Bottom Sheet
   const mToggleBf = document.getElementById('mToggleBreakfast');
-  const dBfCheckbox = document.getElementById('breakfastAddonCheckbox') || document.getElementById('toggleBreakfast');
+  const dBfCheckbox = document.getElementById('toggleBreakfast');
+  const mBfSub = document.getElementById('mBfSuboptions');
+  const mBfQtyInput = document.getElementById('mBfQtyInput');
+  const dBfQtyInput = document.getElementById('breakfastGuestsInput');
+  const mBfMinus = document.getElementById('mBfQtyMinus');
+  const mBfPlus = document.getElementById('mBfQtyPlus');
+
   if (mToggleBf && dBfCheckbox) {
     mToggleBf.addEventListener('change', () => {
       dBfCheckbox.checked = mToggleBf.checked;
+      if (mBfSub) mBfSub.style.display = mToggleBf.checked ? 'flex' : 'none';
       dBfCheckbox.dispatchEvent(new Event('change'));
+      if (typeof calculateLivePrice === 'function') calculateLivePrice();
     });
   }
 
+  if (mBfMinus && mBfQtyInput) {
+    mBfMinus.addEventListener('click', () => {
+      let q = parseInt(mBfQtyInput.value, 10) || 1;
+      if (q > 1) {
+        mBfQtyInput.value = String(q - 1);
+        if (dBfQtyInput) {
+          dBfQtyInput.value = String(q - 1);
+          dBfQtyInput.dataset.userEdited = 'true';
+        }
+        if (typeof calculateLivePrice === 'function') calculateLivePrice();
+      }
+    });
+  }
+  if (mBfPlus && mBfQtyInput) {
+    mBfPlus.addEventListener('click', () => {
+      let q = parseInt(mBfQtyInput.value, 10) || 1;
+      if (q < 20) {
+        mBfQtyInput.value = String(q + 1);
+        if (dBfQtyInput) {
+          dBfQtyInput.value = String(q + 1);
+          dBfQtyInput.dataset.userEdited = 'true';
+        }
+        if (typeof calculateLivePrice === 'function') calculateLivePrice();
+      }
+    });
+  }
+
+  // Mobile Vehicle Controls
   const mToggleCar = document.getElementById('mToggleCar');
   const dCarToggle = document.getElementById('toggleCarNeed');
   const mVehicleSub = document.getElementById('mVehicleSuboptions');
+  const mVTypeSelect = document.getElementById('mVehicleTypeSelect');
+  const mVSvcSelect = document.getElementById('mVehicleServiceSelect');
+  const mVQtyInput = document.getElementById('mVehicleQtyInput');
+  const mVQtyMinus = document.getElementById('mVehicleQtyMinus');
+  const mVQtyPlus = document.getElementById('mVehicleQtyPlus');
+
   if (mToggleCar && dCarToggle) {
     mToggleCar.addEventListener('change', () => {
       dCarToggle.checked = mToggleCar.checked;
       if (mVehicleSub) mVehicleSub.style.display = mToggleCar.checked ? 'block' : 'none';
       dCarToggle.dispatchEvent(new Event('change'));
+      if (typeof calculateLivePrice === 'function') calculateLivePrice();
     });
   }
 
+  if (mVTypeSelect) {
+    mVTypeSelect.addEventListener('change', () => {
+      if (typeof changeVehicleLineType === 'function') {
+        changeVehicleLineType(0, mVTypeSelect.value);
+      }
+    });
+  }
+
+  if (mVSvcSelect) {
+    mVSvcSelect.addEventListener('change', () => {
+      if (typeof changeVehicleLineService === 'function') {
+        changeVehicleLineService(0, mVSvcSelect.value);
+      }
+    });
+  }
+
+  if (mVQtyMinus && mVQtyInput) {
+    mVQtyMinus.addEventListener('click', () => {
+      let q = parseInt(mVQtyInput.value, 10) || 1;
+      if (q > 1) {
+        mVQtyInput.value = String(q - 1);
+        if (typeof stepVehicleLineQty === 'function') {
+          stepVehicleLineQty(0, -1);
+        }
+      }
+    });
+  }
+
+  if (mVQtyPlus && mVQtyInput) {
+    mVQtyPlus.addEventListener('click', () => {
+      let q = parseInt(mVQtyInput.value, 10) || 1;
+      if (q < 5) {
+        mVQtyInput.value = String(q + 1);
+        if (typeof stepVehicleLineQty === 'function') {
+          stepVehicleLineQty(0, 1);
+        }
+      }
+    });
+  }
+
+  // Mobile Candlelight Dinner Controls
   const mToggleCandle = document.getElementById('mToggleCandlelight');
   const dCandleToggle = document.getElementById('toggleCandlelight');
+  const mCandleSub = document.getElementById('mCandleSuboptions');
+  const mDinnerSetup = document.getElementById('mDinnerSetupSelect');
+  const dDinnerSetup = document.getElementById('dinnerSetupSelect');
+  const mDinnerQtyInput = document.getElementById('mDinnerQtyInput');
+  const dDinnerQtyInput = document.getElementById('dinnerCountInput');
+  const mDinnerMinus = document.getElementById('mDinnerQtyMinus');
+  const mDinnerPlus = document.getElementById('mDinnerQtyPlus');
+
   if (mToggleCandle && dCandleToggle) {
     mToggleCandle.addEventListener('change', () => {
       dCandleToggle.checked = mToggleCandle.checked;
+      if (mCandleSub) mCandleSub.style.display = mToggleCandle.checked ? 'block' : 'none';
       dCandleToggle.dispatchEvent(new Event('change'));
+      if (typeof calculateLivePrice === 'function') calculateLivePrice();
+    });
+  }
+
+  if (mDinnerSetup && dDinnerSetup) {
+    mDinnerSetup.addEventListener('change', () => {
+      dDinnerSetup.value = mDinnerSetup.value;
+      dDinnerSetup.dispatchEvent(new Event('change'));
+      if (typeof calculateLivePrice === 'function') calculateLivePrice();
+    });
+  }
+
+  if (mDinnerMinus && mDinnerQtyInput) {
+    mDinnerMinus.addEventListener('click', () => {
+      let q = parseInt(mDinnerQtyInput.value, 10) || 1;
+      if (q > 1) {
+        mDinnerQtyInput.value = String(q - 1);
+        if (dDinnerQtyInput) dDinnerQtyInput.value = String(q - 1);
+        if (typeof calculateLivePrice === 'function') calculateLivePrice();
+      }
+    });
+  }
+
+  if (mDinnerPlus && mDinnerQtyInput) {
+    mDinnerPlus.addEventListener('click', () => {
+      let q = parseInt(mDinnerQtyInput.value, 10) || 1;
+      if (q < 5) {
+        mDinnerQtyInput.value = String(q + 1);
+        if (dDinnerQtyInput) dDinnerQtyInput.value = String(q + 1);
+        if (typeof calculateLivePrice === 'function') calculateLivePrice();
+      }
     });
   }
 
@@ -1849,20 +1973,35 @@ function initMobileExperience() {
     if (desktopChildren && mChildVal && desktopChildren.value) mChildVal.textContent = desktopChildren.value;
 
     if (dRoomSelect) {
-      roomOptions.forEach(opt => {
-        const matches = opt.getAttribute('data-room-id') === dRoomSelect.value;
-        opt.classList.toggle('selected', matches);
-        const rad = opt.querySelector('.m-room-radio');
-        if (rad) rad.checked = matches;
-      });
+      if (typeof window.syncToMobileRoomOptions === 'function') {
+        window.syncToMobileRoomOptions(dRoomSelect.value);
+      } else {
+        roomOptions.forEach(opt => {
+          const matches = opt.getAttribute('data-room-id') === dRoomSelect.value;
+          opt.classList.toggle('selected', matches);
+          const rad = opt.querySelector('.m-room-radio');
+          if (rad) rad.checked = matches;
+        });
+      }
     }
 
-    if (dBfCheckbox && mToggleBf) mToggleBf.checked = dBfCheckbox.checked;
+    if (dBfCheckbox && mToggleBf) {
+      mToggleBf.checked = dBfCheckbox.checked;
+      if (mBfSub) mBfSub.style.display = dBfCheckbox.checked ? 'flex' : 'none';
+      if (mBfQtyInput && dBfQtyInput) mBfQtyInput.value = dBfQtyInput.value || '2';
+    }
+
     if (dCarToggle && mToggleCar) {
       mToggleCar.checked = dCarToggle.checked;
       if (mVehicleSub) mVehicleSub.style.display = dCarToggle.checked ? 'block' : 'none';
     }
-    if (dCandleToggle && mToggleCandle) mToggleCandle.checked = dCandleToggle.checked;
+
+    if (dCandleToggle && mToggleCandle) {
+      mToggleCandle.checked = dCandleToggle.checked;
+      if (mCandleSub) mCandleSub.style.display = dCandleToggle.checked ? 'block' : 'none';
+      if (mDinnerSetup && dDinnerSetup) mDinnerSetup.value = dDinnerSetup.value || 'Beachside';
+      if (mDinnerQtyInput && dDinnerQtyInput) mDinnerQtyInput.value = dDinnerQtyInput.value || '1';
+    }
   }
 
   // Initial sync once DOM is ready

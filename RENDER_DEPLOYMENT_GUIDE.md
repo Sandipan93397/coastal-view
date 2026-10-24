@@ -45,10 +45,10 @@ This guide walks you through deploying **Coastal View, Mandarmani** to **Render.
    * `NODE_ENV`: `production`
    * `COOKIE_SECURE`: `true`
    * `SESSION_SECRET`: Click "Generate" or set a long random string
-   * `ADMIN_EMAIL`: `sandipanmajumder9339@gmail.com`
+   * `ADMIN_EMAIL`: `your_admin_email@example.com`
    * `CAPTCHA_POLICY`: `smart`
-   * `TURNSTILE_SITE_KEY`: `0x4AAAAAAFdzwcCkPwyd37mU`
-   * `TURNSTILE_SECRET_KEY`: `0x4AAAAAAFdzwaPwK2How4KseNGzTcwxESo`
+   * `TURNSTILE_SITE_KEY`: `your_cloudflare_turnstile_site_key`
+   * `TURNSTILE_SECRET_KEY`: `your_cloudflare_turnstile_secret_key`
 6. Click **Create Web Service**.
 7. Render will build and deploy your app in 1–2 minutes. When done, your live URL will appear at the top:
    `https://coastal-view-mandarmani.onrender.com`

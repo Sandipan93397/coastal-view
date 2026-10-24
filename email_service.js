@@ -11,7 +11,7 @@ const path = require('path');
 
 const DB_PATH = path.join(__dirname, 'data', 'db.json');
 
-// Mask recipient email address: e.g. "sandipanmajumder9339@gmail.com" -> "s***9@gmail.com"
+// Mask recipient email address: e.g. "admin@example.com" -> "a***n@example.com"
 function maskEmail(email) {
   if (!email || typeof email !== 'string') return 'unknown';
   const parts = email.trim().split('@');

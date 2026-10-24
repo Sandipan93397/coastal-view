@@ -1,7 +1,82 @@
 # Coastal View Mandarmani - Luxury Resort Management System
-## Admin Authentication, Authenticator 2FA & Free SMTP Email System
+## Admin Authentication, Authenticator 2FA, Dynamic Booking & Free SMTP
 
-A high-security, resilient administrative portal for **Coastal View Resort, Mandarmani**. Built with Node.js, Express, Vanilla JavaScript/CSS, and structured JSON storage, designed for deployment on **Hostinger Business Web Hosting**.
+A high-security, resilient beachfront hotel website and administrative portal for **Coastal View Resort, Mandarmani**. Built with Node.js, Express, Vanilla JavaScript/CSS, and structured JSON storage, designed for local development, Render, and **Hostinger Business Web Hosting**.
+
+---
+
+## ⚡ Quickstart & Deployment Guide
+
+### 1. Setup Steps
+```bash
+# 1. Clone repository
+git clone https://github.com/Sandipan93397/coastal-view.git
+cd coastal-view
+
+# 2. Install dependencies
+npm install
+
+# 3. Configure environment variables
+cp .env.example .env
+# Edit .env and set your ADMIN_EMAIL, SESSION_SECRET, and SMTP credentials
+```
+
+### 2. Environment Variables List
+| Variable | Required | Description | Example |
+| :--- | :---: | :--- | :--- |
+| `PORT` | Optional | Web server listening port (defaults to 3000) | `3000` |
+| `NODE_ENV` | Yes | Environment mode (`development` or `production`) | `production` |
+| `ADMIN_EMAIL` | Yes | Super Admin primary email address | `owner@coastalviewmandarmani.com` |
+| `SESSION_SECRET` | Yes | 64-character random hex string for session encryption | `b8d7a12401f9...` |
+| `COOKIE_SECURE` | Yes | Secure cookie flag (`true` in production with HTTPS) | `true` |
+| `MFA_ENCRYPTION_KEY` | Optional | 256-bit encryption key for TOTP secrets at rest | `64-hex-characters` |
+| `TOTP_ISSUER` | Optional | Authenticator app issuer name | `CoastalViewMandarmani` |
+| `SMTP_HOST` | Optional | Free SMTP relay host (Brevo, Mailjet, Gmail) | `smtp-relay.brevo.com` |
+| `SMTP_PORT` | Optional | SMTP connection port (587 for STARTTLS, 465 for SSL) | `587` |
+| `SMTP_USER` | Optional | SMTP authentication username / account email | `apikey` |
+| `SMTP_PASS` | Optional | SMTP API key or app password | `xsmtpsib-...` |
+| `MAIL_FROM` | Optional | Verified sender email address | `reservations@coastalviewmandarmani.com` |
+| `MAIL_FROM_NAME` | Optional | Sender display name | `"Coastal View Mandarmani"` |
+| `SMTP_DAILY_LIMIT` | Optional | Daily free-tier send cap for dashboard meter | `300` |
+| `TURNSTILE_SITE_KEY` | Optional | Cloudflare Turnstile public site key | `0x4AAAAAA...` |
+| `TURNSTILE_SECRET_KEY`| Optional | Cloudflare Turnstile private secret key | `0x4AAAAAA...` |
+| `CAPTCHA_POLICY` | Optional | Turnstile trigger mode (`smart` or `always`) | `smart` |
+| `LLM_PROVIDER` | Optional | Chatbot engine (`gemini`, `anthropic`, `openai`) | `gemini` |
+| `LLM_API_KEY` | Optional | Provider API key for AI Concierge | `AIzaSy...` |
+| `LLM_MODEL` | Optional | Chatbot model identifier | `gemini-1.5-flash` |
+
+### 3. Database Migration & Build Command
+```bash
+# Compiles dynamic menu categories, updates index.html, and verifies db integrity
+npm run build
+```
+
+### 4. Create Super Admin Command
+```bash
+# Initializes the master administrator with hidden terminal password input (Argon2id hashing)
+npm run create-super-admin
+```
+
+### 5. Hostinger Deployment Steps
+1. **Node.js Setup in hPanel**:
+   - Log in to Hostinger hPanel > **Websites** > **Node.js**.
+   - Create or select a Node.js application running **Node.js 18.x or 20.x**.
+   - Set **Application Root** to the project folder (`public_html` or domain root).
+   - Set **Application Startup File** to `server.js`.
+2. **Upload / Clone Code**:
+   - Push code to your private GitHub repository and pull on Hostinger via Git or upload project files (excluding `.env`, `node_modules`, and `uploads`).
+   - Run `npm install --omit=dev`.
+3. **Configure Environment Variables**:
+   - In Hostinger hPanel > Node.js > **Environment Variables**, add the production keys from the table above (`NODE_ENV=production`, `COOKIE_SECURE=true`, `SESSION_SECRET`, `ADMIN_EMAIL`, etc.).
+4. **Initialize Super Admin**:
+   - Connect via Hostinger SSH terminal and run:
+     ```bash
+     npm run create-super-admin
+     ```
+   - Follow prompts to set the secure 12+ character master password.
+5. **Start Application**:
+   - Click **Restart Application** in hPanel.
+   - Navigate to `https://yourdomain.com/admin` to set up your Authenticator app (TOTP 2FA) and verify the live dashboard.
 
 ---
 

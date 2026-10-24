@@ -18,9 +18,9 @@ services:
       - key: TURNSTILE_SITE_KEY
         value: 0x4AAAAAAFdzwcCkPwyd37mU
       - key: TURNSTILE_SECRET_KEY
-        value: 0x4AAAAAAFdzwaPwK2How4KseNGzTcwxESo
+        sync: false
       - key: ADMIN_EMAIL
-        value: sandipanmajumder9339@gmail.com
+        sync: false
       - key: SESSION_SECRET
         generateValue: true
       - key: MFA_ENCRYPTION_KEY

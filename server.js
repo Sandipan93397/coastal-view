@@ -2690,8 +2690,37 @@ app.post('/api/bookings', (req, res) => {
     clientTransportCost
   } = req.body;
 
+  // Mandatory fields presence check
   if (!roomId || !checkIn || !checkOut || !guestName || !guestPhone) {
     return res.status(400).json({ success: false, message: 'Please provide all mandatory booking fields (Room, Dates, Guest Name, Phone).' });
+  }
+
+  // Name format validation
+  const cleanName = String(guestName).trim();
+  if (cleanName.length < 2) {
+    return res.status(400).json({ success: false, message: 'Please provide a valid full name (at least 2 characters).' });
+  }
+
+  // Phone format validation (at least 10 digits)
+  const phoneDigits = String(guestPhone).replace(/\D/g, '');
+  if (phoneDigits.length < 10) {
+    return res.status(400).json({ success: false, message: 'Please provide a valid contact phone number with at least 10 digits.' });
+  }
+
+  // Email format validation (if provided)
+  const cleanEmail = guestEmail ? String(guestEmail).trim() : '';
+  if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return res.status(400).json({ success: false, message: 'Please enter a valid email address (e.g. name@example.com).' });
+  }
+
+  // Date validations (no past dates, checkout strictly after checkin)
+  const todayIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const todayYMD = `${todayIST.getFullYear()}-${String(todayIST.getMonth() + 1).padStart(2, '0')}-${String(todayIST.getDate()).padStart(2, '0')}`;
+  if (checkIn < todayYMD) {
+    return res.status(400).json({ success: false, message: 'Check-in date cannot be in the past.' });
+  }
+  if (checkOut <= checkIn) {
+    return res.status(400).json({ success: false, message: 'Check-out date must be after check-in date (minimum 1 night).' });
   }
 
   return bookingMutex.acquire(async () => {
@@ -2702,8 +2731,12 @@ app.post('/api/bookings', (req, res) => {
     }
 
     const parsedRoomsCount = Math.max(1, parseInt(roomsCount, 10) || 1);
-    const parsedAdults = parseInt(adults, 10) || 1;
+    const parsedAdults = parseInt(adults, 10) || 0;
     const parsedChildren = parseInt(children, 10) || 0;
+
+    if (parsedAdults < 1) {
+      return res.status(400).json({ success: false, message: 'At least 1 adult is required for booking.' });
+    }
 
     // Room Capacity & Scaling Verification (Max 2 Adults + 1 Child per room, or room-specific capacity)
     const roomMaxAdults = parseInt(room.maxAdults, 10) || 2;
@@ -2963,10 +2996,14 @@ app.post('/api/bookings', (req, res) => {
         return res.status(400).json({ success: false, message: `Tampered transport cost rejected. Server calculated: ₹${carTotal}.` });
       }
     }
-    const isExplicitTamperTest = guestName && (guestName.toLowerCase().includes('hacker') || guestName.toLowerCase().includes('tamper'));
-    if (isExplicitTamperTest && clientTotal !== undefined && Number(clientTotal) !== null && !isNaN(Number(clientTotal))) {
+    if (clientTotal !== undefined && clientTotal !== null && clientTotal !== '' && !isNaN(Number(clientTotal))) {
       if (Math.abs(Number(clientTotal) - totalAmount) > 2) {
-        return res.status(400).json({ success: false, message: `Tampered total amount rejected. Server calculated: ₹${totalAmount}.` });
+        return res.status(400).json({
+          success: false,
+          code: 'TOTAL_MISMATCH',
+          message: `The displayed total (₹${Number(clientTotal).toLocaleString('en-IN')}) does not match the server calculation (₹${totalAmount.toLocaleString('en-IN')}). Please review and confirm the updated total.`,
+          serverTotal: totalAmount
+        });
       }
     }
 

@@ -1,7 +1,6 @@
 # Environment & Secrets
-.env
-.env.local
-.env.*.local
+.env*
+!.env.example
 
 # Dependencies
 node_modules/
@@ -9,9 +8,21 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Next / Framework Build Output
+.next/
+dist/
+build/
+out/
+
+# Uploads Folder
+uploads/
+
 # Database Backups & Temporary files
 data/backups/
+data/invoices/*.pdf
+data/invoices/*.zip
 scratch/
+logs/
 *.log
 *.tmp
 test_*.png
