@@ -1031,13 +1031,40 @@
             <div class="metric-icon-box"><span class="material-symbols-outlined">trending_up</span></div>
           </div>
 
+          <div class="metric-card coral">
+            <div>
+              <div class="metric-label">Unmatched Rate</div>
+              <div class="metric-value" id="chatStatUnmatchedRate">0%</div>
+            </div>
+            <div class="metric-icon-box"><span class="material-symbols-outlined">help</span></div>
+          </div>
+
           <div class="metric-card">
             <div>
-              <div class="metric-label">Today's Queries & Cost</div>
+              <div class="metric-label">Today's Queries</div>
               <div class="metric-value" id="chatStatToday">0 msgs</div>
-              <div style="font-size: 0.72rem; color: #64748B; margin-top: 3px;" id="chatStatCost">Est. Cost: $0.00</div>
             </div>
             <div class="metric-icon-box"><span class="material-symbols-outlined">analytics</span></div>
+          </div>
+        </div>
+
+        <!-- Chat Analytics: Top Intents & Top Questions -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 20px;">
+          <div class="admin-card" style="padding: 16px; border: 1px solid #E2E8F0; border-radius: 12px; background: #FFFFFF;">
+            <strong style="color: var(--ocean-blue); font-size: 0.88rem; display: flex; align-items: center; gap: 6px;">
+              <span class="material-symbols-outlined" style="font-size: 18px; color: var(--turquoise);">category</span> Top Detected Intents
+            </strong>
+            <div id="chatTopIntentsList" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+              <span style="font-size: 0.78rem; color: #94A3B8;">No intent data recorded yet.</span>
+            </div>
+          </div>
+          <div class="admin-card" style="padding: 16px; border: 1px solid #E2E8F0; border-radius: 12px; background: #FFFFFF;">
+            <strong style="color: var(--ocean-blue); font-size: 0.88rem; display: flex; align-items: center; gap: 6px;">
+              <span class="material-symbols-outlined" style="font-size: 18px; color: var(--champagne-gold);">contact_support</span> Top Guest Questions
+            </strong>
+            <div id="chatTopQuestionsList" style="display: flex; flex-direction: column; gap: 6px; margin-top: 10px;">
+              <span style="font-size: 0.78rem; color: #94A3B8;">No guest questions recorded yet.</span>
+            </div>
           </div>
         </div>
 
@@ -1173,20 +1200,20 @@
         </div>
 
         <!-- ==================================================================
-             UNANSWERED QUESTIONS & FAQ GENERATOR
+             UNMATCHED PHRASES & INTENT TRAINER
              ================================================================== -->
-        <div class="admin-card" style="margin-top: 24px; border: 1px solid #E2E8F0; background: #FFFFFF; border-radius: 14px; padding: 18px 20px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div class="admin-card" style="margin-top: 24px; border: 1.5px solid #E2E8F0; background: #FFFFFF; border-radius: 14px; padding: 18px 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="material-symbols-outlined" style="color: var(--sunset-coral); font-size: 22px;">help_outline</span>
-              <strong style="color: var(--ocean-blue); font-size: 0.98rem;">Unanswered Questions & FAQ Suggestions</strong>
-              <span class="badge" id="unansweredCountBadge" style="background: rgba(225, 29, 72, 0.1); color: #E11D48; font-weight: 700; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem;">0</span>
+              <span class="material-symbols-outlined" style="color: var(--sunset-coral); font-size: 24px;">psychology</span>
+              <strong style="color: var(--ocean-blue); font-size: 1.02rem;">Unmatched Phrases & Intent Trainer</strong>
+              <span class="badge" id="unmatchedCountBadge" style="background: rgba(225, 29, 72, 0.1); color: #E11D48; font-weight: 700; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem;">0</span>
             </div>
-            <span style="font-size: 0.75rem; color: #64748B;">Queries where bot lacked data — click to convert into website FAQ</span>
+            <span style="font-size: 0.78rem; color: #64748B;">Phrases the bot didn't understand — 1-click assign to an intent so the bot learns & improves</span>
           </div>
 
-          <div id="unansweredQuestionsList" style="display: flex; flex-direction: column; gap: 8px;">
-            <div style="padding: 16px; text-align: center; color: #94A3B8; font-size: 0.82rem;">No unanswered questions reported yet. All inquiries matched knowledge base.</div>
+          <div id="unmatchedPhrasesList" style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="padding: 16px; text-align: center; color: #94A3B8; font-size: 0.82rem;">No unmatched phrases reported yet. Chatbot successfully recognized all guest queries!</div>
           </div>
         </div>
       </section>
@@ -2928,10 +2955,10 @@
       </div>
       <div class="modal-body">
         <!-- Master On/Off Switch -->
-        <div style="display: flex; justify-content: space-between; align-items: center; background: #F8FAFC; border: 1.5px solid #CBD5E1; padding: 14px 18px; border-radius: 10px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; background: #F8FAFC; border: 1.5px solid #CBD5E1; padding: 14px 18px; border-radius: 10px; margin-bottom: 14px;">
           <div>
-            <strong style="color: var(--ocean-blue); font-size: 0.95rem;">Concierge AI Bot Master Switch</strong>
-            <div style="font-size: 0.78rem; color: #64748B;">Turn the live chatbot widget on or off on the website and admin portal</div>
+            <strong style="color: var(--ocean-blue); font-size: 0.95rem;">Chatbot Master Switch</strong>
+            <div style="font-size: 0.78rem; color: #64748B;">Turn the live chatbot widget on or off on the website</div>
           </div>
           <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
             <input type="checkbox" id="botEnabledToggle" style="width: 20px; height: 20px; cursor: pointer;">
@@ -2939,25 +2966,22 @@
           </label>
         </div>
 
-        <!-- Usage Statistics Strip -->
-        <div style="background: #FAF7F2; border: 1px solid var(--border-glass); border-radius: 10px; padding: 14px 16px; margin-bottom: 18px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <strong style="font-size: 0.85rem; color: var(--ocean-blue);">📊 AI Usage Statistics & Cost Tracking</strong>
-            <span id="botUsageCostBadge" style="font-size: 0.74rem; background: var(--champagne-gold); color: var(--ocean-blue); padding: 3px 8px; border-radius: 12px; font-weight: 700;">$0.00 (₹0.00)</span>
+        <!-- AI Fallback (Off by Default) Toggle -->
+        <div style="display: flex; justify-content: space-between; align-items: center; background: #FEF3C7; border: 1.5px solid #FCD34D; padding: 14px 18px; border-radius: 10px; margin-bottom: 16px;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="material-symbols-outlined" style="font-size: 18px; color: #D97706;">smart_toy</span>
+              <strong style="color: #92400E; font-size: 0.92rem;">AI Fallback (Layer 4 - Off by Default)</strong>
+            </div>
+            <div style="font-size: 0.76rem; color: #78350F;">When no intent matches and LLM_API_KEY is configured, call LLM with grounded hotel data only.</div>
           </div>
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.78rem;">
-            <div style="background: #FFFFFF; padding: 8px 10px; border-radius: 6px; border: 1px solid #E2E8F0;">
-              <span style="color: #64748B;">Today's Messages:</span> <strong id="botStatTodayCount" style="color: var(--ocean-blue);">0</strong>
-            </div>
-            <div style="background: #FFFFFF; padding: 8px 10px; border-radius: 6px; border: 1px solid #E2E8F0;">
-              <span style="color: #64748B;">Total Inquiries:</span> <strong id="botStatTotalCount" style="color: var(--ocean-blue);">0</strong>
-            </div>
-            <div style="background: #FFFFFF; padding: 8px 10px; border-radius: 6px; border: 1px solid #E2E8F0;">
-              <span style="color: #64748B;">Top Topic:</span> <strong id="botStatTopTopic" style="color: var(--turquoise-dark);">General</strong>
-            </div>
-          </div>
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="botAiFallbackToggle" style="width: 20px; height: 20px; cursor: pointer;">
+            <span id="botAiFallbackLabel" style="font-weight: 700; font-size: 0.82rem; color: #92400E;">Disabled</span>
+          </label>
         </div>
 
+        <!-- Welcome Messages -->
         <div class="form-group">
           <label class="form-label">Welcome Message (English)</label>
           <textarea id="botWelcomeEn" class="form-control" rows="2"></textarea>
@@ -2971,32 +2995,47 @@
           <textarea id="botWelcomeHi" class="form-control" rows="2"></textarea>
         </div>
 
+        <!-- Quick Reply Buttons -->
         <div class="form-group">
-          <label class="form-label">Quick-Reply Chips (Comma Separated)</label>
-          <input type="text" id="botChipsInput" class="form-control" placeholder="Check availability, Rooms & prices, Menu, Candlelight dinner, Nearby places, Book / Call us">
-          <small style="color: #64748B; font-size: 0.74rem;">Default chips offered to guests upon greeting for instant 1-tap inquiries.</small>
+          <label class="form-label">Quick-Reply Buttons (Comma Separated)</label>
+          <input type="text" id="botChipsInput" class="form-control" placeholder="Rooms & prices, Check availability, How to contact, Menu, Candlelight dinner, Nearby places, Tours">
+          <small style="color: #64748B; font-size: 0.74rem;">Main buttons shown after greeting and when unsure.</small>
         </div>
 
+        <!-- Fallback Message -->
         <div class="form-group">
-          <label class="form-label">Tone & Extra Prompt Instructions (Injected into System Prompt)</label>
-          <textarea id="botToneInstructions" class="form-control" rows="2" placeholder="e.g. Always emphasize our pristine beachfront sunset, warm coastal hospitality, and fresh local Hilsa catch from Mandarmani Mohana."></textarea>
+          <label class="form-label">Fallback Message when Query is Unclear (English)</label>
+          <textarea id="botFallbackEn" class="form-control" rows="2"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Fallback Message (Bengali - বাংলা)</label>
+          <textarea id="botFallbackBn" class="form-control" rows="2"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Fallback Message (Hindi - हिन्दी)</label>
+          <textarea id="botFallbackHi" class="form-control" rows="2"></textarea>
         </div>
 
+        <!-- Daily Limit -->
         <div class="form-group">
-          <label class="form-label">Offline-Hours / High-Volume Fallback Message</label>
-          <textarea id="botOfflineEn" class="form-control" rows="2" placeholder="Message shown when bot is toggled off or daily limit is reached."></textarea>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Daily Message Limit (Cost Safety Cap)</label>
+          <label class="form-label">Daily Message Limit (Rate & Cost Safety Cap)</label>
           <input type="number" id="botDailyLimit" class="form-control" min="10" max="10000" value="500">
-          <small style="color: #64748B; font-size: 0.74rem;">Caps total queries per day to prevent runaway API costs.</small>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Chat Logs Retention Period (Days)</label>
-          <input type="number" id="botLogRetentionDays" class="form-control" min="7" max="365" value="90">
-          <small style="color: #64748B; font-size: 0.74rem;">Automatically deletes guest chat logs older than this limit (e.g. 90 days) for privacy and compliance.</small>
+        <!-- Editable Intent Phrase Lists Section -->
+        <div style="margin-top: 20px; border-top: 1px solid #E2E8F0; padding-top: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <strong style="color: var(--ocean-blue); font-size: 0.95rem; display: flex; align-items: center; gap: 6px;">
+              <span class="material-symbols-outlined" style="font-size: 20px; color: var(--turquoise);">list_alt</span>
+              Editable Intent Phrase Lists (20 Intents)
+            </strong>
+            <button type="button" class="btn-outline-gold" style="font-size: 0.75rem; padding: 4px 10px;" onclick="toggleIntentsAccordion()">
+              <span id="btnToggleIntentsText">Show All Intents</span>
+            </button>
+          </div>
+          <div id="intentsAccordionBox" style="display: none; flex-direction: column; gap: 10px; max-height: 280px; overflow-y: auto; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px;">
+            <!-- Populated dynamically via admin.js -->
+          </div>
         </div>
       </div>
       <div class="modal-footer">

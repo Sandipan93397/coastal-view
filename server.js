@@ -4146,6 +4146,27 @@ async function handleChatEndpoint(req, res) {
 }
 
 // Map both /api/chat (requested by prompt) and /api/concierge/chat (legacy / tests)
+app.get('/api/chat/welcome', (req, res) => {
+  const lang = req.query.lang || 'en';
+  const welcomeText = lang === 'bn'
+    ? "কোস্টাল ভিউ, ম্যানেজড বাই অনি'স-এ আপনাকে স্বাগতম! 🌊\nআমি আপনার পার্সোনাল কোস্টাল কনসিয়ার্জ। মন্দারমণিতে আপনার ছুটির জন্য আমি কীভাবে সাহায্য করতে পারি?"
+    : lang === 'hi'
+      ? "कोस्टल व्यू, मैनेज्ड बाय अनीज़ में आपका स्वागत है! 🌊\nमैं आपका डिजिटल कोस्टल कंसीयर्ज हूँ। मंदारमणि में आपकी छुट्टियों के लिए मैं क्या मदद कर सकता हूँ?"
+      : "Welcome to Coastal View, Managed By Ani's! 🌊\nI am your dedicated Coastal Concierge. How may I assist your Mandarmani holiday today?";
+  res.json({
+    success: true,
+    reply: welcomeText,
+    actionChips: [
+      'Rooms & prices',
+      'Check availability',
+      'How to contact',
+      'Menu',
+      'Candlelight dinner',
+      'Nearby places',
+      'Tours'
+    ]
+  });
+});
 app.post('/api/chat', handleChatEndpoint);
 app.post('/api/concierge/chat', handleChatEndpoint);
 
@@ -4186,22 +4207,25 @@ function handleCallbackEndpoint(req, res) {
   if (!name || !phone) return res.status(400).json({ success: false, message: 'Name and phone are required' });
 
   const db = readDB();
-  db.callbackRequests = db.callbackRequests || [];
+  db.leads = db.leads || [];
   const deskPhone = db.settings?.phone || DIRECT_PHONE_NUMBER;
-  const request = {
-    id: `req-${Date.now()}`,
-    name,
-    phone,
-    message: message || 'Guest requested concierge callback',
-    status: 'Pending',
+  const lead = {
+    id: `lead-${Date.now()}`,
+    conversationId: sessionId || '',
     sessionId: sessionId || '',
-    createdAt: new Date().toISOString()
+    guestName: name,
+    guestPhone: phone,
+    status: 'Needs follow-up',
+    source: 'chat_callback',
+    notes: message || 'Guest requested concierge callback',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   };
-  db.callbackRequests.push(request);
+  db.leads.push(lead);
 
   // If session ID exists, update conversation lead details
-  if (sessionId && db.chatConversations) {
-    const conv = db.chatConversations.find(c => c.sessionId === sessionId || c.id === sessionId);
+  if (sessionId && db.conversations) {
+    const conv = db.conversations.find(c => c.sessionId === sessionId || c.id === sessionId);
     if (conv) {
       conv.guestName = name;
       conv.guestPhone = phone;
@@ -4243,28 +4267,7 @@ function handleGetConversations(req, res) {
   if (!db) return res.status(500).json({ success: false, message: 'Database unavailable' });
 
   const { search, filter } = req.query;
-  let conversations = db.chatConversations || [];
-
-  // If no multi-turn conversations yet, synthesize from legacy chatInquiries
-  if (!conversations.length && (db.chatInquiries || []).length) {
-    conversations = (db.chatInquiries || []).map(inq => ({
-      id: inq.id,
-      sessionId: inq.sessionId || inq.id,
-      language: inq.lang || 'en',
-      topic: inq.topic || 'General Inquiry',
-      leadStatus: inq.leadStatus || 'New Lead',
-      isRead: Boolean(inq.isRead),
-      createdAt: inq.timestamp || new Date().toISOString(),
-      updatedAt: inq.timestamp || new Date().toISOString(),
-      guestName: inq.guestName || '',
-      guestPhone: inq.guestPhone || '',
-      staffNotes: inq.staffNotes || '',
-      messages: [
-        { sender: 'guest', text: inq.userMessage, timestamp: inq.timestamp },
-        { sender: 'bot', text: inq.botReply, timestamp: inq.timestamp }
-      ]
-    }));
-  }
+  let conversations = db.conversations || [];
 
   // Filter
   if (filter === 'unread') {
@@ -4305,7 +4308,8 @@ function handleGetConversations(req, res) {
   res.json({
     success: true,
     inquiries: conversations,
-    callbacks: db.callbackRequests || []
+    leads: db.leads || [],
+    unmatchedPhrases: db.unmatchedPhrases || []
   });
 }
 
@@ -4316,27 +4320,8 @@ app.get('/api/admin/chat/conversations', requireAnyStaff, handleGetConversations
 function handleGetConversationById(req, res) {
   const { id } = req.params;
   const db = readDB();
-  const conv = (db.chatConversations || []).find(c => c.id === id || c.sessionId === id);
+  const conv = (db.conversations || []).find(c => c.id === id || c.sessionId === id);
   if (!conv) {
-    const legacy = (db.chatInquiries || []).find(i => i.id === id);
-    if (legacy) {
-      return res.json({
-        success: true,
-        conversation: {
-          id: legacy.id,
-          sessionId: legacy.sessionId || legacy.id,
-          language: legacy.lang || 'en',
-          topic: legacy.topic || 'General',
-          leadStatus: legacy.leadStatus || 'New Lead',
-          isRead: Boolean(legacy.isRead),
-          createdAt: legacy.timestamp,
-          messages: [
-            { sender: 'guest', text: legacy.userMessage, timestamp: legacy.timestamp },
-            { sender: 'bot', text: legacy.botReply, timestamp: legacy.timestamp }
-          ]
-        }
-      });
-    }
     return res.status(404).json({ success: false, message: 'Conversation not found' });
   }
 
@@ -4359,7 +4344,7 @@ function handleUpdateConversation(req, res) {
   const { isRead, leadStatus, staffNotes, assignee, topic } = req.body;
   const db = readDB();
 
-  let conv = (db.chatConversations || []).find(c => c.id === id || c.sessionId === id);
+  let conv = (db.conversations || []).find(c => c.id === id || c.sessionId === id);
   if (conv) {
     if (isRead !== undefined) conv.isRead = Boolean(isRead);
     if (leadStatus) conv.leadStatus = leadStatus;
@@ -4367,17 +4352,32 @@ function handleUpdateConversation(req, res) {
     if (assignee !== undefined) conv.assignee = assignee;
     if (topic) conv.topic = topic;
     conv.updatedAt = new Date().toISOString();
-  }
 
-  const legacy = (db.chatInquiries || []).find(i => i.id === id);
-  if (legacy) {
-    if (isRead !== undefined) legacy.isRead = Boolean(isRead);
-    if (leadStatus) legacy.leadStatus = leadStatus;
-    if (staffNotes !== undefined) legacy.staffNotes = staffNotes;
+    // Sync with db.leads
+    db.leads = db.leads || [];
+    let lead = db.leads.find(l => l.conversationId === conv.id || l.sessionId === conv.sessionId);
+    if (lead) {
+      if (leadStatus) lead.status = leadStatus;
+      if (staffNotes) lead.notes = staffNotes;
+      lead.updatedAt = new Date().toISOString();
+    } else if (leadStatus === 'Qualified Lead' || leadStatus === 'Needs follow-up') {
+      db.leads.push({
+        id: `lead-${Date.now()}`,
+        conversationId: conv.id,
+        sessionId: conv.sessionId,
+        guestName: conv.guestName || 'Website Guest',
+        guestPhone: conv.guestPhone || '',
+        status: leadStatus,
+        source: 'chatbot',
+        notes: staffNotes || `Topic: ${conv.topic}`,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+    }
   }
 
   writeDB(db);
-  res.json({ success: true, conversation: conv || legacy });
+  res.json({ success: true, conversation: conv });
 }
 
 app.patch('/api/admin/concierge/conversations/:id', requireAnyStaff, handleUpdateConversation);
@@ -4392,12 +4392,15 @@ function handleConversationReply(req, res) {
   }
 
   const db = readDB();
-  const conv = (db.chatConversations || []).find(c => c.id === id || c.sessionId === id);
+  const conv = (db.conversations || []).find(c => c.id === id || c.sessionId === id);
   if (!conv) {
     return res.status(404).json({ success: false, message: 'Conversation not found' });
   }
 
   const replyMsg = {
+    id: `msg-staff-${Date.now()}`,
+    conversationId: conv.id,
+    sessionId: conv.sessionId,
     sender: 'staff',
     staffName: req.user?.name || 'Front Desk Staff',
     text: staffReply.trim(),
@@ -4408,6 +4411,9 @@ function handleConversationReply(req, res) {
   conv.messages.push(replyMsg);
   conv.updatedAt = new Date().toISOString();
   conv.isRead = true;
+
+  db.messages = db.messages || [];
+  db.messages.push(replyMsg);
 
   logAudit(db, req.user, 'Live Chat Takeover', `Staff reply sent to conversation ${id}`, req);
   writeDB(db);
@@ -4421,7 +4427,7 @@ app.post('/api/admin/chat/conversations/:id/reply', requireAnyStaff, handleConve
 // 5. Export Full Transcripts CSV (Manager / Super Admin Only, Logged)
 function handleExportChatCSV(req, res) {
   const db = readDB();
-  const conversations = db.chatConversations || [];
+  const conversations = db.conversations || [];
   const csvContent = exportConversationsToCSV(conversations);
 
   logAudit(db, req.user, 'Chat Transcripts Exported', `${req.user.name} exported full chat conversations CSV (${conversations.length} records).`, req);
@@ -4439,34 +4445,37 @@ app.get('/api/admin/chat/export-csv', requireManager, handleExportChatCSV);
 function handleGetBotSettings(req, res) {
   const db = readDB();
   const deskPhone = db?.settings?.phone || DIRECT_PHONE_NUMBER;
+  const defaultIntents = require('./chatbot/intents.json');
+
   const botSettings = db.botSettings || {
     botEnabled: true,
+    aiFallbackEnabled: false,
     welcomeMessage: {
-      en: "Welcome to Coastal View, Managed By Ani's! 🌊\nI am your dedicated Coastal Concierge. How may I assist your Mandarmani holiday today?",
+      en: "Welcome to Coastal View, Managed By Ani's! 🌊\nHow may I assist your Mandarmani holiday today?",
       bn: "কোস্টাল ভিউ-তে আপনাকে স্বাগতম, ম্যানেজড বাই অনি'স! 🌊\nআমি আপনার পার্সোনাল কোস্টাল কনসিয়ার্জ। আপনি কি জানতে চান?",
       hi: "कोस्टल व्यू, मैनेज्ड बाय अनीज़ में आपका स्वागत है! 🌊\nमैं आपका कोस्टल कंसीयर्ज हूँ। मैं आपकी क्या मदद कर सकता हूँ?"
     },
+    fallbackMessage: {
+      en: "I didn't quite catch that. Please select one of the popular topics below, or connect directly with our front desk team:",
+      bn: "আমি আপনার প্রশ্নটি ঠিক বুঝতে পারিনি। দয়া করে নিচের বিকল্পগুলো নির্বাচন করুন বা আমাদের ফ্রন্ট ডেস্কে সরাসরি কল করুন:",
+      hi: "मैं आपका प्रश्न समझ नहीं पाया। कृपया नीचे दिए गए विकल्पों में से चुनें या हमारे फ्रंट डेस्क से सीधे संपर्क करें:"
+    },
     quickReplyChips: [
-      "Check availability",
       "Rooms & prices",
+      "Check availability",
+      "How to contact",
       "Menu",
       "Candlelight dinner",
       "Nearby places",
-      "Tours",
-      "Call us"
+      "Tours"
     ],
-    toneInstructions: "Provide warm, authentic coastal hospitality. Highlight our direct sea-view and fresh local Hilsa catch.",
-    offlineMessage: {
-      en: `Our concierge desk is currently operating with high volume. Please call ${deskPhone}.`,
-      bn: `আমাদের ফ্রন্ট ডেস্ক বর্তমানে ব্যস্ত আছে। সরাসরি কল করুন: ${deskPhone}।`,
-      hi: `हमारा डेस्क इस समय व्यस्त है। कृपया सीधे कॉल करें: ${deskPhone}।`
-    },
     dailyMessageLimit: 500,
     logRetentionDays: 90
   };
 
+  const intents = db.chatbotIntents || defaultIntents;
   const stats = getChatStats(db);
-  res.json({ success: true, botSettings, stats });
+  res.json({ success: true, botSettings, intents, stats });
 }
 
 app.get('/api/admin/concierge/bot-settings', requireAnyStaff, handleGetBotSettings);
@@ -4475,26 +4484,28 @@ app.get('/api/admin/chat/settings', requireAnyStaff, handleGetBotSettings);
 function handleSaveBotSettings(req, res) {
   const {
     botEnabled,
+    aiFallbackEnabled,
     welcomeMessage,
+    fallbackMessage,
     quickReplyChips,
-    toneInstructions,
-    offlineMessage,
     dailyMessageLimit,
-    logRetentionDays
+    logRetentionDays,
+    intents
   } = req.body;
 
   const db = readDB();
   db.botSettings = db.botSettings || {};
 
   if (botEnabled !== undefined) db.botSettings.botEnabled = Boolean(botEnabled);
+  if (aiFallbackEnabled !== undefined) db.botSettings.aiFallbackEnabled = Boolean(aiFallbackEnabled);
   if (welcomeMessage) db.botSettings.welcomeMessage = welcomeMessage;
+  if (fallbackMessage) db.botSettings.fallbackMessage = fallbackMessage;
   if (Array.isArray(quickReplyChips)) db.botSettings.quickReplyChips = quickReplyChips;
-  if (toneInstructions !== undefined) db.botSettings.toneInstructions = toneInstructions;
-  if (offlineMessage) db.botSettings.offlineMessage = offlineMessage;
   if (dailyMessageLimit !== undefined) db.botSettings.dailyMessageLimit = parseInt(dailyMessageLimit, 10) || 500;
   if (logRetentionDays !== undefined) db.botSettings.logRetentionDays = parseInt(logRetentionDays, 10) || 90;
+  if (Array.isArray(intents)) db.chatbotIntents = intents;
 
-  logAudit(db, req.user, 'Bot Settings Updated', `${req.user.name} updated multi-lingual bot settings & retention policy.`, req);
+  logAudit(db, req.user, 'Bot Settings Updated', `${req.user.name} updated chatbot settings & intent configuration.`, req);
   writeDB(db);
 
   res.json({ success: true, message: 'Bot settings saved successfully.', botSettings: db.botSettings });
@@ -4503,7 +4514,60 @@ function handleSaveBotSettings(req, res) {
 app.post('/api/admin/concierge/bot-settings', requireManager, handleSaveBotSettings);
 app.post('/api/admin/chat/settings', requireManager, handleSaveBotSettings);
 
-// 7. Usage Stats Endpoint
+// 7. Unmatched Phrases & 1-Click Intent Assignment
+app.get('/api/admin/chat/unmatched', requireAnyStaff, (req, res) => {
+  const db = readDB();
+  res.json({
+    success: true,
+    unmatched: db.unmatchedPhrases || []
+  });
+});
+
+app.post('/api/admin/chat/assign-phrase', requireManager, (req, res) => {
+  const { phraseId, intentId, phrase } = req.body;
+  if (!intentId || (!phraseId && !phrase)) {
+    return res.status(400).json({ success: false, message: 'intentId and phrase are required.' });
+  }
+
+  const db = readDB();
+  const defaultIntents = require('./chatbot/intents.json');
+  db.chatbotIntents = db.chatbotIntents || defaultIntents;
+
+  const targetIntent = db.chatbotIntents.find(i => i.id === intentId);
+  if (!targetIntent) {
+    return res.status(404).json({ success: false, message: `Intent ${intentId} not found.` });
+  }
+
+  db.unmatchedPhrases = db.unmatchedPhrases || [];
+  let phraseText = phrase;
+  if (phraseId) {
+    const unrec = db.unmatchedPhrases.find(u => u.id === phraseId);
+    if (unrec) {
+      phraseText = unrec.phrase;
+      unrec.assignedIntent = intentId;
+    }
+  }
+
+  if (phraseText) {
+    targetIntent.phrases = targetIntent.phrases || [];
+    const cleanP = phraseText.trim().toLowerCase();
+    if (!targetIntent.phrases.some(p => p.toLowerCase() === cleanP)) {
+      targetIntent.phrases.push(phraseText.trim());
+    }
+  }
+
+  logAudit(db, req.user, 'Chatbot Phrase Assigned', `Assigned phrase "${phraseText}" to intent "${intentId}".`, req);
+  writeDB(db);
+
+  res.json({
+    success: true,
+    message: `Phrase "${phraseText}" successfully added to ${intentId}.`,
+    intents: db.chatbotIntents,
+    unmatched: db.unmatchedPhrases
+  });
+});
+
+// 8. Usage Stats Endpoint
 app.get('/api/admin/chat/stats', requireAnyStaff, (req, res) => {
   const db = readDB();
   const stats = getChatStats(db);

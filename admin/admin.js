@@ -779,6 +779,10 @@ async function loadAllAdminData(isRefresh = false) {
     if (bookingsRes.success) adminState.bookings = bookingsRes.bookings;
     if (chatRes.inquiries) {
       adminState.conversations = chatRes.inquiries;
+      adminState.chatInquiries = chatRes.inquiries;
+      adminState.chatConversations = chatRes.inquiries;
+      adminState.leads = chatRes.leads || [];
+      adminState.unmatchedPhrases = chatRes.unmatchedPhrases || [];
       adminState.callbacks = chatRes.callbacks || [];
     }
     if (contentRes.content) adminState.content = contentRes.content;
@@ -3196,33 +3200,64 @@ function renderChatCRM() {
   if (convEl) convEl.textContent = converted;
   if (rateEl) rateEl.textContent = `${convRate}%`;
 
-  // Fetch real-time usage stats & unanswered questions asynchronously
+  // Fetch real-time usage stats & unmatched phrases asynchronously
   authFetch('/api/admin/chat/stats').then(res => {
     if (res.success && res.stats) {
       const s = res.stats;
       const todayEl = document.getElementById('chatStatToday');
-      const costEl = document.getElementById('chatStatCost');
+      const rateEl = document.getElementById('chatStatUnmatchedRate');
       if (todayEl) todayEl.textContent = `${s.todayMessages || 0} msgs`;
-      if (costEl) costEl.textContent = `Est. Cost: ${s.estimatedCostFormatted || '$0.00'}`;
+      if (rateEl) rateEl.textContent = s.unmatchedRate || '0%';
 
-      // Render Unanswered Questions list
-      const unansListEl = document.getElementById('unansweredQuestionsList');
-      const unansBadge = document.getElementById('unansweredCountBadge');
-      const unans = s.unansweredQuestions || [];
-      if (unansBadge) unansBadge.textContent = unans.length;
-
-      if (unansListEl) {
-        if (!unans.length) {
-          unansListEl.innerHTML = `<div style="padding: 16px; text-align: center; color: #94A3B8; font-size: 0.82rem;">No unanswered questions reported. Grounded AI answered all guest queries accurately!</div>`;
+      // Top Detected Intents
+      const intentsEl = document.getElementById('chatTopIntentsList');
+      if (intentsEl) {
+        if (!s.topIntents || !s.topIntents.length) {
+          intentsEl.innerHTML = `<span style="font-size: 0.78rem; color: #94A3B8;">No intent data recorded yet.</span>`;
         } else {
-          unansListEl.innerHTML = unans.map(u => `
-            <div style="display: flex; justify-content: space-between; align-items: center; background: #FAF9F6; border: 1px solid #E2E8F0; padding: 10px 14px; border-radius: 8px;">
+          intentsEl.innerHTML = s.topIntents.map(item => `
+            <span style="font-size: 0.78rem; background: #F0FDFA; color: var(--turquoise-dark); border: 1px solid #99F6E4; padding: 4px 10px; border-radius: 20px; font-weight: 600;">
+              ${escapeHtml(item.intent)} <strong style="color: var(--ocean-blue); margin-left: 4px;">(${item.count})</strong>
+            </span>
+          `).join('');
+        }
+      }
+
+      // Top Guest Questions
+      const questionsEl = document.getElementById('chatTopQuestionsList');
+      if (questionsEl) {
+        if (!s.topQuestions || !s.topQuestions.length) {
+          questionsEl.innerHTML = `<span style="font-size: 0.78rem; color: #94A3B8;">No guest questions recorded yet.</span>`;
+        } else {
+          questionsEl.innerHTML = s.topQuestions.map(item => `
+            <div style="font-size: 0.78rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #F1F5F9; padding-bottom: 3px;">
+              <span style="color: var(--ocean-blue); font-weight: 500;">"${escapeHtml(item.question)}"</span>
+              <span style="color: #64748B; font-size: 0.72rem; font-weight: 700;">${item.count}×</span>
+            </div>
+          `).join('');
+        }
+      }
+
+      // Render Unmatched Phrases List
+      const unrecListEl = document.getElementById('unmatchedPhrasesList');
+      const unrecBadge = document.getElementById('unmatchedCountBadge');
+      const unrec = s.unansweredQuestions || [];
+      if (unrecBadge) unrecBadge.textContent = unrec.length;
+
+      if (unrecListEl) {
+        if (!unrec.length) {
+          unrecListEl.innerHTML = `<div style="padding: 16px; text-align: center; color: #94A3B8; font-size: 0.82rem;">No unmatched phrases reported yet. Chatbot successfully recognized all guest intents!</div>`;
+        } else {
+          unrecListEl.innerHTML = unrec.map(u => `
+            <div style="display: flex; justify-content: space-between; align-items: center; background: #FAF9F6; border: 1px solid #E2E8F0; padding: 10px 14px; border-radius: 8px; flex-wrap: wrap; gap: 8px;">
               <div>
-                <strong style="color: var(--ocean-blue); font-size: 0.84rem;">"${escapeHtml(u.question)}"</strong>
-                <div style="font-size: 0.72rem; color: #94A3B8; margin-top: 2px;">Asked: ${new Date(u.askedAt).toLocaleDateString()} ${new Date(u.askedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                <strong style="color: var(--ocean-blue); font-size: 0.85rem;">"${escapeHtml(u.question)}"</strong>
+                <div style="font-size: 0.72rem; color: #94A3B8; margin-top: 2px;">
+                  Frequency: <strong>${u.count || 1}</strong> • Lang: ${(u.language || 'en').toUpperCase()} • Last asked: ${new Date(u.askedAt || Date.now()).toLocaleDateString()}
+                </div>
               </div>
-              <button class="btn-turquoise" style="padding: 4px 10px; font-size: 0.75rem;" onclick="addUnansweredQuestionToFaq('${escapeHtml(u.question.replace(/'/g, "\\'"))}')">
-                <span class="material-symbols-outlined" style="font-size: 15px;">add</span> Add to FAQ
+              <button class="btn-turquoise" style="padding: 5px 12px; font-size: 0.78rem;" onclick="assignUnmatchedPhraseModal('${escapeHtml(u.question.replace(/'/g, "\\'"))}')">
+                <span class="material-symbols-outlined" style="font-size: 16px;">add_task</span> Assign to Intent
               </button>
             </div>
           `).join('');
@@ -3422,6 +3457,8 @@ function showBotEditorModal() {
   authFetch('/api/admin/concierge/bot-settings').then(res => {
     if (res.success && res.botSettings) {
       const b = res.botSettings;
+      adminState.currentIntents = res.intents || [];
+
       const toggle = document.getElementById('botEnabledToggle');
       const label = document.getElementById('botEnabledLabel');
       if (toggle) {
@@ -3438,70 +3475,166 @@ function showBotEditorModal() {
         };
       }
 
+      const aiToggle = document.getElementById('botAiFallbackToggle');
+      const aiLabel = document.getElementById('botAiFallbackLabel');
+      if (aiToggle) {
+        aiToggle.checked = Boolean(b.aiFallbackEnabled);
+        if (aiLabel) {
+          aiLabel.textContent = aiToggle.checked ? 'Enabled (ON)' : 'Disabled (OFF)';
+          aiLabel.style.color = aiToggle.checked ? 'var(--turquoise-dark)' : '#92400E';
+        }
+        aiToggle.onchange = () => {
+          if (aiLabel) {
+            aiLabel.textContent = aiToggle.checked ? 'Enabled (ON)' : 'Disabled (OFF)';
+            aiLabel.style.color = aiToggle.checked ? 'var(--turquoise-dark)' : '#92400E';
+          }
+        };
+      }
+
       document.getElementById('botWelcomeEn').value = b.welcomeMessage?.en || '';
       document.getElementById('botWelcomeBn').value = b.welcomeMessage?.bn || '';
       document.getElementById('botWelcomeHi').value = b.welcomeMessage?.hi || '';
       document.getElementById('botChipsInput').value = (b.quickReplyChips || []).join(', ');
-      document.getElementById('botToneInstructions').value = b.toneInstructions || '';
-      document.getElementById('botOfflineEn').value = b.offlineMessage?.en || '';
-      document.getElementById('botDailyLimit').value = b.dailyMessageLimit || 500;
-      const retInput = document.getElementById('botLogRetentionDays');
-      if (retInput) retInput.value = b.logRetentionDays || 90;
 
-      // Update usage stats preview in modal
-      if (res.stats) {
-        const s = res.stats;
-        document.getElementById('botUsageCostBadge').textContent = s.estimatedCostFormatted || '$0.00';
-        document.getElementById('botStatTodayCount').textContent = s.todayMessages || 0;
-        document.getElementById('botStatTotalCount').textContent = s.totalMessages || 0;
-        const topTopic = s.topQuestions?.[0]?.topic || 'General Inquiry';
-        document.getElementById('botStatTopTopic').textContent = topTopic;
-      }
+      const fbEn = document.getElementById('botFallbackEn');
+      const fbBn = document.getElementById('botFallbackBn');
+      const fbHi = document.getElementById('botFallbackHi');
+      if (fbEn) fbEn.value = b.fallbackMessage?.en || '';
+      if (fbBn) fbBn.value = b.fallbackMessage?.bn || '';
+      if (fbHi) fbHi.value = b.fallbackMessage?.hi || '';
+
+      document.getElementById('botDailyLimit').value = b.dailyMessageLimit || 500;
+
+      renderIntentsAccordion(adminState.currentIntents);
     }
     document.getElementById('botEditorModal').classList.add('open');
   });
 }
 
+function renderIntentsAccordion(intents) {
+  const box = document.getElementById('intentsAccordionBox');
+  if (!box) return;
+  if (!intents || !intents.length) {
+    box.innerHTML = '<div style="color:#64748B; font-size:0.8rem;">No intents loaded.</div>';
+    return;
+  }
+
+  box.innerHTML = intents.map((intent, idx) => `
+    <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <strong style="color: var(--ocean-blue); font-size: 0.82rem;">${idx + 1}. ${escapeHtml(intent.id)}</strong>
+        <span style="font-size: 0.72rem; color: #64748B;">Priority: ${intent.priority || 50} • ${intent.phrases ? intent.phrases.length : 0} phrases</span>
+      </div>
+      <div style="font-size: 0.72rem; color: #64748B; margin-bottom: 6px;">${escapeHtml(intent.description || '')}</div>
+      <textarea class="form-control" style="font-size: 0.76rem; min-height: 50px;" id="intentPhrases_${intent.id}">${(intent.phrases || []).join(', ')}</textarea>
+      <small style="color: #94A3B8; font-size: 0.68rem;">Comma-separated match phrases (English, Bengali, Hindi, Hinglish)</small>
+    </div>
+  `).join('');
+}
+
+function toggleIntentsAccordion() {
+  const box = document.getElementById('intentsAccordionBox');
+  const btn = document.getElementById('btnToggleIntentsText');
+  if (!box) return;
+  const isHidden = box.style.display === 'none';
+  box.style.display = isHidden ? 'flex' : 'none';
+  if (btn) btn.textContent = isHidden ? 'Hide Intents' : 'Show All Intents';
+}
+
 async function saveBotSettingsFromModal() {
   const botEnabled = document.getElementById('botEnabledToggle').checked;
+  const aiFallbackEnabled = document.getElementById('botAiFallbackToggle')?.checked || false;
+
   const welcomeMessage = {
     en: document.getElementById('botWelcomeEn').value.trim(),
     bn: document.getElementById('botWelcomeBn').value.trim(),
     hi: document.getElementById('botWelcomeHi').value.trim()
   };
-  const quickReplyChips = document.getElementById('botChipsInput').value.split(',').map(s => s.trim()).filter(Boolean);
-  const toneInstructions = document.getElementById('botToneInstructions').value.trim();
-  const offlineMessage = {
-    en: document.getElementById('botOfflineEn').value.trim(),
-    bn: "আমাদের ফ্রন্ট ডেস্ক বর্তমানে ব্যস্ত আছে। সরাসরি কল করুন: 7812027551।",
-    hi: "हमारा डेस्क इस समय व्यस्त है। कृपया सीधे कॉल करें: 7812027551।"
+
+  const fallbackMessage = {
+    en: document.getElementById('botFallbackEn')?.value.trim() || '',
+    bn: document.getElementById('botFallbackBn')?.value.trim() || '',
+    hi: document.getElementById('botFallbackHi')?.value.trim() || ''
   };
+
+  const quickReplyChips = document.getElementById('botChipsInput').value.split(',').map(s => s.trim()).filter(Boolean);
   const dailyMessageLimit = parseInt(document.getElementById('botDailyLimit').value, 10) || 500;
-  const logRetentionDays = parseInt(document.getElementById('botLogRetentionDays')?.value, 10) || 90;
+
+  // Extract updated phrases for each intent
+  const updatedIntents = (adminState.currentIntents || []).map(intent => {
+    const el = document.getElementById(`intentPhrases_${intent.id}`);
+    if (el) {
+      const phrases = el.value.split(',').map(s => s.trim()).filter(Boolean);
+      return { ...intent, phrases };
+    }
+    return intent;
+  });
 
   try {
     const res = await authFetch('/api/admin/concierge/bot-settings', {
       method: 'POST',
       body: {
         botEnabled,
+        aiFallbackEnabled,
         welcomeMessage,
+        fallbackMessage,
         quickReplyChips,
-        toneInstructions,
-        offlineMessage,
         dailyMessageLimit,
-        logRetentionDays
+        intents: updatedIntents
       }
     });
 
     if (res.success) {
       closeModal('botEditorModal');
-      showToast('Bot settings & prompt rules updated successfully.', 'success');
+      showToast('Bot settings & intent phrase lists saved successfully.', 'success');
       loadAllAdminData();
     }
   } catch (err) {
     showToast('Failed to save bot settings: ' + err.message, 'error');
   }
 }
+
+// 1-Click Assign Unmatched Phrase to Intent
+window.assignUnmatchedPhraseModal = async function(phraseText) {
+  const defaultIntents = [
+    'contact', 'location', 'rooms_list', 'room_detail', 'room_price',
+    'availability', 'booking_start', 'booking_how', 'payment_policy',
+    'checkin_time', 'addons', 'menu', 'nearby', 'tours', 'amenities',
+    'policies', 'human', 'greeting', 'thanks'
+  ];
+
+  const chosenIntent = prompt(
+    `Assign phrase "${phraseText}" to which intent?\n\nAvailable intents:\n${defaultIntents.join(', ')}`,
+    'contact'
+  );
+
+  if (!chosenIntent || !chosenIntent.trim()) return;
+
+  const cleanIntent = chosenIntent.trim().toLowerCase();
+  if (!defaultIntents.includes(cleanIntent)) {
+    showToast(`Invalid intent "${cleanIntent}". Please enter one of the recognized intents.`, 'error');
+    return;
+  }
+
+  try {
+    const res = await authFetch('/api/admin/chat/assign-phrase', {
+      method: 'POST',
+      body: {
+        phrase: phraseText,
+        intentId: cleanIntent
+      }
+    });
+
+    if (res.success) {
+      showToast(`Assigned "${phraseText}" to intent "${cleanIntent}"!`, 'success');
+      renderChatCRM();
+    } else {
+      showToast('Failed to assign phrase: ' + res.message, 'error');
+    }
+  } catch (err) {
+    showToast('Error assigning phrase: ' + err.message, 'error');
+  }
+};
 
 function exportChatsCSV() {
   window.location.href = '/api/admin/concierge/export-csv';

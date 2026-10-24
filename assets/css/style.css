@@ -4026,6 +4026,199 @@ section[id],
   transform: translateY(-1px);
 }
 
+/* Horizontal swipe list for room cards & contact cards in Chatbot */
+.room-cards-carousel {
+  display: flex;
+  overflow-x: auto;
+  gap: 12px;
+  padding: 6px 2px 14px;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 8px;
+}
+.room-cards-carousel::-webkit-scrollbar {
+  height: 5px;
+}
+.room-cards-carousel::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 4px;
+}
+.chat-room-card {
+  flex: 0 0 250px;
+  width: 250px;
+  scroll-snap-align: start;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+}
+.chat-room-card-img-wrap {
+  position: relative;
+  width: 100%;
+  height: 120px;
+  background: #E2E8F0;
+}
+.chat-room-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.chat-room-card-tag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(7, 59, 76, 0.85);
+  color: #FFFFFF;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  backdrop-filter: blur(4px);
+}
+.badge-sold-out {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #EF4444;
+  color: #FFFFFF;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+.chat-room-card-body {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  gap: 4px;
+}
+.chat-room-card-title {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--ocean-blue, #073B4C);
+  line-height: 1.25;
+}
+.chat-room-card-meta {
+  font-size: 0.72rem;
+  color: #64748B;
+}
+.chat-room-card-price {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--turquoise-dark, #048C87);
+  margin-top: 2px;
+}
+.chat-room-card-inclusions {
+  font-size: 0.7rem;
+  color: #475569;
+  line-height: 1.35;
+}
+.chat-room-card-low-stock {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #E11D48;
+}
+.chat-room-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.btn-card-gallery {
+  padding: 5px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #475569;
+  background: #F1F5F9;
+  border: 1px solid #CBD5E1;
+  border-radius: 6px;
+  text-decoration: none;
+  text-align: center;
+}
+.btn-card-book {
+  flex-grow: 1;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #FFFFFF;
+  background: var(--turquoise, #06B6B0);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-card-book:hover:not(:disabled) {
+  background: var(--turquoise-dark, #048C87);
+}
+.btn-card-book.disabled, .btn-card-book:disabled {
+  background: #94A3B8;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* Contact Card in Chatbot */
+.chat-contact-card {
+  background: #FFFFFF;
+  border: 1.5px solid var(--champagne-gold, #E8C77B);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-top: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chat-contact-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #F1F5F9;
+  padding-bottom: 6px;
+  color: var(--ocean-blue, #073B4C);
+}
+.chat-contact-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  color: #475569;
+}
+.chat-contact-link {
+  color: var(--turquoise-dark, #048C87);
+  font-weight: 700;
+  text-decoration: none;
+}
+.chat-contact-link:hover {
+  text-decoration: underline;
+}
+.btn-chat-maps {
+  display: block;
+  text-align: center;
+  background: #F8FAFC;
+  border: 1px solid #CBD5E1;
+  color: var(--ocean-blue, #073B4C);
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 6px;
+  border-radius: 6px;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+.btn-chat-maps:hover {
+  background: #EEF2F6;
+}
+
+.chat-inline-link {
+  color: var(--turquoise-dark, #048C87);
+  font-weight: 700;
+  text-decoration: underline;
+}
+
 /* ==========================================================================
    MODALS (BOOKING CHECKOUT & ROOM GALLERY)
    ========================================================================== */

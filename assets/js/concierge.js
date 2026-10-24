@@ -1,522 +1,580 @@
-// Coastal View - "Ani's Coastal Concierge" Multi-Lingual AI Assistant
-// Powered by LLM API & Grounded Knowledge Engine with Streaming SSE and Multi-Page Session Continuity
+/**
+ * Coastal View - "Ani's Coastal Concierge" (Rebuilt from Scratch)
+ * 
+ * Connected to clean 4-Layer Grounded Chatbot Engine:
+ * - Layer 1: Normalizer & Multi-lingual Detection
+ * - Layer 2: Intent Router (Scored whole phrases, no loose word bugs)
+ * - Layer 3: Answer Builders (100% admin database grounded)
+ * - Layer 4: AI Fallback (optional, off by default)
+ * 
+ * Features:
+ * - Floating bottom-right widget & full-height mobile sheet (respecting keyboard)
+ * - Header: Logo emblem, online status, Call and WhatsApp buttons
+ * - Horizontal swipe list cards for room recommendations (photo, tag, bed, guests, price, inclusions, book button)
+ * - Guided booking flow state machine runner
+ * - Quick reply buttons / Action chips
+ * - Session persistence across pages & Clear chat option
+ * - Strict safety: no card storage, input sanitization, zero raw JSON or "undefined"
+ */
 
-let currentLang = 'en';
-let conciergeSessionId = null;
-let currentPhone = '7812027551';
-const STORAGE_KEY_HISTORY = 'concierge_chat_history';
-const STORAGE_KEY_LANG = 'concierge_chat_lang';
-const STORAGE_KEY_OPEN = 'concierge_chat_open';
+(function() {
+  let currentLang = 'en';
+  let sessionId = null;
+  let currentPhone = '7812027551';
+  let currentWhatsApp = '7812027551';
 
-const defaultWelcomeMessages = {
-  en: "Welcome to Coastal View, Managed By Ani's! 🌊\nI am your dedicated Coastal Concierge. Directly connected to our front desk, I can assist you with real-time room availability, official rates, dining menus, romantic candlelight dinners, and travel arrangements. How may I assist your Mandarmani getaway today?",
-  bn: "কোস্টাল ভিউ, ম্যানেজড বাই অনি'স-এ আপনাকে আন্তরিক স্বাগতম! 🌊\nআমি আপনার পার্সোনাল কোস্টাল কনসিয়ার্জ। মন্দারমণির সমুদ্র সৈকতে আপনার ছুটি উপভোগ্য করতে আমি সরাসরি আমাদের ফ্রন্ট ডেস্ক সিস্টেম থেকে রুমের প্রাপ্যতা, খাবারের মেনু, ক্যান্ডেললাইট ডিনার ও টোটো/গাড়ির তথ্য দিতে পারি। আপনি কীভাবে সাহায্য চান?",
-  hi: "कोस्टल व्यू, मैनेज्ड बाय अनीज़ में आपका हार्दिक स्वागत है! 🌊\nमैं आपका डिजिटल कोस्टल कंसीयर्ज हूँ। मंदারमणि में आपकी छुट्टियों को शानदार बनाने के लिए मैं फ्रंट डेस्क से कमरे की उपलब्धता, भोजन मेनू, कैंडललाइट डिनर और वाहन व्यवस्था की सटीक जानकारी दे सकता हूँ। मैं आपकी क्या मदद कर सकता हूँ?"
-};
+  const STORAGE_KEY_HISTORY = 'coastal_chat_history_v2';
+  const STORAGE_KEY_LANG = 'coastal_chat_lang_v2';
+  const STORAGE_KEY_OPEN = 'coastal_chat_open_v2';
+  const STORAGE_KEY_SESSION = 'coastal_chat_session_id_v2';
 
-document.addEventListener('DOMContentLoaded', () => {
-  // Fetch current phone from settings if available
-  fetch('/api/settings').then(r => r.json()).then(d => {
-    if (d.success && d.settings && d.settings.phone) {
-      currentPhone = d.settings.phone;
-    }
-  }).catch(() => {});
+  const welcomeMessages = {
+    en: "Welcome to Coastal View, Managed By Ani's! 🌊\nI am your dedicated Coastal Concierge. How may I assist your Mandarmani holiday today?",
+    bn: "কোস্টাল ভিউ, ম্যানেজড বাই অনি'স-এ আপনাকে স্বাগতম! 🌊\nআমি আপনার পার্সোনাল কোস্টাল কনসিয়ার্জ। মন্দারমণিতে আপনার ছুটির জন্য আমি কীভাবে সাহায্য করতে পারি?",
+    hi: "कोस्टल व्यू, मैनेज्ड बाय अनीज़ में आपका स्वागत है! 🌊\nमैं आपका डिजिटल कोस्टल कंसीयर्ज हूँ। मंदारमणि में आपकी छुट्टियों के लिए मैं क्या मदद कर सकता हूँ?"
+  };
 
-  initConcierge();
-});
+  const initialActionChips = [
+    'Rooms & prices',
+    'Check availability',
+    'How to contact',
+    'Menu',
+    'Candlelight dinner',
+    'Nearby places',
+    'Tours'
+  ];
 
-function getOrCreateSessionId() {
-  if (conciergeSessionId) return conciergeSessionId;
-  try {
-    let saved = localStorage.getItem('concierge_session_id');
-    if (!saved) {
-      saved = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-      localStorage.setItem('concierge_session_id', saved);
-    }
-    conciergeSessionId = saved;
-    return saved;
-  } catch (e) {
-    conciergeSessionId = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    return conciergeSessionId;
-  }
-}
-
-function loadSavedChatHistory() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_HISTORY);
-    return raw ? JSON.parse(raw) : [];
-  } catch (e) {
-    return [];
-  }
-}
-
-function saveChatHistory(history) {
-  try {
-    localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(history.slice(-30)));
-  } catch (e) {}
-}
-
-function initConcierge() {
-  const launcher = document.getElementById('conciergeLauncher');
-  const chatModal = document.getElementById('conciergeChatModal');
-  const closeBtn = document.getElementById('conciergeCloseBtn');
-  const minimizeBtn = document.getElementById('conciergeMinimizeBtn');
-  const clearBtn = document.getElementById('conciergeClearBtn');
-  const langBtns = document.querySelectorAll('.concierge-lang-selector .lang-btn');
-  const sendBtn = document.getElementById('conciergeSendBtn');
-  const textInput = document.getElementById('conciergeTextInput');
-
-  if (!launcher || !chatModal) return;
-
-  // Restore saved language
-  const savedLang = localStorage.getItem(STORAGE_KEY_LANG);
-  if (savedLang && ['en', 'bn', 'hi'].includes(savedLang)) {
-    currentLang = savedLang;
-    langBtns.forEach(btn => {
-      btn.classList.toggle('active', btn.getAttribute('data-lang') === currentLang);
-    });
-  }
-
-  // Append privacy note to chat modal footer
-  if (!chatModal.querySelector('.concierge-footer-privacy')) {
-    const privacyEl = document.createElement('div');
-    privacyEl.className = 'concierge-footer-privacy';
-    privacyEl.innerHTML = `
-      <span class="material-symbols-outlined" style="font-size: 13px; vertical-align: middle;">lock</span>
-      <span>Privacy: No card details stored. Immediate desk help: <a href="tel:${currentPhone}" style="color:inherit; font-weight:700;">${currentPhone}</a></span>
-    `;
-    chatModal.appendChild(privacyEl);
-  }
-
-  // Restore previous chat history across pages
-  const savedHistory = loadSavedChatHistory();
-  if (savedHistory.length > 0) {
-    savedHistory.forEach(item => {
-      if (item.sender === 'user') {
-        appendUserMessage(item.text, false);
-      } else {
-        appendBotMessage(item.text, item.requiresCallback, item.actionChips, false);
+  // Helper: Get or generate unique session ID
+  function getSessionId() {
+    if (sessionId) return sessionId;
+    try {
+      let saved = localStorage.getItem(STORAGE_KEY_SESSION);
+      if (!saved) {
+        saved = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        localStorage.setItem(STORAGE_KEY_SESSION, saved);
       }
-    });
+      sessionId = saved;
+      return saved;
+    } catch (e) {
+      sessionId = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      return sessionId;
+    }
   }
 
-  // Restore open state if previously opened in this session
-  if (sessionStorage.getItem(STORAGE_KEY_OPEN) === 'true') {
-    chatModal.classList.add('open');
+  function loadHistory() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_HISTORY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
   }
 
-  // Toggle Chat Window
-  const toggleChat = () => {
-    const isOpen = chatModal.classList.toggle('open');
-    sessionStorage.setItem(STORAGE_KEY_OPEN, isOpen ? 'true' : 'false');
-    if (isOpen) {
-      if (document.querySelectorAll('#conciergeMessagesArea .chat-bubble').length === 0) {
-        appendBotMessage(defaultWelcomeMessages[currentLang]);
-        renderDefaultChips();
+  function saveHistory(history) {
+    try {
+      localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(history.slice(-40)));
+    } catch (e) {}
+  }
+
+  function escapeHtml(str) {
+    if (!str || typeof str !== 'string') return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // Format bot markdown text safely to HTML
+  function formatBotText(raw) {
+    if (!raw) return '';
+
+    // 1. Bold: **text** -> <strong>text</strong>
+    let text = raw.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+    // 2. Markdown Links: [label](url)
+    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, url) => {
+      if (url.includes('bookingSection') || url.includes('#bookingSection')) {
+        return `<a href="${url}" class="chat-inline-link prefill-link" onclick="handleChatBookingClick(event, '${url}')">📅 ${label}</a>`;
       }
-      setTimeout(() => { if (textInput) textInput.focus(); }, 150);
+      if (url.startsWith('tel:')) {
+        return `<a href="${url}" class="chat-inline-link call-link">📞 ${label}</a>`;
+      }
+      if (url.startsWith('https://wa.me')) {
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="chat-inline-link whatsapp-link">💬 ${label}</a>`;
+      }
+      return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="chat-inline-link">${label}</a>`;
+    });
+
+    // 3. Newlines to <br>
+    text = text.replace(/\n/g, '<br>');
+
+    return text;
+  }
+
+  // Pre-fill booking click handler
+  window.handleChatBookingClick = function(e, url) {
+    if (e && e.preventDefault) e.preventDefault();
+    const modal = document.getElementById('conciergeChatModal');
+    if (modal) modal.classList.remove('open');
+    sessionStorage.setItem(STORAGE_KEY_OPEN, 'false');
+
+    if (window.prefillBookingForm) {
+      window.prefillBookingForm(url);
+    } else {
+      window.location.href = url;
     }
   };
 
-  launcher.addEventListener('click', toggleChat);
-  launcher.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      toggleChat();
-    }
-  });
-
-  if (closeBtn) {
-    closeBtn.addEventListener('click', () => {
-      chatModal.classList.remove('open');
-      sessionStorage.setItem(STORAGE_KEY_OPEN, 'false');
-    });
-  }
-
-  if (minimizeBtn) {
-    minimizeBtn.addEventListener('click', () => {
-      chatModal.classList.remove('open');
-      sessionStorage.setItem(STORAGE_KEY_OPEN, 'false');
-    });
-  }
-
-  if (clearBtn) {
-    clearBtn.addEventListener('click', () => {
-      if (confirm('Clear chat history and restart conversation?')) {
-        clearConciergeChat();
+  document.addEventListener('DOMContentLoaded', () => {
+    // Fetch live phone number from settings
+    fetch('/api/settings').then(r => r.json()).then(d => {
+      if (d.success && d.settings) {
+        if (d.settings.phone) currentPhone = d.settings.phone;
+        if (d.settings.whatsapp) currentWhatsApp = d.settings.whatsapp;
+        updateHeaderLinks();
       }
-    });
-  }
+    }).catch(() => {});
 
-  // Close on Escape key
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && chatModal.classList.contains('open')) {
-      chatModal.classList.remove('open');
-      sessionStorage.setItem(STORAGE_KEY_OPEN, 'false');
+    initWidget();
+  });
+
+  function updateHeaderLinks() {
+    const callLink = document.querySelector('.concierge-header-action[title*="Call"]');
+    if (callLink) {
+      callLink.setAttribute('href', `tel:${currentPhone}`);
+      callLink.setAttribute('title', `Call Front Desk (+91 ${currentPhone})`);
     }
-  });
-
-  // Language Switcher
-  langBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      langBtns.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      currentLang = btn.getAttribute('data-lang');
-      localStorage.setItem(STORAGE_KEY_LANG, currentLang);
-      appendBotMessage(defaultWelcomeMessages[currentLang]);
-      renderDefaultChips();
-    });
-  });
-
-  // Sending Messages
-  if (sendBtn && textInput) {
-    const handleSend = () => {
-      const msg = textInput.value.trim();
-      if (!msg) return;
-      textInput.value = '';
-      sendUserMessage(msg);
-    };
-
-    sendBtn.addEventListener('click', handleSend);
-    textInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') handleSend();
-    });
+    const waLink = document.querySelector('.concierge-header-action.whatsapp-btn');
+    if (waLink) {
+      waLink.setAttribute('href', `https://wa.me/91${currentWhatsApp}`);
+    }
   }
 
-  renderDefaultChips();
-}
+  function initWidget() {
+    const launcher = document.getElementById('conciergeLauncher');
+    const modal = document.getElementById('conciergeChatModal');
+    const closeBtn = document.getElementById('conciergeCloseBtn');
+    const minimizeBtn = document.getElementById('conciergeMinimizeBtn');
+    const clearBtn = document.getElementById('conciergeClearBtn');
+    const sendBtn = document.getElementById('conciergeSendBtn');
+    const input = document.getElementById('conciergeTextInput');
+    const langBtns = document.querySelectorAll('.concierge-lang-selector .lang-btn');
 
-function clearConciergeChat() {
-  const area = document.getElementById('conciergeMessagesArea');
-  if (area) area.innerHTML = '';
-  localStorage.removeItem(STORAGE_KEY_HISTORY);
-  appendBotMessage(defaultWelcomeMessages[currentLang]);
-  renderDefaultChips();
-}
+    if (!launcher || !modal) return;
 
-function renderDefaultChips() {
-  const chipsBar = document.getElementById('conciergeChipsBar');
-  if (!chipsBar) return;
+    // Restore saved language
+    const savedLang = localStorage.getItem(STORAGE_KEY_LANG);
+    if (savedLang && ['en', 'bn', 'hi'].includes(savedLang)) {
+      currentLang = savedLang;
+      langBtns.forEach(b => {
+        b.classList.toggle('active', b.getAttribute('data-lang') === currentLang);
+      });
+    }
 
-  let chips = [];
-  if (currentLang === 'bn') {
-    chips = ['রুমের প্রাপ্যতা যাচাই', 'রুম ও ভাড়া দেখুন', 'রেস্তোরাঁ মেনু', 'ক্যান্ডেললাইট ডিনার', 'কাছাকাছি দর্শনীয় স্থান', 'অনির ট্যুর ও ট্রাভেলস', 'ফোন করুন'];
-  } else if (currentLang === 'hi') {
-    chips = ['उपलब्धता चेक करें', 'कमरे और किराया', 'ডाइनिंग मेनू', 'कैंडललाइट डिनर', 'आसपास के स्थान', 'टूर सेवाएँ', 'कॉल करें'];
-  } else {
-    chips = ['Check availability', 'Rooms & prices', 'Menu', 'Candlelight dinner', 'Nearby places', 'Tours', 'Call us'];
-  }
-
-  renderChips(chips);
-}
-
-function renderChips(chipsList) {
-  const chipsBar = document.getElementById('conciergeChipsBar');
-  if (!chipsBar || !chipsList || !chipsList.length) return;
-
-  chipsBar.innerHTML = '';
-  chipsList.forEach(chipText => {
-    const btn = document.createElement('button');
-    btn.className = 'chip-btn';
-    btn.textContent = chipText;
-    btn.setAttribute('aria-label', chipText);
-    btn.onclick = () => {
-      const lower = chipText.toLowerCase();
-      if (lower.includes('photo') || lower.includes('gallery')) {
-        window.location.href = '/gallery';
-      } else if (lower.includes('full menu')) {
-        window.location.href = '/menu';
-      } else if (lower === 'call us' || lower.includes('ফোন করুন') || lower.includes('कॉल करें')) {
-        window.location.href = `tel:${currentPhone}`;
-      } else if (lower === 'tours' || lower.includes('ট্যুর') || lower.includes('টুর')) {
-        sendUserMessage("Tell me about Ani's Tours and travel options");
-      } else {
-        sendUserMessage(chipText);
+    // Toggle Chat Modal
+    const toggleModal = () => {
+      const isOpen = modal.classList.toggle('open');
+      sessionStorage.setItem(STORAGE_KEY_OPEN, isOpen ? 'true' : 'false');
+      if (isOpen) {
+        const area = document.getElementById('conciergeMessagesArea');
+        if (area && area.children.length === 0) {
+          showBotReply({
+            reply: welcomeMessages[currentLang] || welcomeMessages.en,
+            actionChips: initialActionChips
+          }, false);
+        }
+        setTimeout(() => { if (input) input.focus(); }, 150);
       }
     };
-    chipsBar.appendChild(btn);
-  });
-}
 
-function appendUserMessage(text, persist = true) {
-  const area = document.getElementById('conciergeMessagesArea');
-  if (!area) return;
-
-  const bubble = document.createElement('div');
-  bubble.className = 'chat-bubble user';
-  bubble.textContent = text;
-  area.appendChild(bubble);
-  area.scrollTop = area.scrollHeight;
-
-  if (persist) {
-    const history = loadSavedChatHistory();
-    history.push({ sender: 'user', text, timestamp: new Date().toISOString() });
-    saveChatHistory(history);
-  }
-}
-
-function showTypingIndicator() {
-  const area = document.getElementById('conciergeMessagesArea');
-  if (!area) return null;
-
-  const typingEl = document.createElement('div');
-  typingEl.className = 'concierge-typing-bubble';
-  typingEl.id = 'conciergeTypingBubble';
-  typingEl.setAttribute('aria-live', 'polite');
-  typingEl.innerHTML = `
-    <span class="concierge-typing-dot"></span>
-    <span class="concierge-typing-dot"></span>
-    <span class="concierge-typing-dot"></span>
-    <span style="font-size: 0.76rem; color: #64748B; margin-left: 6px;">Ani's Concierge is replying...</span>
-  `;
-  area.appendChild(typingEl);
-  area.scrollTop = area.scrollHeight;
-  return typingEl;
-}
-
-function removeTypingIndicator() {
-  const el = document.getElementById('conciergeTypingBubble');
-  if (el) el.remove();
-}
-
-function formatBotTextToHtml(text) {
-  if (!text) return '';
-
-  // 1. Convert Markdown links: [Title](url) -> formatted interactive links
-  let formatted = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, url) => {
-    if (url.includes('#bookingSection') || url.includes('bookingSection')) {
-      return `<a href="${url}" class="prefill-booking-link" onclick="handleChatBookingLinkClick(event, '${url}')">📅 ${label}</a>`;
-    }
-    return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#06B6B0; font-weight:700; text-decoration:underline;">${label}</a>`;
-  });
-
-  // 2. Convert standard prefilled booking links in raw HTML
-  formatted = formatted.replace(/<a\s+href="([^"]*bookingSection[^"]*)"([^>]*)>(.*?)<\/a>/gi, (match, href, rest, label) => {
-    return `<a href="${href}" class="prefill-booking-link" onclick="handleChatBookingLinkClick(event, '${href}')">📅 ${label}</a>`;
-  });
-
-  // 3. Newlines to <br>
-  formatted = formatted.replace(/\n/g, '<br>');
-
-  // 4. Highlight Phone Number as Clickable Call link
-  formatted = formatted.replace(/\b(7812027551|9620536361)\b/g, (num) => `<a href="tel:${num}" style="color:#06B6B0; font-weight:700; text-decoration:underline;">📞 ${num}</a>`);
-
-  // 5. Internal routes
-  formatted = formatted.replace(/\/gallery\b/g, '<a href="/gallery" style="color:#06B6B0; font-weight:700; text-decoration:underline;">/gallery (Explore Photos)</a>');
-  formatted = formatted.replace(/\/menu\b/g, '<a href="/menu" style="color:#06B6B0; font-weight:700; text-decoration:underline;">/menu (View Full Menu)</a>');
-
-  return formatted;
-}
-
-window.handleChatBookingLinkClick = function(e, url) {
-  e.preventDefault();
-  const modal = document.getElementById('conciergeChatModal');
-  if (modal) modal.classList.remove('open');
-
-  if (window.prefillBookingForm) {
-    window.prefillBookingForm(url);
-  } else {
-    window.location.href = url;
-  }
-};
-
-function appendBotMessage(text, requiresCallback = false, actionChips = [], persist = true) {
-  removeTypingIndicator();
-  const area = document.getElementById('conciergeMessagesArea');
-  if (!area) return;
-
-  const bubble = document.createElement('div');
-  bubble.className = 'chat-bubble bot';
-  bubble.innerHTML = formatBotTextToHtml(text);
-
-  if (requiresCallback) {
-    appendCallbackForm(bubble);
-  }
-
-  area.appendChild(bubble);
-  if (actionChips && actionChips.length > 0) {
-    renderChips(actionChips);
-  }
-  area.scrollTop = area.scrollHeight;
-
-  if (persist) {
-    const history = loadSavedChatHistory();
-    history.push({ sender: 'bot', text, requiresCallback, actionChips, timestamp: new Date().toISOString() });
-    saveChatHistory(history);
-  }
-
-  return bubble;
-}
-
-function appendCallbackForm(container) {
-  const formBox = document.createElement('div');
-  formBox.className = 'callback-form-box';
-  formBox.innerHTML = `
-    <h5><span class="material-symbols-outlined" style="font-size: 16px; vertical-align: middle;">phone_in_talk</span> Request Front Desk Callback</h5>
-    <input type="text" class="callback-input cbGuestName" placeholder="Your Full Name" aria-label="Your Full Name" required>
-    <input type="tel" class="callback-input cbGuestPhone" placeholder="Your WhatsApp / Phone Number" aria-label="Your WhatsApp or Phone Number" required>
-    <button class="btn btn-gold" style="width: 100%; padding: 8px 12px; font-size: 0.8rem;" onclick="submitCallbackFromChat(this)">
-      Submit Contact Request
-    </button>
-  `;
-  container.appendChild(formBox);
-}
-
-// Send user message with full streaming SSE support & graceful fallback
-async function sendUserMessage(text) {
-  appendUserMessage(text, true);
-  const typingIndicator = showTypingIndicator();
-  const area = document.getElementById('conciergeMessagesArea');
-
-  const sessionId = getOrCreateSessionId();
-
-  try {
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream, application/json'
-      },
-      body: JSON.stringify({
-        message: text,
-        lang: currentLang,
-        sessionId,
-        stream: true
-      })
+    launcher.addEventListener('click', toggleModal);
+    launcher.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleModal();
+      }
     });
 
-    if (!response.ok) {
-      throw new Error(`Server returned HTTP ${response.status}`);
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        modal.classList.remove('open');
+        sessionStorage.setItem(STORAGE_KEY_OPEN, 'false');
+      });
     }
 
-    const contentType = response.headers.get('content-type') || '';
+    if (minimizeBtn) {
+      minimizeBtn.addEventListener('click', () => {
+        modal.classList.remove('open');
+        sessionStorage.setItem(STORAGE_KEY_OPEN, 'false');
+      });
+    }
 
-    if (contentType.includes('text/event-stream') && response.body && response.body.getReader) {
-      removeTypingIndicator();
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        if (confirm('Clear chat history and restart conversation?')) {
+          clearChat();
+        }
+      });
+    }
 
+    // Language switcher
+    langBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        langBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentLang = btn.getAttribute('data-lang') || 'en';
+        localStorage.setItem(STORAGE_KEY_LANG, currentLang);
+        showBotReply({
+          reply: welcomeMessages[currentLang] || welcomeMessages.en,
+          actionChips: initialActionChips
+        }, false);
+      });
+    });
+
+    // Send input handlers
+    if (sendBtn && input) {
+      const doSend = () => {
+        const txt = input.value.trim();
+        if (!txt) return;
+        input.value = '';
+        sendUserMessage(txt);
+      };
+
+      sendBtn.addEventListener('click', doSend);
+      input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') doSend();
+      });
+    }
+
+    // Restore previous chat history
+    const history = loadHistory();
+    if (history.length > 0) {
+      history.forEach(item => {
+        if (item.sender === 'user') {
+          renderUserBubble(item.text, false);
+        } else {
+          renderBotBubble(item, false);
+        }
+      });
+    }
+
+    // Restore open state across pages
+    if (sessionStorage.getItem(STORAGE_KEY_OPEN) === 'true') {
+      modal.classList.add('open');
+    }
+  }
+
+  function clearChat() {
+    const area = document.getElementById('conciergeMessagesArea');
+    if (area) area.innerHTML = '';
+    localStorage.removeItem(STORAGE_KEY_HISTORY);
+    showBotReply({
+      reply: welcomeMessages[currentLang] || welcomeMessages.en,
+      actionChips: initialActionChips
+    }, false);
+  }
+
+  function renderChips(chipsList) {
+    const bar = document.getElementById('conciergeChipsBar');
+    if (!bar) return;
+    bar.innerHTML = '';
+
+    if (!chipsList || !chipsList.length) return;
+
+    chipsList.forEach(chip => {
+      const btn = document.createElement('button');
+      btn.className = 'chip-btn';
+      btn.textContent = chip;
+      btn.setAttribute('aria-label', chip);
+      btn.onclick = () => {
+        const lower = chip.toLowerCase();
+        if (lower.includes('photo gallery') || lower === 'view photo gallery') {
+          window.location.href = '/gallery';
+        } else if (lower.includes('view full menu') || lower === 'view full menu') {
+          window.location.href = '/menu';
+        } else if (lower.startsWith('call ') || lower === 'call us') {
+          window.location.href = `tel:${currentPhone}`;
+        } else if (lower.includes('open google maps')) {
+          window.open('https://maps.google.com/?q=Coastal+View+Mandarmani', '_blank');
+        } else if (lower === 'continue to booking') {
+          handleChatBookingClick(null, '/index.html#bookingSection');
+        } else {
+          sendUserMessage(chip);
+        }
+      };
+      bar.appendChild(btn);
+    });
+  }
+
+  function showTyping() {
+    const area = document.getElementById('conciergeMessagesArea');
+    if (!area) return null;
+
+    let el = document.getElementById('conciergeTypingBubble');
+    if (el) el.remove();
+
+    el = document.createElement('div');
+    el.className = 'concierge-typing-bubble';
+    el.id = 'conciergeTypingBubble';
+    el.setAttribute('aria-live', 'polite');
+    el.innerHTML = `
+      <span class="concierge-typing-dot"></span>
+      <span class="concierge-typing-dot"></span>
+      <span class="concierge-typing-dot"></span>
+      <span style="font-size: 0.74rem; color: #64748B; margin-left: 6px;">Concierge is replying...</span>
+    `;
+    area.appendChild(el);
+    area.scrollTop = area.scrollHeight;
+    return el;
+  }
+
+  function hideTyping() {
+    const el = document.getElementById('conciergeTypingBubble');
+    if (el) el.remove();
+  }
+
+  function renderUserBubble(text, persist = true) {
+    const area = document.getElementById('conciergeMessagesArea');
+    if (!area || !text) return;
+
+    const b = document.createElement('div');
+    b.className = 'chat-bubble user';
+    b.textContent = text;
+    area.appendChild(b);
+    area.scrollTop = area.scrollHeight;
+
+    if (persist) {
+      const history = loadHistory();
+      history.push({ sender: 'user', text, timestamp: new Date().toISOString() });
+      saveHistory(history);
+    }
+  }
+
+  function renderBotBubble(item, persist = true) {
+    hideTyping();
+    const area = document.getElementById('conciergeMessagesArea');
+    if (!area) return;
+
+    const container = document.createElement('div');
+    container.className = 'chat-bot-message-wrapper';
+
+    // Main text bubble
+    if (item.reply || item.text) {
       const bubble = document.createElement('div');
       bubble.className = 'chat-bubble bot';
-      area.appendChild(bubble);
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let accumulatedText = '';
-      let streamBuffer = '';
-      let doneMetadata = null;
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        streamBuffer += decoder.decode(value, { stream: true });
-        const lines = streamBuffer.split('\n\n');
-        streamBuffer = lines.pop();
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data:')) continue;
-
-          try {
-            const data = JSON.parse(trimmed.replace(/^data:\s*/, ''));
-            if (data.type === 'token') {
-              accumulatedText += data.token;
-              bubble.innerHTML = formatBotTextToHtml(accumulatedText);
-              area.scrollTop = area.scrollHeight;
-            } else if (data.type === 'done') {
-              doneMetadata = data;
-              if (data.reply) {
-                accumulatedText = data.reply;
-                bubble.innerHTML = formatBotTextToHtml(accumulatedText);
-              }
-              if (data.actionChips && data.actionChips.length) {
-                renderChips(data.actionChips);
-              }
-              if (data.requiresCallbackForm) {
-                appendCallbackForm(bubble);
-              }
-            }
-          } catch (e) {
-            console.warn('Error parsing SSE data line:', e);
-          }
-        }
-      }
-
-      if (doneMetadata && doneMetadata.requiresCallbackForm && !bubble.querySelector('.callback-form-box')) {
-        appendCallbackForm(bubble);
-      }
-      area.scrollTop = area.scrollHeight;
-
-      // Persist bot reply to history
-      const history = loadSavedChatHistory();
-      history.push({
-        sender: 'bot',
-        text: accumulatedText,
-        requiresCallback: Boolean(doneMetadata?.requiresCallbackForm),
-        actionChips: doneMetadata?.actionChips || [],
-        timestamp: new Date().toISOString()
-      });
-      saveChatHistory(history);
-
-    } else {
-      removeTypingIndicator();
-      const data = await response.json();
-      if (data.success) {
-        appendBotMessage(data.reply, data.requiresCallbackForm, data.actionChips, true);
-      } else {
-        appendBotMessage(`I am currently having trouble connecting to the concierge desk. Please call ${currentPhone} for immediate assistance.`, true, ['Call ' + currentPhone], true);
-      }
+      bubble.innerHTML = formatBotText(item.reply || item.text);
+      container.appendChild(bubble);
     }
 
-  } catch (err) {
-    removeTypingIndicator();
-    console.error('Concierge API error:', err);
-    appendBotMessage(`I am currently having trouble connecting to the concierge desk. Please call ${currentPhone} for immediate assistance.`, true, ['Call ' + currentPhone, 'Check Rooms'], true);
-  }
-}
+    // Horizontal Swipe List Cards (Section 4 Room Cards)
+    if (item.cards && item.cards.length > 0) {
+      const carousel = document.createElement('div');
+      carousel.className = 'room-cards-carousel';
 
-// Global handler for callback lead submission within chat
-window.submitCallbackFromChat = async function(btn) {
-  const container = btn.closest('.callback-form-box');
-  const name = container.querySelector('.cbGuestName')?.value.trim();
-  const phone = container.querySelector('.cbGuestPhone')?.value.trim();
+      item.cards.forEach(card => {
+        const cardEl = document.createElement('div');
+        cardEl.className = 'chat-room-card';
 
-  if (!name || !phone) {
-    alert('Please enter your name and contact phone number.');
-    return;
-  }
+        cardEl.innerHTML = `
+          <div class="chat-room-card-img-wrap">
+            <img src="${card.image || 'assets/images/room-ocean-whisper.jpg'}" alt="${escapeHtml(card.name)}" class="chat-room-card-img">
+            <span class="chat-room-card-tag">${escapeHtml(card.tag || 'Room')}</span>
+            ${card.isSoldOut ? `<span class="badge-sold-out">Sold out</span>` : ''}
+          </div>
+          <div class="chat-room-card-body">
+            <div class="chat-room-card-title">${escapeHtml(card.name)}</div>
+            <div class="chat-room-card-meta">
+              <span>🛏️ ${escapeHtml(card.bedType || 'King Bed')}</span> • <span>👥 ${escapeHtml(card.maxGuests || '2 Guests')}</span>
+            </div>
+            <div class="chat-room-card-price">${escapeHtml(card.priceFormatted || 'Ask at hotel')}</div>
+            <div class="chat-room-card-inclusions">${escapeHtml(card.inclusionsSummary || 'AC, Wi-Fi, Pool access')}</div>
+            ${card.lowStockNote ? `<div class="chat-room-card-low-stock">🔥 ${escapeHtml(card.lowStockNote)}</div>` : ''}
+            <div class="chat-room-card-actions">
+              <a href="${card.galleryLink || '/gallery'}" class="btn-card-gallery" onclick="event.stopPropagation();">Photos</a>
+              ${!card.isSoldOut ? `
+                <button class="btn-card-book" onclick="handleChatBookingClick(event, '${card.bookingUrl}')">
+                  Book this room
+                </button>
+              ` : `
+                <button class="btn-card-book disabled" disabled>Sold out</button>
+              `}
+            </div>
+          </div>
+        `;
+        carousel.appendChild(cardEl);
+      });
+      container.appendChild(carousel);
+    }
 
-  btn.disabled = true;
-  btn.textContent = 'Submitting...';
-
-  try {
-    const res = await fetch('/api/chat/callback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name,
-        phone,
-        sessionId: getOrCreateSessionId(),
-        message: `Guest requested callback from Concierge chatbot (Language: ${currentLang})`
-      })
-    });
-    const data = await res.json();
-
-    if (data.success) {
-      container.innerHTML = `
-        <div style="color: #2E7D32; font-size: 0.82rem; font-weight: 600; padding: 6px 0;">
-          <span class="material-symbols-outlined" style="font-size: 16px; vertical-align: middle;">check_circle</span>
-          Thank you, ${name}! Your callback request is confirmed. Our front desk will call you promptly at ${phone}. For instant support, reach us directly at ${currentPhone}.
+    // Contact Card (Section 3 Contact Intent)
+    if (item.contactCard) {
+      const c = item.contactCard;
+      const cCard = document.createElement('div');
+      cCard.className = 'chat-contact-card';
+      cCard.innerHTML = `
+        <div class="chat-contact-header">
+          <strong>${escapeHtml(c.hotelName)}</strong>
+          <span style="font-size: 0.72rem; color: #10B981;">● Online Desk</span>
+        </div>
+        <div class="chat-contact-row">
+          <span>📞 Phone:</span>
+          <a href="tel:${c.phone}" class="chat-contact-link"><strong>${c.phone}</strong> (Tap to call)</a>
+        </div>
+        <div class="chat-contact-row">
+          <span>💬 WhatsApp:</span>
+          <a href="https://wa.me/91${c.whatsapp}" target="_blank" class="chat-contact-link"><strong>Chat on WhatsApp</strong></a>
+        </div>
+        <div class="chat-contact-row">
+          <span>✉️ Email:</span>
+          <a href="mailto:${c.email}" class="chat-contact-link">${c.email}</a>
+        </div>
+        <div class="chat-contact-row">
+          <span>📍 Address:</span>
+          <span>${escapeHtml(c.address)}</span>
+        </div>
+        <div style="margin-top: 10px;">
+          <a href="${c.mapsUrl}" target="_blank" class="btn-chat-maps">📍 Open in Google Maps</a>
         </div>
       `;
-    } else {
+      container.appendChild(cCard);
+    }
+
+    // Callback Request Lead Form inside bubble
+    if (item.requiresCallbackForm) {
+      const formBox = document.createElement('div');
+      formBox.className = 'callback-form-box';
+      formBox.innerHTML = `
+        <h5><span class="material-symbols-outlined" style="font-size: 16px; vertical-align: middle;">phone_in_talk</span> Request Front Desk Callback</h5>
+        <input type="text" class="callback-input cbGuestName" placeholder="Your Full Name" aria-label="Your Full Name" required>
+        <input type="tel" class="callback-input cbGuestPhone" placeholder="Your Phone / WhatsApp Number" aria-label="Your Phone Number" required>
+        <button class="btn btn-gold" style="width: 100%; padding: 8px 12px; font-size: 0.82rem;" onclick="submitCallbackLead(this)">
+          Submit Contact Request
+        </button>
+      `;
+      container.appendChild(formBox);
+    }
+
+    area.appendChild(container);
+    area.scrollTop = area.scrollHeight;
+
+    if (item.actionChips && item.actionChips.length) {
+      renderChips(item.actionChips);
+    }
+
+    if (persist) {
+      const history = loadHistory();
+      history.push({
+        sender: 'bot',
+        reply: item.reply || item.text,
+        cards: item.cards || [],
+        contactCard: item.contactCard || null,
+        actionChips: item.actionChips || [],
+        requiresCallbackForm: Boolean(item.requiresCallbackForm),
+        timestamp: new Date().toISOString()
+      });
+      saveHistory(history);
+    }
+  }
+
+  function showBotReply(data, persist = true) {
+    renderBotBubble(data, persist);
+  }
+
+  // Global submit callback handler
+  window.submitCallbackLead = async function(btn) {
+    const box = btn.closest('.callback-form-box');
+    const name = box.querySelector('.cbGuestName')?.value.trim();
+    const phone = box.querySelector('.cbGuestPhone')?.value.trim();
+
+    if (!name || !phone) {
+      alert('Please enter both your name and phone number.');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+
+    try {
+      const res = await fetch('/api/chat/callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          phone,
+          sessionId: getSessionId(),
+          message: `Guest callback request submitted from chatbot (Lang: ${currentLang})`
+        })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        box.innerHTML = `
+          <div style="color: #2E7D32; font-size: 0.84rem; font-weight: 600; padding: 6px 0;">
+            ✓ Thank you, ${escapeHtml(name)}! Your callback request is confirmed. Our front desk manager will call you promptly at ${escapeHtml(phone)}. For instant support: <a href="tel:${currentPhone}" style="color:inherit; font-weight:700;">${currentPhone}</a>.
+          </div>
+        `;
+      } else {
+        btn.disabled = false;
+        btn.textContent = 'Submit Contact Request';
+        alert('Unable to submit callback request. Please call ' + currentPhone + ' directly.');
+      }
+    } catch (err) {
       btn.disabled = false;
       btn.textContent = 'Submit Contact Request';
       alert('Unable to submit callback request. Please call ' + currentPhone + ' directly.');
     }
-  } catch (err) {
-    btn.disabled = false;
-    btn.textContent = 'Submit Contact Request';
-    console.error('Callback error:', err);
-    alert('Unable to submit callback request. Please call ' + currentPhone + ' directly.');
+  };
+
+  // Send message to backend API
+  async function sendUserMessage(text) {
+    renderUserBubble(text, true);
+    showTyping();
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: text,
+          lang: currentLang,
+          sessionId: getSessionId()
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      hideTyping();
+
+      if (data && data.success) {
+        showBotReply({
+          reply: data.reply,
+          cards: data.cards || [],
+          contactCard: data.contactCard || null,
+          actionChips: data.actionChips || initialActionChips,
+          requiresCallbackForm: Boolean(data.requiresCallbackForm)
+        }, true);
+      } else {
+        showBotReply({
+          reply: `I am currently having trouble reaching the front desk system. Please call directly at [${currentPhone}](tel:${currentPhone}).`,
+          actionChips: ['Call ' + currentPhone, 'Rooms & prices'],
+          requiresCallbackForm: true
+        }, true);
+      }
+    } catch (err) {
+      hideTyping();
+      showBotReply({
+        reply: `I am currently having trouble reaching the front desk system. Please call directly at [${currentPhone}](tel:${currentPhone}).`,
+        actionChips: ['Call ' + currentPhone, 'Rooms & prices'],
+        requiresCallbackForm: true
+      }, true);
+    }
   }
-};
+
+})();
