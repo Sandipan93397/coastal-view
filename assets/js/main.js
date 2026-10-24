@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
   syncLiveMedia();
   initHomeGallery();
   initHomeFeaturedMenu();
+  initMobileExperience();
 });
 
 // Sticky Glass Navbar & Mobile Slide-In Drawer Navigation
@@ -1577,4 +1578,320 @@ async function initHomeFeaturedMenu() {
     console.warn('Could not sync featured dishes:', err);
   }
 }
+
+// ==========================================================================
+// EXCLUSIVE MOBILE LUXURY RESORT APP EXPERIENCE (PHONES UP TO 768px)
+// ==========================================================================
+function initMobileExperience() {
+  // 1. Mobile Bottom Bar Scroll Hide/Show
+  const bottomBar = document.getElementById('mobileBottomBar');
+  let lastScrollY = window.pageYOffset || 0;
+  let ticking = false;
+
+  window.addEventListener('scroll', () => {
+    if (!ticking) {
+      window.requestAnimationFrame(() => {
+        const currentScrollY = window.pageYOffset || 0;
+        if (bottomBar) {
+          if (currentScrollY > lastScrollY + 12 && currentScrollY > 150) {
+            bottomBar.classList.add('bar-hidden');
+          } else if (currentScrollY < lastScrollY - 8 || currentScrollY <= 150) {
+            bottomBar.classList.remove('bar-hidden');
+          }
+        }
+        lastScrollY = Math.max(0, currentScrollY);
+        ticking = false;
+      });
+      ticking = true;
+    }
+  }, { passive: true });
+
+  // 2. Bottom Sheet Open / Close
+  const sheet = document.getElementById('mobileBookingSheet');
+  const backdrop = document.getElementById('mobileSheetBackdrop');
+  const closeBtn = document.getElementById('mSheetCloseBtn');
+  const dragHandle = document.getElementById('mSheetDragHandle');
+  const openSummaryBtn = document.getElementById('mOpenBookingSheetBtn');
+  const summaryTrigger = document.getElementById('mSummaryPillsTrigger');
+  const barBookBtn = document.getElementById('mBarBookBtn');
+  const heroBookBtn = document.getElementById('heroBookBtn');
+  const mobileDrawerBookBtn = document.getElementById('mobileDrawerBookBtn');
+
+  window.openMobileBookingSheet = function() {
+    if (window.innerWidth > 768) {
+      const sec = document.getElementById('bookingSection');
+      if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    syncDesktopToMobileSheet();
+    if (sheet) sheet.classList.add('active');
+    if (backdrop) backdrop.classList.add('active');
+    document.body.style.overflow = 'hidden';
+  };
+
+  window.closeMobileBookingSheet = function() {
+    if (sheet) sheet.classList.remove('active');
+    if (backdrop) backdrop.classList.remove('active');
+    document.body.style.overflow = '';
+  };
+
+  if (openSummaryBtn) openSummaryBtn.addEventListener('click', window.openMobileBookingSheet);
+  if (summaryTrigger) summaryTrigger.addEventListener('click', window.openMobileBookingSheet);
+  if (barBookBtn) barBookBtn.addEventListener('click', window.openMobileBookingSheet);
+  if (heroBookBtn) {
+    heroBookBtn.addEventListener('click', (e) => {
+      if (window.innerWidth <= 768) {
+        e.preventDefault();
+        window.openMobileBookingSheet();
+      }
+    });
+  }
+  if (mobileDrawerBookBtn) {
+    mobileDrawerBookBtn.addEventListener('click', (e) => {
+      if (window.innerWidth <= 768) {
+        e.preventDefault();
+        const drawer = document.getElementById('mobileNavDrawer');
+        const navBackdrop = document.getElementById('mobileNavBackdrop');
+        if (drawer) drawer.classList.remove('open');
+        if (navBackdrop) navBackdrop.classList.remove('open');
+        window.openMobileBookingSheet();
+      }
+    });
+  }
+
+  if (closeBtn) closeBtn.addEventListener('click', window.closeMobileBookingSheet);
+  if (backdrop) backdrop.addEventListener('click', window.closeMobileBookingSheet);
+
+  // Swipe-down to close on drag handle
+  if (dragHandle && sheet) {
+    let startY = 0;
+    dragHandle.addEventListener('touchstart', (e) => {
+      startY = e.touches[0].clientY;
+    }, { passive: true });
+    dragHandle.addEventListener('touchmove', (e) => {
+      const currentY = e.touches[0].clientY;
+      if (currentY - startY > 60) {
+        window.closeMobileBookingSheet();
+      }
+    }, { passive: true });
+  }
+
+  // 3. Connect Mobile Bottom Bar Chat Button
+  const barChatBtn = document.getElementById('mBarChatBtn');
+  if (barChatBtn) {
+    barChatBtn.addEventListener('click', () => {
+      const launcher = document.getElementById('conciergeLauncher');
+      if (launcher) launcher.click();
+    });
+  }
+
+  // 4. Steppers in Mobile Bottom Sheet
+  const mRoomMinus = document.getElementById('mRoomMinus');
+  const mRoomPlus = document.getElementById('mRoomPlus');
+  const mRoomVal = document.getElementById('mRoomCountVal');
+  const desktopRooms = document.getElementById('bookRoomsCount');
+
+  const mAdultMinus = document.getElementById('mAdultMinus');
+  const mAdultPlus = document.getElementById('mAdultPlus');
+  const mAdultVal = document.getElementById('mAdultCountVal');
+  const desktopAdults = document.getElementById('bookAdults');
+
+  const mChildMinus = document.getElementById('mChildMinus');
+  const mChildPlus = document.getElementById('mChildPlus');
+  const mChildVal = document.getElementById('mChildCountVal');
+  const desktopChildren = document.getElementById('bookChildren');
+
+  function updateStepper(valEl, desktopSelect, delta, min, max) {
+    let current = parseInt(valEl.textContent, 10) || min;
+    current = Math.min(max, Math.max(min, current + delta));
+    valEl.textContent = current;
+    if (desktopSelect) {
+      desktopSelect.value = String(current);
+      desktopSelect.dispatchEvent(new Event('change'));
+    }
+  }
+
+  if (mRoomMinus && mRoomPlus && mRoomVal) {
+    mRoomMinus.addEventListener('click', () => updateStepper(mRoomVal, desktopRooms, -1, 1, 4));
+    mRoomPlus.addEventListener('click', () => updateStepper(mRoomVal, desktopRooms, 1, 1, 4));
+  }
+  if (mAdultMinus && mAdultPlus && mAdultVal) {
+    mAdultMinus.addEventListener('click', () => updateStepper(mAdultVal, desktopAdults, -1, 1, 8));
+    mAdultPlus.addEventListener('click', () => updateStepper(mAdultVal, desktopAdults, 1, 1, 8));
+  }
+  if (mChildMinus && mChildPlus && mChildVal) {
+    mChildMinus.addEventListener('click', () => updateStepper(mChildVal, desktopChildren, -1, 0, 4));
+    mChildPlus.addEventListener('click', () => updateStepper(mChildVal, desktopChildren, 1, 0, 4));
+  }
+
+  // 5. Date Inputs Sync
+  const mCheckIn = document.getElementById('mCheckIn');
+  const mCheckOut = document.getElementById('mCheckOut');
+  const dCheckIn = document.getElementById('bookCheckIn');
+  const dCheckOut = document.getElementById('bookCheckOut');
+
+  if (mCheckIn && dCheckIn) {
+    const today = new Date().toISOString().split('T')[0];
+    mCheckIn.min = today;
+    if (mCheckOut) mCheckOut.min = today;
+
+    mCheckIn.addEventListener('change', () => {
+      dCheckIn.value = mCheckIn.value;
+      dCheckIn.dispatchEvent(new Event('change'));
+      if (mCheckOut && dCheckOut) mCheckOut.value = dCheckOut.value;
+    });
+  }
+
+  if (mCheckOut && dCheckOut) {
+    mCheckOut.addEventListener('change', () => {
+      dCheckOut.value = mCheckOut.value;
+      dCheckOut.dispatchEvent(new Event('change'));
+    });
+  }
+
+  // 6. Room Options Radio Selection in Bottom Sheet
+  const roomOptions = document.querySelectorAll('.m-room-option');
+  const dRoomSelect = document.getElementById('bookRoomSelect');
+
+  roomOptions.forEach(opt => {
+    opt.addEventListener('click', () => {
+      roomOptions.forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      const radio = opt.querySelector('.m-room-radio');
+      if (radio) radio.checked = true;
+      const roomId = opt.getAttribute('data-room-id');
+      if (dRoomSelect && roomId) {
+        dRoomSelect.value = roomId;
+        dRoomSelect.dispatchEvent(new Event('change'));
+      }
+    });
+  });
+
+  // 7. Addon Toggles in Bottom Sheet
+  const mToggleBf = document.getElementById('mToggleBreakfast');
+  const dBfCheckbox = document.getElementById('breakfastAddonCheckbox') || document.getElementById('toggleBreakfast');
+  if (mToggleBf && dBfCheckbox) {
+    mToggleBf.addEventListener('change', () => {
+      dBfCheckbox.checked = mToggleBf.checked;
+      dBfCheckbox.dispatchEvent(new Event('change'));
+    });
+  }
+
+  const mToggleCar = document.getElementById('mToggleCar');
+  const dCarToggle = document.getElementById('toggleCarNeed');
+  const mVehicleSub = document.getElementById('mVehicleSuboptions');
+  if (mToggleCar && dCarToggle) {
+    mToggleCar.addEventListener('change', () => {
+      dCarToggle.checked = mToggleCar.checked;
+      if (mVehicleSub) mVehicleSub.style.display = mToggleCar.checked ? 'block' : 'none';
+      dCarToggle.dispatchEvent(new Event('change'));
+    });
+  }
+
+  const mToggleCandle = document.getElementById('mToggleCandlelight');
+  const dCandleToggle = document.getElementById('toggleCandlelight');
+  if (mToggleCandle && dCandleToggle) {
+    mToggleCandle.addEventListener('change', () => {
+      dCandleToggle.checked = mToggleCandle.checked;
+      dCandleToggle.dispatchEvent(new Event('change'));
+    });
+  }
+
+  // 8. Continue Button in Bottom Sheet -> Open Checkout Modal
+  const continueBtn = document.getElementById('mSheetContinueBtn');
+  if (continueBtn) {
+    continueBtn.addEventListener('click', () => {
+      window.closeMobileBookingSheet();
+      setTimeout(() => {
+        if (typeof openCheckoutModal === 'function') {
+          openCheckoutModal();
+        } else {
+          const dCheckout = document.getElementById('openCheckoutModalBtn');
+          if (dCheckout) dCheckout.click();
+        }
+      }, 300);
+    });
+  }
+
+  // 9. Rooms Swipe Carousel Indicator Dots
+  const roomsGrid = document.querySelector('.rooms-grid');
+  const dotsContainer = document.getElementById('roomCarouselDots');
+  if (roomsGrid && dotsContainer) {
+    const dots = dotsContainer.querySelectorAll('.dot');
+    const roomCards = roomsGrid.querySelectorAll('.room-card');
+
+    roomsGrid.addEventListener('scroll', () => {
+      const scrollLeft = roomsGrid.scrollLeft;
+      const cardWidth = roomCards[0] ? roomCards[0].offsetWidth + 16 : 300;
+      const activeIdx = Math.round(scrollLeft / cardWidth);
+
+      dots.forEach((dot, idx) => {
+        if (idx === activeIdx) dot.classList.add('active');
+        else dot.classList.remove('active');
+      });
+    }, { passive: true });
+
+    dots.forEach((dot, idx) => {
+      dot.addEventListener('click', () => {
+        if (roomCards[idx]) {
+          roomCards[idx].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        }
+      });
+    });
+  }
+
+  // Helper to copy current desktop values into mobile sheet
+  function syncDesktopToMobileSheet() {
+    if (dCheckIn && mCheckIn && dCheckIn.value) mCheckIn.value = dCheckIn.value;
+    if (dCheckOut && mCheckOut && dCheckOut.value) mCheckOut.value = dCheckOut.value;
+    if (desktopRooms && mRoomVal && desktopRooms.value) mRoomVal.textContent = desktopRooms.value;
+    if (desktopAdults && mAdultVal && desktopAdults.value) mAdultVal.textContent = desktopAdults.value;
+    if (desktopChildren && mChildVal && desktopChildren.value) mChildVal.textContent = desktopChildren.value;
+
+    if (dRoomSelect) {
+      roomOptions.forEach(opt => {
+        const matches = opt.getAttribute('data-room-id') === dRoomSelect.value;
+        opt.classList.toggle('selected', matches);
+        const rad = opt.querySelector('.m-room-radio');
+        if (rad) rad.checked = matches;
+      });
+    }
+
+    if (dBfCheckbox && mToggleBf) mToggleBf.checked = dBfCheckbox.checked;
+    if (dCarToggle && mToggleCar) {
+      mToggleCar.checked = dCarToggle.checked;
+      if (mVehicleSub) mVehicleSub.style.display = dCarToggle.checked ? 'block' : 'none';
+    }
+    if (dCandleToggle && mToggleCandle) mToggleCandle.checked = dCandleToggle.checked;
+  }
+
+  // Initial sync once DOM is ready
+  setTimeout(syncDesktopToMobileSheet, 350);
+}
+
+// Global hook to update mobile summary card and bottom sheet displays from calculateLivePrice
+window.syncMobileBookingDisplays = function(data) {
+  if (!data) return;
+  const mSummaryDates = document.getElementById('mSummaryDatesText');
+  const mSummaryGuests = document.getElementById('mSummaryGuestsText');
+  if (mSummaryDates && data.checkIn && data.checkOut) {
+    const fIn = data.checkIn.split('-').slice(1).join('/');
+    const fOut = data.checkOut.split('-').slice(1).join('/');
+    mSummaryDates.textContent = `${fIn} – ${fOut} (${data.nights}n)`;
+  }
+  if (mSummaryGuests) {
+    mSummaryGuests.textContent = `${data.adultsCount} Adult${data.adultsCount > 1 ? 's' : ''}${data.currentChildren > 0 ? ', ' + data.currentChildren + ' Ch' : ''} • ${data.roomsCount} Rm`;
+  }
+
+  const mSheetNights = document.getElementById('mSheetNightsCount');
+  const mSheetTotal = document.getElementById('mSheetTotalAmount');
+  const mSheetAdvance = document.getElementById('mSheetAdvanceBadge');
+  if (mSheetNights) mSheetNights.textContent = `${data.nights} Night${data.nights > 1 ? 's' : ''}`;
+  if (mSheetTotal && data.grandTotal !== undefined) {
+    mSheetTotal.textContent = `₹${data.grandTotal.toLocaleString('en-IN')}`;
+  }
+  if (mSheetAdvance && data.payNow !== undefined) {
+    mSheetAdvance.textContent = `Pay 20% Now: ₹${data.payNow.toLocaleString('en-IN')}`;
+  }
+};
 

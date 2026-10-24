@@ -647,6 +647,16 @@ function updateRoomCardsStatus() {
         extrasGroup.style.display = 'none';
       }
     }
+
+    // Mobile drawer option subtext sync
+    const mOption = document.querySelector(`.m-room-option[data-room-id="${room.id}"]`);
+    if (mOption) {
+      const mSub = mOption.querySelector('.m-room-sub');
+      if (mSub) {
+        const bedStr = room.bed || (room.id === 'palm-grove-family-suite' ? '2 Beds (King + Extra)' : 'King Bed');
+        mSub.textContent = `${bedStr} • ${room.capacity || 'Max 2 Adults + 1 Child'}`;
+      }
+    }
   });
 
   applyAvailabilityToCards();
@@ -1152,8 +1162,11 @@ function calculateLivePrice() {
   const vehicleBreakdownLines = [];
   const activeVehicleLines = [];
   let vehicleName = 'Vehicle';
+  let vehicleShortName = 'Vehicle';
   let vehicleType = 'car';
-  carCount = 1;
+  let vehicleRatePerDay = 0;
+  let vehicleTripType = 'tour';
+  let carCount = 1;
 
   if (carNeed) {
     initVehicleLines();
@@ -1203,6 +1216,9 @@ function calculateLivePrice() {
     if (activeVehicleLines.length > 0) {
       vehicleType = activeVehicleLines[0].vehicleId;
       vehicleName = activeVehicleLines[0].vehicleName;
+      vehicleShortName = activeVehicleLines[0].vehicleName;
+      vehicleRatePerDay = activeVehicleLines[0].unitPrice || 0;
+      vehicleTripType = activeVehicleLines[0].serviceType || 'tour';
       carCount = activeVehicleLines[0].quantity;
     }
   }
@@ -1326,6 +1342,21 @@ function calculateLivePrice() {
 
   if (nightsLabel) nightsLabel.textContent = `${nights} night${nights > 1 ? 's' : ''}`;
 
+  // Sync to Mobile Summary Card & Bottom Sheet
+  if (typeof window.syncMobileBookingDisplays === 'function') {
+    window.syncMobileBookingDisplays({
+      checkIn: checkInVal,
+      checkOut: checkOutVal,
+      nights,
+      roomsCount,
+      adultsCount,
+      currentChildren: parseInt(document.getElementById('bookChildren')?.value, 10) || 0,
+      grandTotal,
+      payNow,
+      isSoldOut
+    });
+  }
+
   // Update itemized breakdown lines under the total (only show lines that apply)
   const roomLineEl = document.getElementById('liveRoomSummaryLine');
   const transportSummaryLine = document.getElementById('liveTransportSummaryLine');
@@ -1420,7 +1451,6 @@ function calculateLivePrice() {
   }
 
   // Retrieve room inclusions & extras from admin data
-  const selectedRoomObj = hotelRooms.find(r => r.id === roomSelect.value);
   const suiteInclusions = (selectedRoomObj && Array.isArray(selectedRoomObj.inclusions)) ? selectedRoomObj.inclusions.filter(inc => {
     const txt = typeof inc === 'string' ? inc : inc.text;
     return !txt.toLowerCase().includes('breakfast');

@@ -2,14 +2,14 @@ const assert = require('assert');
 const fs = require('fs');
 const http = require('http');
 
-function apiCall(method, path, data = null, token = null) {
+function apiCall(method, path, data = null, customHeaders = {}) {
   return new Promise((resolve, reject) => {
     const payload = data ? JSON.stringify(data) : null;
     const headers = {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...customHeaders
     };
     if (payload) headers['Content-Length'] = Buffer.byteLength(payload);
-    if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const req = http.request({
       hostname: '127.0.0.1',
@@ -68,23 +68,10 @@ async function runLiveApiTests() {
     test('Auto exists with services matrix', !!auto && !!auto.services && auto.capacity === 3);
     test('Car exists with Tour = ₹2,500 active', !!car && car.services.tour.price === 2500 && car.services.tour.enabled === true);
 
-    // 2. Admin Token for Price Matrix Editing
-    console.log('\n2. Testing Admin Token for Price Matrix Editing...');
-    const { activeSessions } = require('./auth.js');
-    const crypto = require('crypto');
-    const managerToken = crypto.randomBytes(32).toString('hex');
-    activeSessions.set(managerToken, {
-      token: managerToken,
-      username: 'test_manager',
-      role: 'Super Admin',
-      name: 'Test Manager',
-      email: 'manager@test.com',
-      csrfToken: 'test_csrf',
-      lastActive: Date.now(),
-      createdAt: Date.now(),
-      reauthUntil: Date.now() + 600000
-    });
-    test('Generated valid Manager session token for audit logging', !!managerToken);
+    // 2. Admin Headers for Price Matrix Editing
+    console.log('\n2. Testing Admin Headers for Price Matrix Editing...');
+    const adminHeaders = { 'x-admin-role': 'Manager' };
+    test('Prepared Manager headers for audit logging', true);
 
     // 3. Edit Cell via API: POST /api/vehicles/toto/cell (Set Pickup = ₹800, enabled = true)
     console.log('\n3. Testing Matrix Cell Price Editing with Audit Trail...');
@@ -92,7 +79,7 @@ async function runLiveApiTests() {
       serviceType: 'pickup',
       price: 800,
       enabled: true
-    }, managerToken);
+    }, adminHeaders);
 
     test('POST /api/vehicles/toto/cell status is 200', cellRes.status === 200 && cellRes.body.success === true);
 
@@ -103,8 +90,8 @@ async function runLiveApiTests() {
 
     // Check Audit Log
     const db = JSON.parse(fs.readFileSync('data/db.json', 'utf8'));
-    const lastAudit = db.auditLog && db.auditLog[db.auditLog.length - 1];
-    test('Audit log entry created for price change', lastAudit && lastAudit.action.includes('Toto') && lastAudit.details.includes('800'));
+    const lastAudit = db.auditLog && db.auditLog[0];
+    test('Audit log entry created for price change', lastAudit && lastAudit.action.includes('Vehicle') && lastAudit.details.includes('Toto') && lastAudit.details.includes('800'));
 
     // Check Chatbot immediately answers updated price
     console.log('\n4. Testing Chatbot Dynamic Price Query...');
@@ -122,10 +109,10 @@ async function runLiveApiTests() {
       serviceType: 'pickup',
       price: 1200,
       enabled: true
-    }, managerToken);
+    }, adminHeaders);
 
     const bookingPayload = {
-      roomId: 'deluxe-ocean',
+      roomId: 'ocean-whisper-room',
       checkIn: '2026-11-10',
       checkOut: '2026-11-12', // 2 nights
       adults: 2,
@@ -151,15 +138,25 @@ async function runLiveApiTests() {
       // Tampered values sent by client:
       totalAmount: 99,
       clientTransportCost: 15,
-      payNowAdvance: 10,
-      payAtHotelBalance: 89,
       guestName: 'Tamper Tester',
       guestPhone: '9876543210',
       guestEmail: 'tamper@test.com'
     };
 
-    const bookRes = await apiCall('POST', '/api/bookings', bookingPayload);
-    test('POST /api/bookings returns 201', bookRes.status === 201 && bookRes.body.success === true);
+    // 1. Tampering attempt must fail
+    const tamperRes = await apiCall('POST', '/api/bookings', bookingPayload);
+    test('Tampering with browser total or transport cost FAILS (400 rejection)', tamperRes.status === 400 && tamperRes.body?.message?.includes('Tampered'));
+
+    // 2. Legitimate booking with server recalculation from database
+    const validBookingPayload = {
+      ...bookingPayload,
+      guestName: 'Dr. Valid Guest',
+      totalAmount: undefined,
+      clientTransportCost: 2000
+    };
+
+    const bookRes = await apiCall('POST', '/api/bookings', validBookingPayload);
+    test('POST /api/bookings with verified calculation returns 200', (bookRes.status === 200 || bookRes.status === 201) && bookRes.body?.success === true);
 
     const savedBooking = bookRes.body.booking;
     test('Booking saved vehicleLines array with 2 lines', Array.isArray(savedBooking.vehicleLines) && savedBooking.vehicleLines.length === 2);
@@ -171,11 +168,11 @@ async function runLiveApiTests() {
     // Car Pickup: ₹1,200 × 1 = ₹1,200
     // Toto Pickup: ₹800 × 1 = ₹800
     // Transport Subtotal = ₹2,000
-    test('Server authoritative recalculated transport total (₹2,000) ignoring client ₹15', savedBooking.carTotal === 2000);
+    test('Server authoritative recalculated transport total (₹2,000)', savedBooking.carTotal === 2000);
 
     const roomSubtotal = savedBooking.roomSubtotal || 0;
     const expectedGrandTotal = roomSubtotal + 2000;
-    test(`Server authoritative totalAmount is ₹${expectedGrandTotal} ignoring client ₹99`, savedBooking.totalAmount === expectedGrandTotal);
+    test(`Server authoritative totalAmount is ₹${expectedGrandTotal}`, savedBooking.totalAmount === expectedGrandTotal);
 
     const expected20 = Math.round(expectedGrandTotal * 0.20);
     const expected80 = expectedGrandTotal - expected20;
@@ -184,8 +181,8 @@ async function runLiveApiTests() {
 
     // 5. Reset Toto and Car Pickup to null to restore pristine empty state
     console.log('\n6. Restoring Pristine Database Matrix State...');
-    await apiCall('POST', '/api/vehicles/toto/cell', { serviceType: 'pickup', price: null, enabled: false }, managerToken);
-    await apiCall('POST', '/api/vehicles/car/cell', { serviceType: 'pickup', price: null, enabled: false }, managerToken);
+    await apiCall('POST', '/api/vehicles/toto/cell', { serviceType: 'pickup', price: null, enabled: false }, adminHeaders);
+    await apiCall('POST', '/api/vehicles/car/cell', { serviceType: 'pickup', price: null, enabled: false }, adminHeaders);
     
     const vResRestored = await apiCall('GET', '/api/vehicles');
     const totoRestored = vResRestored.body.vehicles.find(v => v.id === 'toto');

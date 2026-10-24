@@ -18,7 +18,7 @@ Coastal View features 4 distinct boutique room and suite categories:
 - **Target Guest:** Ideal for couples and romantic getaways
 - **Bed:** Comfortable King Bed
 - **Size:** 450 sq. ft.
-- **Capacity:** Max 2 Guests
+- **Capacity:** Max 2 Adults + 1 Child
 - **Features & Highlights:**
   - Private balcony with views of the pool, garden, and sea
   - Silent split air conditioning & high-speed Wi-Fi
@@ -46,7 +46,7 @@ Coastal View features 4 distinct boutique room and suite categories:
 - **Target Guest:** Budget-conscious travelers, quiet retreats, solo travelers, and couples
 - **Bed:** Comfortable Queen Bed
 - **Size:** 380 sq. ft.
-- **Capacity:** Max 2 Guests
+- **Capacity:** Max 2 Adults + 1 Child
 - **Features & Highlights:**
   - Quiet location overlooking courtyard greenery
   - Split air conditioning & high-speed Wi-Fi
@@ -69,6 +69,7 @@ Coastal View features 4 distinct boutique room and suite categories:
 - **Price:** ₹11,500 / night (20% advance: ₹2,300)
 
 ## Reservation & Payment Policy
+- **Occupancy Policy:** Each standard room accommodates up to 2 Adults and 1 Child (complimentary stay for children aged up to 5 years). Extra person/bed inquiries can be confirmed with the front desk. For larger parties, please reserve multiple rooms.
 - **Confirmation Advance:** 20% non-refundable advance deposit payable online via UPI / Cards / Net Banking to lock in live room dates.
 - **Balance Payment:** Remaining 80% balance is payable directly at hotel check-in or check-out.
 - **Live Inventory:** Real-time sold-out toggling directly synced between front desk admin panel, website booking engine, and the Coastal Concierge AI.

@@ -60,8 +60,8 @@ function buildRoomsListReply(db, lang = 'en') {
     // Bed and Max Guests
     const bedType = r.bed || 'King Size Premium Bed';
     const maxAdults = r.maxAdults || 2;
-    const maxChildren = r.maxChildren || 1;
-    const maxGuests = `${maxAdults} Adults, ${maxChildren} Child`;
+    const maxChildren = (r.maxChildren !== undefined && r.maxChildren !== null) ? r.maxChildren : 1;
+    const maxGuests = r.capacity || `Max ${maxAdults} Adults + ${maxChildren} Child`;
 
     // Low stock / inventory check
     const totalQty = parseInt(r.quantity, 10) || 4;
@@ -154,7 +154,7 @@ function buildRoomDetailReply(db, queryText, lang = 'en') {
     price: targetRoom.price,
     priceFormatted,
     bedType: targetRoom.bed || 'King Size Premium Bed',
-    maxGuests: `${targetRoom.maxAdults || 2} Adults, ${targetRoom.maxChildren || 1} Child`,
+    maxGuests: targetRoom.capacity || `Max ${targetRoom.maxAdults || 2} Adults + ${targetRoom.maxChildren || 1} Child`,
     inclusionsSummary: inclusionsList.join(' • '),
     description: targetRoom.description || '',
     isSoldOut,
@@ -862,14 +862,16 @@ function buildPoliciesReply(db, lang = 'en') {
       `• **আইডি প্রুফ:** চেক-ইনের সময় সমস্ত প্রাপ্তবয়স্ক অতিথির বৈধ সরকারি আইডি (আধার, ভোটার, ড্রাইভিং লাইসেন্স বা পাসপোর্ট) প্রদর্শন বাধ্যতামূলক।\n` +
       `• **কপলস:** ১৮+ প্রাপ্তবয়স্ক সকল দম্পতিদের স্বাগত জানানো হয়।\n` +
       `• **পোষা প্রাণী (Pets):** আগে থেকে জানালে ছোট পোষা প্রাণী অনুমোদিত (পরিচ্ছন্নতার নিয়ম মেনে)।\n` +
-      `• **শিশু পলিসি:** ৫ বছর বয়স পর্যন্ত শিশুদের অতিরিক্ত বিছানা ছাড়া থাকা বিনামূল্যে।`;
+      `• **শিশু পলিসি:** ${db?.settings?.childComplimentaryAgeLimit || 5} বছর বয়স পর্যন্ত শিশুদের অতিরিক্ত বিছানা ছাড়া থাকা বিনামূল্যে।\n` +
+      `• **রুম ধারণক্ষমতা:** Each room accommodates up to 2 adults and 1 child.`;
   } else {
     text = `📜 **Important Resort Policies & Guidelines:**\n\n` +
       `• **Outside Food:** Outside food is not permitted in the restaurant, pool deck, or lawn areas. In-room dining is readily available.\n` +
       `• **Government ID:** Valid government photo ID (Aadhaar, Passport, Voter ID, Driving License) is required for each adult guest at check-in (PAN card is not accepted).\n` +
       `• **Couples:** We welcome all adult guests (18+) with valid government photo IDs.\n` +
       `• **Pets:** Pet-friendly on prior notice for well-behaved domestic pets.\n` +
-      `• **Children:** Children up to 5 years stay complimentary without extra bed.`;
+      `• **Children:** Children up to ${db?.settings?.childComplimentaryAgeLimit || 5} years stay complimentary without extra bed.\n` +
+      `• **Room Capacity:** Each room accommodates up to 2 adults and 1 child.`;
   }
 
   return {
@@ -981,11 +983,56 @@ function buildUnknownReply(db, lang = 'en') {
   };
 }
 
+/**
+ * Build response for room occupancy / capacity inquiry
+ */
+function buildRoomCapacityReply(db, lang = 'en') {
+  const childLimit = db?.settings?.childComplimentaryAgeLimit || 5;
+  const deskPhone = db?.settings?.phone || '7812027551';
+  let text = '';
+
+  if (lang === 'bn') {
+    text = `👥 **রুম ধারণক্ষমতার নিয়ম (Room Occupancy):**\n\n` +
+      `Each room accommodates up to 2 adults and 1 child.\n\n` +
+      `• **Cosy Deluxe Room:** Max 2 Adults + 1 Child\n` +
+      `• **The Ocean Whisper Room (Sea View):** Max 2 Adults + 1 Child\n` +
+      `• **The Pool Haven Room (Pool View):** Max 2 Adults + 1 Child\n` +
+      `• **The Palm Grove Family Suite:** Max 4 Adults + 2 Children\n\n` +
+      `• **শিশু পলিসি:** ${childLimit} বছর পর্যন্ত শিশুদের অতিরিক্ত বিছানা ছাড়া থাকা সম্পূর্ণ ফ্রি।\n` +
+      `• অতিরিক্ত বেড বা বেশি অতিথির জন্য দয়া করে ফ্রন্ট ডেস্কে ফোন করুন: +91 ${deskPhone} অথবা বুকিং করার সময় আরেকটি রুম যোগ করুন।`;
+  } else if (lang === 'hi') {
+    text = `👥 **कमरे की क्षमता (Room Occupancy):**\n\n` +
+      `Each room accommodates up to 2 adults and 1 child.\n\n` +
+      `• **Cosy Deluxe Room:** Max 2 Adults + 1 Child\n` +
+      `• **The Ocean Whisper Room (Sea View):** Max 2 Adults + 1 Child\n` +
+      `• **The Pool Haven Room (Pool View):** Max 2 Adults + 1 Child\n` +
+      `• **The Palm Grove Family Suite:** Max 4 Adults + 2 Children\n\n` +
+      `• **बच्चे की नीति:** ${childLimit} वर्ष तक के बच्चे बिना अतिरिक्त बिस्तर के मुफ्त ठहर सकते हैं।\n` +
+      `• अतिरिक्त बिस्तर के लिए कृपया फ्रंट डेस्क (+91 ${deskPhone}) पर कॉल करें या दूसरा कमरा जोड़ें।`;
+  } else {
+    text = `👥 **Room Occupancy & Guest Capacity Rules:**\n\n` +
+      `Each room accommodates up to 2 adults and 1 child.\n\n` +
+      `• **Cosy Deluxe Room:** Max 2 Adults + 1 Child\n` +
+      `• **The Ocean Whisper Room (Sea View):** Max 2 Adults + 1 Child\n` +
+      `• **The Pool Haven Room (Pool View):** Max 2 Adults + 1 Child\n` +
+      `• **The Palm Grove Family Suite:** Max 4 Adults + 2 Children\n\n` +
+      `• **Children Policy:** Children up to ${childLimit} years stay complimentary without extra bed.\n` +
+      `• **Need an extra bed?** Please call our front desk directly at +91 ${deskPhone} or add another room in your booking.`;
+  }
+
+  return {
+    reply: text,
+    actionChips: ['Book a room', 'Rooms & prices', 'Check availability', 'How to contact'],
+    topic: 'Room Capacity'
+  };
+}
+
 module.exports = {
   formatINR,
   buildRoomsListReply,
   buildRoomDetailReply,
   buildRoomPriceReply,
+  buildRoomCapacityReply,
   buildContactReply,
   buildLocationReply,
   buildBookingHowReply,

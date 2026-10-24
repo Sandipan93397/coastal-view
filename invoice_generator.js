@@ -312,7 +312,9 @@ async function generateInvoicePDF(booking, db, options = {}) {
     doc.font('Poppins').fontSize(8).fillColor('#475569')
        .text(`Check-Out: ${checkOutDate} (until ${checkOutTime})`, card2X + 12, cardY + 49);
 
-    const guestCountStr = `${booking.adults || 2} Adult(s)${booking.children ? `, ${booking.children} Child(ren)` : ''}`;
+    const guestCountStr = booking.children
+      ? `${booking.adults || 2} Adults + ${booking.children} Child${booking.children > 1 ? 'ren' : ''}`
+      : `${booking.adults || 2} Adult${(booking.adults || 2) > 1 ? 's' : ''}`;
     doc.font('Poppins-Medium').fontSize(7.5).fillColor('#64748B')
        .text(`Duration: ${booking.nights} Night(s)  •  Occupancy: ${guestCountStr}`, card2X + 12, cardY + 63);
 

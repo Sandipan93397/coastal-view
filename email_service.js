@@ -572,6 +572,10 @@ function templateBookingConfirmation({ booking, invoiceNumber, hotelSettings }) 
           <td style="padding: 6px 0; font-weight: 600; color: #073B4C; text-align: right;">${booking.checkIn} to ${booking.checkOut} (${booking.nights || 1} Night(s))</td>
         </tr>
         <tr>
+          <td style="padding: 6px 0; color: #64748B;">Guests / Occupancy:</td>
+          <td style="padding: 6px 0; font-weight: 600; color: #073B4C; text-align: right;">${booking.children ? `${booking.adults || 2} Adults + ${booking.children} Child${booking.children > 1 ? 'ren' : ''}` : `${booking.adults || 2} Adults`}</td>
+        </tr>
+        <tr>
           <td style="padding: 6px 0; color: #64748B;">Total Amount:</td>
           <td style="padding: 6px 0; font-weight: 700; color: #073B4C; text-align: right;">₹${(booking.totalPrice || 0).toLocaleString('en-IN')}</td>
         </tr>

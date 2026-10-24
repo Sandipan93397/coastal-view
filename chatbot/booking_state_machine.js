@@ -250,14 +250,31 @@ class BookingStateMachine {
       }
 
       case 'awaiting_guests': {
-        let count = 2;
-        const numMatch = text.match(/\d+/);
-        if (numMatch) {
-          count = parseInt(numMatch[0], 10);
-        } else if (text.includes('family')) {
-          count = 4;
+        let adults = 2;
+        let children = 0;
+
+        if (text.includes('child') || text.includes('kid') || text.includes('baccha')) {
+          const cMatch = text.match(/(\d+)\s*(?:child|kid|baccha)/);
+          if (cMatch) children = parseInt(cMatch[1], 10);
+          else children = 1;
         }
-        state.guests = Math.max(1, Math.min(10, count));
+
+        const aMatch = text.match(/(\d+)\s*(?:adult|grown|person|guest|manush|jon)/);
+        if (aMatch) {
+          adults = parseInt(aMatch[1], 10);
+        } else {
+          const numMatch = text.match(/\d+/);
+          if (numMatch) {
+            adults = parseInt(numMatch[0], 10);
+          } else if (text.includes('family')) {
+            adults = 4;
+            children = 2;
+          }
+        }
+
+        state.adults = Math.max(1, adults);
+        state.children = Math.max(0, children);
+        state.guests = state.adults + state.children;
 
         state.stepHistory.push('awaiting_guests');
         state.step = 'awaiting_rooms_count';
@@ -271,6 +288,23 @@ class BookingStateMachine {
           count = parseInt(numMatch[0], 10);
         }
         state.roomsCount = Math.max(1, Math.min(10, count));
+
+        // Enforce 2 Adults + 1 Child per room scaling rule
+        const reqAdults = state.adults || (state.guests || 2);
+        const reqChildren = state.children || 0;
+        const maxAdultsForRooms = 2 * state.roomsCount;
+        const maxChildrenForRooms = 1 * state.roomsCount;
+
+        if (reqAdults > maxAdultsForRooms || reqChildren > maxChildrenForRooms) {
+          const neededRooms = Math.max(Math.ceil(reqAdults / 2), Math.ceil(reqChildren / 1));
+          return {
+            handled: true,
+            reply: lang === 'bn'
+              ? `⚠️ প্রতিটি রুমে সর্বোচ্চ ২ জন প্রাপ্তবয়স্ক এবং ১ জন শিশু থাকতে পারেন। অনুগ্রহ করে আরেকটি রুম যোগ করুন (Each room accommodates up to 2 adults and 1 child. Please add another room - ${neededRooms} টি রুম প্রয়োজন)।`
+              : `⚠️ Each room accommodates up to 2 adults and 1 child. Please add another room (${neededRooms} rooms needed for ${reqAdults} adults${reqChildren ? ` + ${reqChildren} child` : ''}).`,
+            actionChips: [`${neededRooms} Rooms`, '2 Adults + 1 Child', 'Cancel']
+          };
+        }
 
         state.stepHistory.push('awaiting_rooms_count');
         state.step = 'awaiting_room_selection';
@@ -394,12 +428,12 @@ class BookingStateMachine {
 
       case 'awaiting_guests': {
         const reply = lang === 'bn'
-          ? `👥 **ধাপ ২: অতিথির সংখ্যা:**\n\nকজন অতিথি থাকবেন? নিচের থেকে নির্বাচন করুন:`
-          : `👥 **Step 2 of 5: Number of Guests:**\n\nHow many adults and children will be staying?`;
+          ? `👥 **ধাপ ২: অতিথির সংখ্যা:**\n\nকজন অতিথি থাকবেন? নিচের থেকে নির্বাচন করুন:\n*(প্রতি রুমে সর্বোচ্চ ২ জন প্রাপ্তবয়স্ক + ১ জন শিশু)*`
+          : `👥 **Step 2 of 5: Number of Guests:**\n\nHow many adults and children will be staying?\n*(Each room accommodates up to 2 adults and 1 child)*`;
         return {
           handled: true,
           reply,
-          actionChips: ['2 Guests', '3 Guests', '4 Guests', '5 Guests', 'Back', 'Cancel']
+          actionChips: ['2 Adults', '2 Adults + 1 Child', '1 Adult', '4 Adults (2 Rooms)', 'Back', 'Cancel']
         };
       }
 

@@ -20,6 +20,7 @@ const {
   buildRoomsListReply,
   buildRoomDetailReply,
   buildRoomPriceReply,
+  buildRoomCapacityReply,
   buildContactReply,
   buildLocationReply,
   buildBookingHowReply,
@@ -240,6 +241,10 @@ class ChatbotEngine {
 
       case 'room_price':
         builderResult = buildRoomPriceReply(db, detectedLang);
+        break;
+
+      case 'room_capacity':
+        builderResult = buildRoomCapacityReply(db, detectedLang);
         break;
 
       case 'availability': {
