@@ -493,27 +493,9 @@ function buildAddonsReply(db, queryText = '', lang = 'en') {
     };
   }
 
-  // If asking about toto or car
-  if (q.includes('toto') || q.includes('car') || q.includes('auto') || q.includes('pickup') || q.includes('টোটো') || q.includes('গাড়ি')) {
-    let vText = '';
-    if (lang === 'bn') {
-      vText = `🚗 **যাতায়াত ও পিকআপ ভাড়া তালিকা:**\n\n` +
-        vehicles.join('\n') + `\n\n` +
-        `দীঘা / রামনগর স্টেশন বা চাউলখোলা মোড় থেকে হোটেলে পৌঁছানোর জন্য সরাসরি আমাদের বুকিং ফর্মে যুক্ত করতে পারেন।`;
-    } else if (lang === 'hi') {
-      vText = `🚗 **वाहन एवं पिकअप किराया सूची:**\n\n` +
-        vehicles.join('\n') + `\n\n` +
-        `दीघा या रामनगर स्टेशन से पिकअप के लिए आप सीधे बुकिंग के समय यह सुविधा चुन सकते हैं।`;
-    } else {
-      vText = `🚗 **Official Transport & Pickup Tariffs:**\n\n` +
-        vehicles.join('\n') + `\n\n` +
-        `Available for station pickups from Digha/Ramnagar, Chawalkhola, and local beach rides. Select during booking or call reception.`;
-    }
-    return {
-      reply: vText,
-      actionChips: ['Book a room', 'Rooms & prices', 'How to contact'],
-      topic: 'Transport Add-ons'
-    };
+  // If asking about toto, car, auto, vehicle, pickup, drop, or transport tariffs
+  if (q.includes('toto') || q.includes('car') || q.includes('auto') || q.includes('pickup') || q.includes('drop') || q.includes('transport') || q.includes('cab') || q.includes('টোটো') || q.includes('গাড়ি') || q.includes('অটো')) {
+    return buildVehiclePricingReply(db, queryText, lang);
   }
 
   // General add-ons summary
@@ -550,6 +532,126 @@ function buildAddonsReply(db, queryText = '', lang = 'en') {
     reply: text,
     actionChips: ['Book a room', 'Menu', 'Candlelight dinner', 'How to contact'],
     topic: 'Add-ons'
+  };
+}
+
+/**
+ * Build response for vehicle pricing by service type (Toto, Auto, Car x Pickup, Drop, Pickup+Drop, Tour)
+ * Authoritative responses directly from database matrix.
+ * Unset prices say "please call us" and are marked as "Ask us".
+ * Never invents prices.
+ */
+function buildVehiclePricingReply(db, queryText = '', lang = 'en') {
+  const q = (queryText || '').toLowerCase();
+  const phone = db.settings?.phone || '+91 7812027551';
+  const vehicles = (db.vehicles || []).map(v => {
+    const copy = { ...v };
+    copy.services = copy.services || {};
+    ['pickup', 'drop', 'pickup_drop', 'tour'].forEach(st => {
+      if (!copy.services[st]) copy.services[st] = { price: null, enabled: false };
+    });
+    return copy;
+  });
+
+  // Identify requested vehicle
+  let matchedVehicle = null;
+  if (q.includes('toto') || q.includes('টোটো') || q.includes('e-rickshaw') || q.includes('rickshaw')) {
+    matchedVehicle = vehicles.find(v => v.id === 'toto') || { name: 'Toto (E-Rickshaw)', id: 'toto', capacity: 4 };
+  } else if (q.includes('auto') || q.includes('অটো') || q.includes('three wheeler')) {
+    matchedVehicle = vehicles.find(v => v.id === 'auto') || { name: 'Auto', id: 'auto', capacity: 3 };
+  } else if (q.includes('car') || q.includes('গাড়ি') || q.includes('cab') || q.includes('taxi')) {
+    matchedVehicle = vehicles.find(v => v.id === 'car') || { name: 'Car', id: 'car', capacity: 4 };
+  }
+
+  // Identify requested service
+  let matchedService = null;
+  let serviceLabel = '';
+  if (q.includes('pickup and drop') || q.includes('pickup & drop') || q.includes('pickup drop') || q.includes('both pickup and drop') || q.includes('round trip')) {
+    matchedService = 'pickup_drop';
+    serviceLabel = 'Pickup + Drop';
+  } else if (q.includes('pickup') || q.includes('pick up') || q.includes('পিকআপ') || q.includes('station pickup')) {
+    matchedService = 'pickup';
+    serviceLabel = 'Pickup';
+  } else if (q.includes('drop') || q.includes('ড্রপ') || q.includes('drop charge') || q.includes('drop off')) {
+    matchedService = 'drop';
+    serviceLabel = 'Drop';
+  } else if (q.includes('tour') || q.includes('sightseeing') || q.includes('day trip') || q.includes('per day') || q.includes('ট্যুর') || q.includes('ভ্রমণ')) {
+    matchedService = 'tour';
+    serviceLabel = 'Tour';
+  }
+
+  // Specific vehicle + specific service
+  if (matchedVehicle && matchedService) {
+    const svc = matchedVehicle.services?.[matchedService];
+    const isSet = svc && svc.price !== null && svc.price !== undefined && Number(svc.price) > 0 && svc.enabled !== false;
+    const vName = matchedVehicle.name || matchedVehicle.id;
+    const capStr = matchedVehicle.capacity ? ` (capacity: up to ${matchedVehicle.capacity} passengers)` : '';
+
+    if (isSet) {
+      const priceStr = formatINR(svc.price) + (matchedService === 'tour' ? '/day' : ' per trip');
+      let text = `🚗 **${vName} · ${serviceLabel} Tariff:**\n\n` +
+        `• **Price:** **${priceStr}**${capStr}\n` +
+        `• **Fleet Service:** Ani's Tour & Travels\n` +
+        `• **Details:** ${matchedVehicle.description || 'Chauffeur driven transport with verified drivers.'}\n\n` +
+        `You can reserve this option directly on our booking form or request with our concierge desk.`;
+      return {
+        reply: text,
+        actionChips: ['Book a room', 'All vehicle rates', 'Call Concierge (' + phone + ')'],
+        topic: 'Vehicle Pricing'
+      };
+    } else {
+      let text = `🚗 **${vName} · ${serviceLabel} Tariff:**\n\n` +
+        `The price for **${vName} ${serviceLabel}** is currently **not set** (Ask us).\n\n` +
+        `Please call us at [📞 ${phone}](tel:${phone}) or inquire at our front desk for an instant custom quote! Anirban Das and our team will be delighted to arrange your trip.`;
+      return {
+        reply: text,
+        actionChips: ['Call Concierge (' + phone + ')', 'Book a room', 'Other vehicles'],
+        topic: 'Vehicle Pricing'
+      };
+    }
+  }
+
+  // Specific vehicle only
+  if (matchedVehicle && !matchedService) {
+    const vName = matchedVehicle.name || matchedVehicle.id;
+    const capStr = matchedVehicle.capacity ? ` (Capacity: up to ${matchedVehicle.capacity} passengers)` : '';
+    const svcs = matchedVehicle.services || {};
+    
+    const lines = [
+      `• **Pickup:** ${svcs.pickup?.price && svcs.pickup?.enabled ? formatINR(svcs.pickup.price) : 'Ask us'}`,
+      `• **Drop:** ${svcs.drop?.price && svcs.drop?.enabled ? formatINR(svcs.drop.price) : 'Ask us'}`,
+      `• **Pickup + Drop:** ${svcs.pickup_drop?.price && svcs.pickup_drop?.enabled ? formatINR(svcs.pickup_drop.price) : 'Ask us'}`,
+      `• **Tour (per day):** ${svcs.tour?.price && svcs.tour?.enabled ? formatINR(svcs.tour.price) + '/day' : 'Ask us'}`
+    ];
+
+    let text = `🚗 **Official Fleet Tariffs for ${vName}${capStr}:**\n\n` +
+      lines.join('\n') + `\n\n` +
+      `For any service shown as **Ask us** or for customized station transfers, please call us at [📞 ${phone}](tel:${phone}).`;
+    return {
+      reply: text,
+      actionChips: ['Book a room', 'All vehicle rates', 'Call Concierge (' + phone + ')'],
+      topic: 'Vehicle Pricing'
+    };
+  }
+
+  // General transport query (matrix overview)
+  const matrixLines = vehicles.map(v => {
+    const s = v.services || {};
+    const pPick = s.pickup?.price && s.pickup?.enabled ? formatINR(s.pickup.price) : 'Ask us';
+    const pDrop = s.drop?.price && s.drop?.enabled ? formatINR(s.drop.price) : 'Ask us';
+    const pBoth = s.pickup_drop?.price && s.pickup_drop?.enabled ? formatINR(s.pickup_drop.price) : 'Ask us';
+    const pTour = s.tour?.price && s.tour?.enabled ? formatINR(s.tour.price) + '/day' : 'Ask us';
+    return `• **${v.name}** (Capacity: ${v.capacity || 4} passengers):\n  Pickup: ${pPick} | Drop: ${pDrop} | Pickup+Drop: ${pBoth} | Tour: ${pTour}`;
+  });
+
+  let text = `🚗 **Ani's Travels Official Vehicle Pricing Matrix:**\n\n` +
+    matrixLines.join('\n\n') + `\n\n` +
+    `For any service shown as **Ask us** or for Kolkata airport/doorstep transfers, please call us directly at [📞 ${phone}](tel:${phone}).`;
+
+  return {
+    reply: text,
+    actionChips: ['Book a room', 'Tours & travels', 'Call Concierge (' + phone + ')'],
+    topic: 'Vehicle Pricing'
   };
 }
 
@@ -890,6 +992,7 @@ module.exports = {
   buildPaymentPolicyReply,
   buildCheckinTimeReply,
   buildAddonsReply,
+  buildVehiclePricingReply,
   buildMenuReply,
   buildNearbyReply,
   buildToursReply,

@@ -125,6 +125,21 @@ function writeDB(data) {
   }
 }
 
+function normalizeVehicle(v) {
+  if (!v) return v;
+  v.services = v.services || {};
+  const serviceTypes = ['pickup', 'drop', 'pickup_drop', 'tour'];
+  serviceTypes.forEach(st => {
+    if (!v.services[st]) {
+      v.services[st] = { price: null, enabled: false };
+    }
+  });
+  if (v.services.tour && v.services.tour.price !== null && v.services.tour.price !== undefined) {
+    v.pricePerDay = v.services.tour.price;
+  }
+  return v;
+}
+
 function logAudit(db, user, action, details, req = null) {
   db.auditLog = db.auditLog || [];
   const clientIp = req ? (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1') : '127.0.0.1';
@@ -170,18 +185,51 @@ async function sendBookingConfirmationEmail(booking, db) {
   const recipientEmail = booking.guestEmail;
   const hotelEmail = settings.email || 'coastalviewbyanis@gmail.com';
 
-  const transportHtml = booking.needCar ? `
-    <tr>
-      <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; font-weight: 600; color: #073B4C;">Private Transport (Ani's Travels)</td>
-      <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; color: #334155;">
-        <strong>${booking.breakdown?.details?.transport?.line || ((booking.vehicleName || 'Car') + ' × ' + (booking.carCount || 1) + ' × ' + booking.nights + ' day(s)')}</strong>
-        ${booking.vehicleTripType ? `<br><span style="display:inline-block; margin-top:3px; padding:2px 8px; border-radius:4px; background:#E0F2FE; color:#0369A1; font-size:12px;">${booking.vehicleTripType}</span>` : ''}
-      </td>
-      <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; text-align: right; font-weight: 600; color: #073B4C;">
-        ₹${(booking.carTotal || 0).toLocaleString('en-IN')}
-      </td>
-    </tr>
-  ` : '';
+  let transportHtml = '';
+  if (booking.needCar) {
+    if (booking.vehicleLines && booking.vehicleLines.length > 0) {
+      transportHtml = booking.vehicleLines.map(line => {
+        let details = [];
+        if (line.pickupPoint || line.pickupTime) {
+          details.push(`<strong>Pickup:</strong> ${line.pickupPoint || 'Specified location'}${line.pickupTime ? ' @ ' + line.pickupTime : ''}`);
+        }
+        if (line.dropPoint || line.dropTime) {
+          details.push(`<strong>Drop:</strong> ${line.dropPoint || 'Specified location'}${line.dropTime ? ' @ ' + line.dropTime : ''}`);
+        }
+        if (line.tourNotes) {
+          details.push(`<strong>Notes:</strong> ${line.tourNotes}`);
+        }
+        const detailStr = details.length ? `<br><span style="color:#64748B; font-size:12px;">${details.join(' • ')}</span>` : '';
+        const dayStr = line.days ? ` × ${line.days} day(s)` : '';
+
+        return `
+          <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; font-weight: 600; color: #073B4C;">Private Transport (${line.vehicleName || 'Ani\'s Travels'})</td>
+            <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; color: #334155;">
+              <strong>${line.serviceLabel || 'Service'} × ${line.quantity} vehicle(s)${dayStr}</strong>
+              ${detailStr}
+            </td>
+            <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; text-align: right; font-weight: 600; color: #073B4C;">
+              ₹${(line.subtotal || 0).toLocaleString('en-IN')}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    } else {
+      transportHtml = `
+        <tr>
+          <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; font-weight: 600; color: #073B4C;">Private Transport (Ani's Travels)</td>
+          <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; color: #334155;">
+            <strong>${booking.breakdown?.details?.transport?.line || ((booking.vehicleName || 'Car') + ' × ' + (booking.carCount || 1) + ' × ' + booking.nights + ' day(s)')}</strong>
+            ${booking.vehicleTripType ? `<br><span style="display:inline-block; margin-top:3px; padding:2px 8px; border-radius:4px; background:#E0F2FE; color:#0369A1; font-size:12px;">${booking.vehicleTripType}</span>` : ''}
+          </td>
+          <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; text-align: right; font-weight: 600; color: #073B4C;">
+            ₹${(booking.carTotal || 0).toLocaleString('en-IN')}
+          </td>
+        </tr>
+      `;
+    }
+  }
 
   const dinnerHtml = booking.candlelightDinner ? `
     <tr>
@@ -2109,11 +2157,28 @@ app.get('/api/admin/backup/export-encrypted', requireSuperAdmin, requireReauth, 
 // ROOM INVENTORY & SOLD-OUT CONTROL APIS
 // ============================================================================
 
+// Room capacity display line generator
+function formatRoomCapacity(maxAdults, maxChildren) {
+  const a = parseInt(maxAdults, 10) || 2;
+  const c = (maxChildren !== undefined && maxChildren !== null) ? parseInt(maxChildren, 10) : 0;
+  const adultStr = `${a} Adult${a > 1 ? 's' : ''}`;
+  if (c > 0) {
+    const childStr = `${c} Child${c > 1 ? 'ren' : ''}`;
+    return `Max ${adultStr} + ${childStr}`;
+  }
+  return `Max ${adultStr}`;
+}
+
 // Public & Admin: Get All Rooms (Excludes Archived Rooms)
 app.get('/api/rooms', (req, res) => {
   const db = readDB();
   if (!db) return res.status(500).json({ success: false });
-  const rooms = (db.rooms || []).filter(r => !r.isArchived);
+  const rooms = (db.rooms || []).filter(r => !r.isArchived).map(r => ({
+    ...r,
+    maxAdults: parseInt(r.maxAdults, 10) || 2,
+    maxChildren: (r.maxChildren !== undefined && r.maxChildren !== null) ? parseInt(r.maxChildren, 10) : 1,
+    capacity: r.capacity || formatRoomCapacity(r.maxAdults, r.maxChildren)
+  }));
   res.json({ success: true, rooms });
 });
 
@@ -2326,7 +2391,8 @@ app.post('/api/rooms', requireManager, (req, res) => {
     isLuxury: category === 'sea-view' || category === 'family',
     isSoldOut: false,
     maxAdults: parseInt(maxAdults, 10) || 2,
-    maxChildren: parseInt(maxChildren, 10) || 0,
+    maxChildren: (maxChildren !== undefined && maxChildren !== null) ? parseInt(maxChildren, 10) : 1,
+    capacity: formatRoomCapacity(parseInt(maxAdults, 10) || 2, (maxChildren !== undefined && maxChildren !== null) ? parseInt(maxChildren, 10) : 1),
     bed: bed.trim() || 'King Bed',
     size: size.trim() || '400 sq. ft.',
     image: image.trim() || 'assets/images/room-cosy-deluxe.jpg',
@@ -2501,6 +2567,7 @@ app.post('/api/rooms/:id', requireManager, (req, res) => {
 
   if (maxAdults !== undefined) room.maxAdults = parseInt(maxAdults, 10);
   if (maxChildren !== undefined) room.maxChildren = parseInt(maxChildren, 10);
+  room.capacity = formatRoomCapacity(room.maxAdults, room.maxChildren);
   if (features && Array.isArray(features)) room.features = features;
   if (image) room.image = image;
   if (inclusions !== undefined && Array.isArray(inclusions)) room.inclusions = inclusions;
@@ -2597,6 +2664,7 @@ app.post('/api/bookings', (req, res) => {
     vehicleType = 'car',
     vehicleQuantity = null,
     vehicleTripType = '',
+    vehicleLines = [],
     breakfast = false,
     breakfastGuests = null,
     breakfastCount = null,
@@ -2625,6 +2693,27 @@ app.post('/api/bookings', (req, res) => {
     }
 
     const parsedRoomsCount = Math.max(1, parseInt(roomsCount, 10) || 1);
+    const parsedAdults = parseInt(adults, 10) || 1;
+    const parsedChildren = parseInt(children, 10) || 0;
+
+    // Room Capacity & Scaling Verification (Max 2 Adults + 1 Child per room, or room-specific capacity)
+    const roomMaxAdults = parseInt(room.maxAdults, 10) || 2;
+    const roomMaxChildren = (room.maxChildren !== undefined && room.maxChildren !== null) ? parseInt(room.maxChildren, 10) : 1;
+    const maxAllowedAdults = roomMaxAdults * parsedRoomsCount;
+    const maxAllowedChildren = roomMaxChildren * parsedRoomsCount;
+
+    if (parsedAdults > maxAllowedAdults || parsedChildren > maxAllowedChildren) {
+      const msg = (room.id === 'palm-grove-family-suite')
+        ? `Each suite accommodates up to ${roomMaxAdults} adults and ${roomMaxChildren} children. Please add another room.`
+        : 'Each room accommodates up to 2 adults and 1 child. Please add another room.';
+      return res.status(400).json({
+        success: false,
+        message: msg,
+        code: 'CAPACITY_EXCEEDED',
+        maxAdults: maxAllowedAdults,
+        maxChildren: maxAllowedChildren
+      });
+    }
 
     // Quantity-Based Availability Verification under Concurrency Lock
     const availability = getRoomAvailability(db, roomId, checkIn, checkOut);
@@ -2652,35 +2741,145 @@ app.post('/api/bookings', (req, res) => {
     const roomSubtotal = room.price * nights * parsedRoomsCount;
     const roomLine = `Room: ₹${room.price.toLocaleString('en-IN')} × ${nights} night${nights > 1 ? 's' : ''} × ${parsedRoomsCount} room${parsedRoomsCount > 1 ? 's' : ''}`;
 
-    // Formula 2: Transport cost (only if “Need a car?” is ON) = selected vehicle price (Toto / Auto / Car) × quantity × number of days
+    // Formula 2: Transport cost from Price Matrix (authoritative server-side recalculation)
     let carTotal = 0;
     let selectedVehicle = null;
     let parsedVehicleQty = 0;
     let transportLine = '';
     let vShortName = 'Car';
+    const processedVehicleLines = [];
+    const transportBreakdownLines = [];
+
+    const inputVehicleLines = Array.isArray(vehicleLines) ? vehicleLines : [];
 
     if (needCar) {
-      const vType = (vehicleType || 'car').toLowerCase();
-      selectedVehicle = (db.vehicles || []).find(v => 
-        v.id === vType || 
-        v.name.toLowerCase() === vType || 
-        vType.includes(v.id) || 
-        v.name.toLowerCase().includes(vType)
-      );
-      if (!selectedVehicle) {
-        return res.status(400).json({ success: false, message: 'Selected vehicle type does not exist' });
-      }
-      if (!selectedVehicle.enabled) {
-        return res.status(400).json({ success: false, message: `${selectedVehicle.name} is currently unavailable` });
-      }
+      if (inputVehicleLines.length > 0) {
+        // Multi-line vehicle pricing directly from database matrix
+        for (const line of inputVehicleLines) {
+          const rawId = (line.vehicleId || line.vehicleType || 'car').toLowerCase();
+          const vehicleObj = (db.vehicles || []).find(v =>
+            v.id === rawId ||
+            v.name.toLowerCase() === rawId ||
+            rawId.includes(v.id) ||
+            v.name.toLowerCase().includes(rawId)
+          );
+          if (!vehicleObj) {
+            return res.status(400).json({ success: false, message: `Selected vehicle "${line.vehicleId}" does not exist` });
+          }
+          if (vehicleObj.enabled === false) {
+            return res.status(400).json({ success: false, message: `${vehicleObj.name} is currently unavailable` });
+          }
 
-      const maxQ = selectedVehicle.maxQuantity || 5;
-      const effectiveQty = (vehicleQuantity !== null && vehicleQuantity !== undefined && vehicleQuantity !== '') ? vehicleQuantity : (carCount || 1);
-      parsedVehicleQty = Math.min(maxQ, Math.max(1, parseInt(effectiveQty, 10) || 1));
-      carTotal = selectedVehicle.pricePerDay * parsedVehicleQty * nights;
+          normalizeVehicle(vehicleObj);
+          const sType = line.serviceType || 'tour';
+          const svc = vehicleObj.services?.[sType];
+          if (!svc || svc.price === null || svc.price === undefined || Number(svc.price) <= 0 || svc.enabled === false) {
+            return res.status(400).json({
+              success: false,
+              message: `Service "${sType}" for ${vehicleObj.name} has no price set or is unavailable`
+            });
+          }
 
-      vShortName = selectedVehicle.id === 'toto' ? 'Toto' : (selectedVehicle.id === 'auto' ? 'Auto' : (selectedVehicle.id === 'car' ? 'Car' : selectedVehicle.name.split('(')[0].trim()));
-      transportLine = `${vShortName} × ${parsedVehicleQty} × ${nights} day${nights > 1 ? 's' : ''}`;
+          const maxQ = vehicleObj.maxQuantity || 5;
+          const lineQty = Math.min(maxQ, Math.max(1, parseInt(line.quantity, 10) || 1));
+          const unitPrice = Number(svc.price);
+          let lineDays = null;
+          let lineSubtotal = 0;
+          let serviceLabel = '';
+
+          if (sType === 'tour') {
+            serviceLabel = 'Tour';
+            lineDays = Math.max(1, parseInt(line.days, 10) || nights);
+            lineSubtotal = unitPrice * lineQty * lineDays;
+          } else if (sType === 'pickup') {
+            serviceLabel = 'Pickup';
+            lineSubtotal = unitPrice * lineQty;
+          } else if (sType === 'drop') {
+            serviceLabel = 'Drop';
+            lineSubtotal = unitPrice * lineQty;
+          } else if (sType === 'pickup_drop') {
+            serviceLabel = 'Pickup + Drop';
+            lineSubtotal = unitPrice * lineQty;
+          } else {
+            return res.status(400).json({ success: false, message: `Unsupported service type "${sType}"` });
+          }
+
+          let summaryStr = '';
+          if (sType === 'tour') {
+            summaryStr = `${vehicleObj.name} · Tour × ${lineQty} × ${lineDays} day${lineDays > 1 ? 's' : ''}`;
+          } else {
+            summaryStr = `${vehicleObj.name} · ${serviceLabel} × ${lineQty}`;
+          }
+
+          processedVehicleLines.push({
+            vehicleId: vehicleObj.id,
+            vehicleName: vehicleObj.name,
+            serviceType: sType,
+            serviceLabel,
+            price: unitPrice,
+            quantity: lineQty,
+            days: lineDays,
+            pickupPoint: line.pickupPoint || null,
+            pickupTime: line.pickupTime || null,
+            dropPoint: line.dropPoint || null,
+            dropTime: line.dropTime || null,
+            tourNotes: line.tourNotes || null,
+            subtotal: lineSubtotal,
+            lineSummary: summaryStr
+          });
+
+          transportBreakdownLines.push(`${summaryStr} = ₹${lineSubtotal.toLocaleString('en-IN')}`);
+          carTotal += lineSubtotal;
+        }
+
+        if (processedVehicleLines.length > 0) {
+          selectedVehicle = (db.vehicles || []).find(v => v.id === processedVehicleLines[0].vehicleId);
+          parsedVehicleQty = processedVehicleLines[0].quantity;
+          transportLine = transportBreakdownLines.join(' | ');
+          vShortName = selectedVehicle?.name?.split('(')[0]?.trim() || 'Vehicle';
+        }
+      } else {
+        // Fallback for legacy single-vehicle booking requests
+        const vType = (vehicleType || 'car').toLowerCase();
+        selectedVehicle = (db.vehicles || []).find(v => 
+          v.id === vType || 
+          v.name.toLowerCase() === vType || 
+          vType.includes(v.id) || 
+          v.name.toLowerCase().includes(vType)
+        );
+        if (!selectedVehicle) {
+          return res.status(400).json({ success: false, message: 'Selected vehicle type does not exist' });
+        }
+        if (!selectedVehicle.enabled) {
+          return res.status(400).json({ success: false, message: `${selectedVehicle.name} is currently unavailable` });
+        }
+        normalizeVehicle(selectedVehicle);
+
+        const tourRate = (selectedVehicle.services?.tour?.price && selectedVehicle.services.tour.enabled)
+          ? selectedVehicle.services.tour.price
+          : (selectedVehicle.pricePerDay || 2500);
+
+        const maxQ = selectedVehicle.maxQuantity || 5;
+        const effectiveQty = (vehicleQuantity !== null && vehicleQuantity !== undefined && vehicleQuantity !== '') ? vehicleQuantity : (carCount || 1);
+        parsedVehicleQty = Math.min(maxQ, Math.max(1, parseInt(effectiveQty, 10) || 1));
+        carTotal = tourRate * parsedVehicleQty * nights;
+
+        vShortName = selectedVehicle.id === 'toto' ? 'Toto' : (selectedVehicle.id === 'auto' ? 'Auto' : (selectedVehicle.id === 'car' ? 'Car' : selectedVehicle.name.split('(')[0].trim()));
+        transportLine = `${vShortName} × ${parsedVehicleQty} × ${nights} day${nights > 1 ? 's' : ''}`;
+        transportBreakdownLines.push(transportLine);
+
+        processedVehicleLines.push({
+          vehicleId: selectedVehicle.id,
+          vehicleName: selectedVehicle.name,
+          serviceType: 'tour',
+          serviceLabel: 'Tour',
+          price: tourRate,
+          quantity: parsedVehicleQty,
+          days: nights,
+          subtotal: carTotal,
+          lineSummary: transportLine
+        });
+      }
     }
 
     // Formula 3: Candlelight dinner (only if selected) = dinner price × number of dinners (or guests, as set in admin)
@@ -2771,7 +2970,7 @@ app.post('/api/bookings', (req, res) => {
     const breakdownLines = [
       roomLine,
       ...(breakfast && breakfastLine ? [breakfastLine] : []),
-      ...(needCar && transportLine ? [transportLine] : []),
+      ...(needCar && transportBreakdownLines.length > 0 ? transportBreakdownLines : []),
       ...(candlelightDinner && dinnerLine ? [dinnerLine] : []),
       ...(taxLine ? [taxLine] : [])
     ];
@@ -2795,7 +2994,15 @@ app.post('/api/bookings', (req, res) => {
           subtotal: breakfastTotal,
           line: breakfastLine
         } : null,
-        transport: needCar && selectedVehicle ? { vehicle: selectedVehicle.name, shortName: vShortName, rate: selectedVehicle.pricePerDay, quantity: parsedVehicleQty, days: nights, subtotal: carTotal, line: transportLine } : null,
+        transport: (needCar && processedVehicleLines.length > 0) ? {
+          lines: processedVehicleLines,
+          subtotal: carTotal,
+          summary: transportLine,
+          rate: processedVehicleLines[0]?.price || 0,
+          quantity: parsedVehicleQty,
+          days: processedVehicleLines[0]?.days || nights
+        } : null,
+        vehicleLines: processedVehicleLines,
         candlelight: candlelightDinner ? { setup: dinnerSetup, occasion: dinnerOccasion, price: dinnerPrice, multiplier: dinnerMultiplier, subtotal: dinnerTotal, line: dinnerLine } : null,
         tax: taxAmount > 0 ? { percentage: taxPercentage, amount: taxAmount, line: taxLine } : null
       }
@@ -2812,15 +3019,16 @@ app.post('/api/bookings', (req, res) => {
       adults: parseInt(adults, 10) || 2,
       children: parseInt(children, 10) || 0,
       roomsCount: parsedRoomsCount,
-      needCar: !!needCar,
-      carCount: needCar ? parsedVehicleQty : 0,
+      needCar: !!(needCar && processedVehicleLines.length > 0),
+      carCount: parsedVehicleQty,
       carTotal,
-      vehicleType: needCar && selectedVehicle ? selectedVehicle.id : null,
-      vehicleName: needCar && selectedVehicle ? selectedVehicle.name : null,
-      vehicleQuantity: needCar ? parsedVehicleQty : 0,
-      vehiclePricePerDay: needCar && selectedVehicle ? selectedVehicle.pricePerDay : 0,
-      vehicleDays: needCar ? nights : 0,
-      vehicleTripType: needCar ? (vehicleTripType || 'Full-day tour') : null,
+      vehicleLines: processedVehicleLines,
+      vehicleType: selectedVehicle ? selectedVehicle.id : null,
+      vehicleName: selectedVehicle ? selectedVehicle.name : null,
+      vehicleQuantity: parsedVehicleQty,
+      vehiclePricePerDay: selectedVehicle ? (selectedVehicle.services?.tour?.price || selectedVehicle.pricePerDay || 0) : 0,
+      vehicleDays: processedVehicleLines.find(l => l.days)?.days || nights,
+      vehicleTripType: processedVehicleLines[0]?.serviceLabel || null,
       transportCost: carTotal,
       transportSummary: transportLine,
       breakfast: !!(breakfast && bfEnabled),
@@ -2948,6 +3156,7 @@ app.put('/api/bookings/:id', requireAnyStaff, (req, res) => {
     vehicleType = 'car',
     vehicleQuantity = null,
     carCount = 0,
+    vehicleLines = null,
     breakfast = false,
     breakfastGuests = null,
     candlelightDinner = false,
@@ -2984,6 +3193,17 @@ app.put('/api/bookings/:id', requireAnyStaff, (req, res) => {
     const effectiveCheckIn = checkIn || booking.checkIn;
     const effectiveCheckOut = checkOut || booking.checkOut;
     const parsedRoomsCount = Math.max(1, parseInt(roomsCount !== undefined ? roomsCount : (booking.roomsCount || 1), 10) || 1);
+    const parsedAdults = parseInt(adults !== undefined ? adults : (booking.adults || 2), 10) || 1;
+    const parsedChildren = parseInt(children !== undefined ? children : (booking.children || 0), 10) || 0;
+
+    const roomMaxAdults = parseInt(room.maxAdults, 10) || 2;
+    const roomMaxChildren = (room.maxChildren !== undefined && room.maxChildren !== null) ? parseInt(room.maxChildren, 10) : 1;
+    if (parsedAdults > roomMaxAdults * parsedRoomsCount || parsedChildren > roomMaxChildren * parsedRoomsCount) {
+      const msg = (room.id === 'palm-grove-family-suite')
+        ? `Each suite accommodates up to ${roomMaxAdults} adults and ${roomMaxChildren} children. Please add another room.`
+        : 'Each room accommodates up to 2 adults and 1 child. Please add another room.';
+      return res.status(400).json({ success: false, message: msg });
+    }
 
     // Verify availability excluding current booking
     const availability = getRoomAvailability(db, targetRoomId, effectiveCheckIn, effectiveCheckOut, booking.bookingId);
@@ -3012,21 +3232,118 @@ app.put('/api/bookings/:id', requireAnyStaff, (req, res) => {
     let parsedVehicleQty = 0;
     let transportLine = '';
     let vShortName = 'Car';
+    const processedVehicleLines = [];
+    const transportBreakdownLines = [];
+
+    const effectiveLines = Array.isArray(vehicleLines)
+      ? vehicleLines
+      : (Array.isArray(booking.vehicleLines) && needCar ? booking.vehicleLines : []);
+
     if (needCar) {
-      const vType = (vehicleType || booking.vehicleType || 'car').toLowerCase();
-      selectedVehicle = (db.vehicles || []).find(v => 
-        v.id === vType || 
-        v.name.toLowerCase() === vType || 
-        vType.includes(v.id) || 
-        v.name.toLowerCase().includes(vType)
-      );
-      if (selectedVehicle && selectedVehicle.enabled) {
-        const maxQ = selectedVehicle.maxQuantity || 5;
-        const effectiveQty = (vehicleQuantity !== null && vehicleQuantity !== undefined && vehicleQuantity !== '') ? vehicleQuantity : (carCount || 1);
-        parsedVehicleQty = Math.min(maxQ, Math.max(1, parseInt(effectiveQty, 10) || 1));
-        carTotal = selectedVehicle.pricePerDay * parsedVehicleQty * nights;
-        vShortName = selectedVehicle.id === 'toto' ? 'Toto' : (selectedVehicle.id === 'auto' ? 'Auto' : 'Car');
-        transportLine = `${vShortName} × ${parsedVehicleQty} × ${nights} day${nights > 1 ? 's' : ''}`;
+      if (effectiveLines.length > 0) {
+        for (const line of effectiveLines) {
+          const rawId = (line.vehicleId || line.vehicleType || 'car').toLowerCase();
+          const vehicleObj = (db.vehicles || []).find(v =>
+            v.id === rawId ||
+            v.name.toLowerCase() === rawId ||
+            rawId.includes(v.id) ||
+            v.name.toLowerCase().includes(rawId)
+          );
+          if (!vehicleObj || vehicleObj.enabled === false) continue;
+          normalizeVehicle(vehicleObj);
+
+          const sType = line.serviceType || 'tour';
+          const svc = vehicleObj.services?.[sType];
+          const unitPrice = (svc && svc.price && svc.enabled)
+            ? Number(svc.price)
+            : (vehicleObj.services?.tour?.price || vehicleObj.pricePerDay || 2500);
+
+          const maxQ = vehicleObj.maxQuantity || 5;
+          const lineQty = Math.min(maxQ, Math.max(1, parseInt(line.quantity, 10) || 1));
+          let lineDays = null;
+          let lineSubtotal = 0;
+          let serviceLabel = '';
+
+          if (sType === 'tour') {
+            serviceLabel = 'Tour';
+            lineDays = Math.max(1, parseInt(line.days, 10) || nights);
+            lineSubtotal = unitPrice * lineQty * lineDays;
+          } else if (sType === 'pickup') {
+            serviceLabel = 'Pickup';
+            lineSubtotal = unitPrice * lineQty;
+          } else if (sType === 'drop') {
+            serviceLabel = 'Drop';
+            lineSubtotal = unitPrice * lineQty;
+          } else if (sType === 'pickup_drop') {
+            serviceLabel = 'Pickup + Drop';
+            lineSubtotal = unitPrice * lineQty;
+          }
+
+          const summaryStr = sType === 'tour'
+            ? `${vehicleObj.name} · Tour × ${lineQty} × ${lineDays} day${lineDays > 1 ? 's' : ''}`
+            : `${vehicleObj.name} · ${serviceLabel} × ${lineQty}`;
+
+          processedVehicleLines.push({
+            vehicleId: vehicleObj.id,
+            vehicleName: vehicleObj.name,
+            serviceType: sType,
+            serviceLabel,
+            price: unitPrice,
+            quantity: lineQty,
+            days: lineDays,
+            pickupPoint: line.pickupPoint || null,
+            pickupTime: line.pickupTime || null,
+            dropPoint: line.dropPoint || null,
+            dropTime: line.dropTime || null,
+            tourNotes: line.tourNotes || null,
+            subtotal: lineSubtotal,
+            lineSummary: summaryStr
+          });
+
+          transportBreakdownLines.push(`${summaryStr} = ₹${lineSubtotal.toLocaleString('en-IN')}`);
+          carTotal += lineSubtotal;
+        }
+
+        if (processedVehicleLines.length > 0) {
+          selectedVehicle = (db.vehicles || []).find(v => v.id === processedVehicleLines[0].vehicleId);
+          parsedVehicleQty = processedVehicleLines[0].quantity;
+          transportLine = transportBreakdownLines.join(' | ');
+          vShortName = selectedVehicle?.name?.split('(')[0]?.trim() || 'Vehicle';
+        }
+      } else {
+        const vType = (vehicleType || booking.vehicleType || 'car').toLowerCase();
+        selectedVehicle = (db.vehicles || []).find(v => 
+          v.id === vType || 
+          v.name.toLowerCase() === vType || 
+          vType.includes(v.id) || 
+          v.name.toLowerCase().includes(vType)
+        );
+        if (selectedVehicle && selectedVehicle.enabled) {
+          normalizeVehicle(selectedVehicle);
+          const tourRate = (selectedVehicle.services?.tour?.price && selectedVehicle.services.tour.enabled)
+            ? selectedVehicle.services.tour.price
+            : (selectedVehicle.pricePerDay || 2500);
+
+          const maxQ = selectedVehicle.maxQuantity || 5;
+          const effectiveQty = (vehicleQuantity !== null && vehicleQuantity !== undefined && vehicleQuantity !== '') ? vehicleQuantity : (carCount || 1);
+          parsedVehicleQty = Math.min(maxQ, Math.max(1, parseInt(effectiveQty, 10) || 1));
+          carTotal = tourRate * parsedVehicleQty * nights;
+          vShortName = selectedVehicle.id === 'toto' ? 'Toto' : (selectedVehicle.id === 'auto' ? 'Auto' : 'Car');
+          transportLine = `${vShortName} × ${parsedVehicleQty} × ${nights} day${nights > 1 ? 's' : ''}`;
+          transportBreakdownLines.push(transportLine);
+
+          processedVehicleLines.push({
+            vehicleId: selectedVehicle.id,
+            vehicleName: selectedVehicle.name,
+            serviceType: 'tour',
+            serviceLabel: 'Tour',
+            price: tourRate,
+            quantity: parsedVehicleQty,
+            days: nights,
+            subtotal: carTotal,
+            lineSummary: transportLine
+          });
+        }
       }
     }
 
@@ -3101,17 +3418,28 @@ app.put('/api/bookings/:id', requireAnyStaff, (req, res) => {
     booking.adults = parseInt(adults, 10) || 2;
     booking.children = parseInt(children, 10) || 0;
     if (status) booking.status = status;
-    booking.needCar = !!needCar;
+    booking.needCar = !!(needCar && processedVehicleLines.length > 0);
+    booking.carCount = parsedVehicleQty;
+    booking.carTotal = carTotal;
+    booking.vehicleLines = processedVehicleLines;
+    booking.transportCost = carTotal;
+    booking.transportSummary = transportLine;
     if (needCar && selectedVehicle) {
       booking.vehicleId = selectedVehicle.id;
       booking.vehicleName = selectedVehicle.name;
       booking.vehicleType = selectedVehicle.id;
-      booking.carCount = parsedVehicleQty;
-      booking.carTotal = carTotal;
+      booking.vehicleQuantity = parsedVehicleQty;
+      booking.vehiclePricePerDay = selectedVehicle.services?.tour?.price || selectedVehicle.pricePerDay || 0;
+      booking.vehicleDays = processedVehicleLines.find(l => l.days)?.days || nights;
+      booking.vehicleTripType = processedVehicleLines[0]?.serviceLabel || null;
     } else {
       booking.vehicleId = null;
       booking.vehicleName = null;
-      booking.carTotal = 0;
+      booking.vehicleType = null;
+      booking.vehicleQuantity = 0;
+      booking.vehiclePricePerDay = 0;
+      booking.vehicleDays = 0;
+      booking.vehicleTripType = null;
     }
     booking.breakfast = !!breakfast;
     booking.breakfastTotal = breakfastTotal;
@@ -3133,7 +3461,7 @@ app.put('/api/bookings/:id', requireAnyStaff, (req, res) => {
     const breakdownLines = [
       roomLine,
       ...(breakfast && breakfastLine ? [breakfastLine] : []),
-      ...(needCar && transportLine ? [transportLine] : []),
+      ...(needCar && transportBreakdownLines.length > 0 ? transportBreakdownLines : (needCar && transportLine ? [transportLine] : [])),
       ...(candlelightDinner && dinnerLine ? [dinnerLine] : []),
       ...(taxLine ? [taxLine] : [])
     ];
@@ -3144,7 +3472,16 @@ app.put('/api/bookings/:id', requireAnyStaff, (req, res) => {
       taxAmount,
       subtotal: baseSubtotal,
       totalAmount,
-      lines: breakdownLines
+      lines: breakdownLines,
+      details: {
+        ...(booking.breakdown?.details || {}),
+        transport: (needCar && processedVehicleLines.length > 0) ? {
+          lines: processedVehicleLines,
+          subtotal: carTotal,
+          summary: transportLine
+        } : null,
+        vehicleLines: processedVehicleLines
+      }
     };
 
     // Revision creation
@@ -4592,14 +4929,20 @@ app.post('/api/settings', requireManager, (req, res) => {
 });
 
 // ============================================================================
-// VEHICLES & TRANSPORT APIS (ANI'S TOUR AND TRAVELS)
+// VEHICLES & TRANSPORT APIS (ANI'S TOUR AND TRAVELS PRICING MATRIX)
 // ============================================================================
 app.get('/api/vehicles', (req, res) => {
   const db = readDB();
+  const vehicles = (db?.vehicles || []).map(normalizeVehicle);
+  const vehicleSettings = db?.vehicleSettings || {
+    enableTripType: true,
+    enableRoutePricing: false,
+    routes: []
+  };
   res.json({
     success: true,
-    vehicles: db?.vehicles || [],
-    vehicleSettings: db?.vehicleSettings || { enableTripType: true }
+    vehicles,
+    vehicleSettings
   });
 });
 
@@ -4607,14 +4950,134 @@ app.post('/api/vehicles/settings', requireManager, (req, res) => {
   const db = readDB();
   if (!db) return res.status(500).json({ success: false });
   db.vehicleSettings = db.vehicleSettings || {};
+
   if (req.body.enableTripType !== undefined) {
     db.vehicleSettings.enableTripType = Boolean(req.body.enableTripType);
   }
-  logAudit(db, req.user, 'Vehicle Settings Changed', `${req.user?.name || 'Staff'} updated vehicle trip type settings.`, req);
+  if (req.body.enableRoutePricing !== undefined) {
+    db.vehicleSettings.enableRoutePricing = Boolean(req.body.enableRoutePricing);
+  }
+  if (Array.isArray(req.body.routes)) {
+    db.vehicleSettings.routes = req.body.routes;
+  }
+
+  logAudit(db, req.user, 'Vehicle Settings Changed', `${req.user?.name || 'Staff'} updated vehicle settings (Trip Type: ${db.vehicleSettings.enableTripType}, Route Pricing: ${db.vehicleSettings.enableRoutePricing}).`, req);
   writeDB(db);
   res.json({ success: true, vehicleSettings: db.vehicleSettings });
 });
 
+// Update a specific matrix cell (vehicle + service price and toggle)
+app.post('/api/vehicles/:id/cell', requireManager, (req, res) => {
+  const { id } = req.params;
+  const { serviceType, price, enabled } = req.body;
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false });
+  db.vehicles = db.vehicles || [];
+
+  const v = db.vehicles.find(item => item.id === id);
+  if (!v) return res.status(404).json({ success: false, message: 'Vehicle not found' });
+  normalizeVehicle(v);
+
+  const validServices = ['pickup', 'drop', 'pickup_drop', 'tour'];
+  if (!validServices.includes(serviceType)) {
+    return res.status(400).json({ success: false, message: `Invalid service type: "${serviceType}". Must be one of ${validServices.join(', ')}` });
+  }
+
+  const oldCell = v.services[serviceType] || { price: null, enabled: false };
+  const oldPrice = oldCell.price;
+  const oldEnabled = oldCell.enabled;
+
+  const numPrice = (price === null || price === '' || price === undefined || isNaN(Number(price)))
+    ? null
+    : Math.max(0, parseFloat(price));
+
+  const isEnabled = enabled !== undefined ? Boolean(enabled) : oldCell.enabled;
+
+  v.services[serviceType] = {
+    price: numPrice,
+    enabled: isEnabled
+  };
+
+  if (serviceType === 'tour') {
+    v.pricePerDay = numPrice;
+    if (id === 'car') {
+      db.settings = db.settings || {};
+      db.settings.carRentalPricePerDay = numPrice || 0;
+    }
+  }
+
+  const serviceLabels = {
+    pickup: 'Pickup',
+    drop: 'Drop',
+    pickup_drop: 'Pickup + Drop',
+    tour: 'Tour (per day)'
+  };
+  const sLabel = serviceLabels[serviceType] || serviceType;
+  const newPriceStr = numPrice !== null ? `₹${numPrice.toLocaleString('en-IN')}` : 'Not set';
+  const oldPriceStr = oldPrice !== null ? `₹${Number(oldPrice).toLocaleString('en-IN')}` : 'Not set';
+
+  logAudit(
+    db,
+    req.user,
+    'Vehicle Price Updated',
+    `${req.user?.name || 'Staff'} updated ${v.name} · ${sLabel} to ${newPriceStr} (${isEnabled ? 'Active' : 'Disabled'}). Previous: ${oldPriceStr} (${oldEnabled ? 'Active' : 'Disabled'}).`,
+    req
+  );
+
+  writeDB(db);
+  res.json({
+    success: true,
+    vehicle: v,
+    message: `${v.name} · ${sLabel} updated to ${newPriceStr} (${isEnabled ? 'Active' : 'Disabled'})`
+  });
+});
+
+// Add a new Vehicle Type to the fleet
+app.post('/api/vehicles', requireManager, (req, res) => {
+  const { name, capacity, description, enabled, maxQuantity } = req.body;
+  if (!name || !name.trim()) {
+    return res.status(400).json({ success: false, message: 'Vehicle name is required' });
+  }
+
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false });
+  db.vehicles = db.vehicles || [];
+
+  const baseId = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `vehicle-${Date.now()}`;
+  let uniqueId = baseId;
+  let counter = 1;
+  while (db.vehicles.some(v => v.id === uniqueId)) {
+    uniqueId = `${baseId}-${counter++}`;
+  }
+
+  const newVehicle = {
+    id: uniqueId,
+    name: name.trim(),
+    description: description ? description.trim() : 'Private fleet vehicle managed by Ani\'s Travels.',
+    capacity: Math.max(1, parseInt(capacity, 10) || 4),
+    enabled: enabled !== undefined ? Boolean(enabled) : true,
+    maxQuantity: Math.max(1, parseInt(maxQuantity, 10) || 5),
+    pricePerDay: null,
+    services: {
+      pickup: { price: null, enabled: false },
+      drop: { price: null, enabled: false },
+      pickup_drop: { price: null, enabled: false },
+      tour: { price: null, enabled: false }
+    }
+  };
+
+  db.vehicles.push(newVehicle);
+  logAudit(db, req.user, 'New Vehicle Added', `${req.user?.name || 'Staff'} added new vehicle type: "${newVehicle.name}" (Capacity: ${newVehicle.capacity} passengers).`, req);
+  writeDB(db);
+
+  res.json({
+    success: true,
+    vehicle: newVehicle,
+    message: `Vehicle "${newVehicle.name}" added successfully.`
+  });
+});
+
+// Update vehicle metadata (name, description, capacity, active status)
 app.post('/api/vehicles/:id', requireManager, (req, res) => {
   const { id } = req.params;
   const db = readDB();
@@ -4622,24 +5085,121 @@ app.post('/api/vehicles/:id', requireManager, (req, res) => {
   db.vehicles = db.vehicles || [];
   const v = db.vehicles.find(item => item.id === id);
   if (!v) return res.status(404).json({ success: false, message: 'Vehicle not found' });
+  normalizeVehicle(v);
 
-  const oldPrice = v.pricePerDay;
+  const oldName = v.name;
+  if (req.body.name !== undefined && req.body.name.trim()) v.name = req.body.name.trim();
+  if (req.body.description !== undefined) v.description = req.body.description.trim();
+  if (req.body.capacity !== undefined) v.capacity = Math.max(1, parseInt(req.body.capacity, 10) || v.capacity);
+  if (req.body.maxQuantity !== undefined) v.maxQuantity = Math.max(1, parseInt(req.body.maxQuantity, 10) || v.maxQuantity);
+  if (req.body.enabled !== undefined) v.enabled = Boolean(req.body.enabled);
+  if (req.body.active !== undefined) v.enabled = Boolean(req.body.active);
+
+  // If pricePerDay updated directly
   if (req.body.pricePerDay !== undefined) {
-    v.pricePerDay = parseFloat(req.body.pricePerDay) || oldPrice;
+    const num = (req.body.pricePerDay === null || req.body.pricePerDay === '') ? null : parseFloat(req.body.pricePerDay);
+    v.pricePerDay = num;
+    if (v.services?.tour) v.services.tour.price = num;
     if (id === 'car') {
       db.settings = db.settings || {};
-      db.settings.carRentalPricePerDay = v.pricePerDay;
+      db.settings.carRentalPricePerDay = num || 0;
     }
   }
-  if (req.body.description !== undefined) v.description = req.body.description;
-  if (req.body.capacity !== undefined) v.capacity = parseInt(req.body.capacity, 10) || v.capacity;
-  if (req.body.maxQuantity !== undefined) v.maxQuantity = parseInt(req.body.maxQuantity, 10) || v.maxQuantity;
-  if (req.body.active !== undefined) v.enabled = Boolean(req.body.active);
-  if (req.body.enabled !== undefined) v.enabled = Boolean(req.body.enabled);
 
-  logAudit(db, req.user, 'Vehicle Updated', `${req.user?.name || 'Staff'} updated vehicle ${v.name} (price: ₹${v.pricePerDay}).`, req);
+  // If services object updated in bulk
+  if (req.body.services && typeof req.body.services === 'object') {
+    Object.keys(req.body.services).forEach(sk => {
+      if (v.services[sk]) {
+        if (req.body.services[sk].price !== undefined) {
+          v.services[sk].price = req.body.services[sk].price === null ? null : parseFloat(req.body.services[sk].price);
+        }
+        if (req.body.services[sk].enabled !== undefined) {
+          v.services[sk].enabled = Boolean(req.body.services[sk].enabled);
+        }
+      }
+    });
+  }
+
+  logAudit(db, req.user, 'Vehicle Updated', `${req.user?.name || 'Staff'} updated vehicle "${oldName}" (Name: ${v.name}, Capacity: ${v.capacity}, Active: ${v.enabled}).`, req);
   writeDB(db);
-  res.json({ success: true, vehicle: v, message: 'Vehicle updated' });
+  res.json({ success: true, vehicle: v, message: 'Vehicle updated successfully' });
+});
+
+// Delete a custom vehicle type
+app.delete('/api/vehicles/:id', requireManager, (req, res) => {
+  const { id } = req.params;
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false });
+  db.vehicles = db.vehicles || [];
+
+  const idx = db.vehicles.findIndex(v => v.id === id);
+  if (idx === -1) return res.status(404).json({ success: false, message: 'Vehicle not found' });
+
+  const deleted = db.vehicles.splice(idx, 1)[0];
+  logAudit(db, req.user, 'Vehicle Deleted', `${req.user?.name || 'Staff'} deleted vehicle "${deleted.name}".`, req);
+  writeDB(db);
+
+  res.json({ success: true, message: `Vehicle "${deleted.name}" removed successfully.` });
+});
+
+// Routes Management APIs (Optional route-specific pricing)
+app.post('/api/vehicles/routes', requireManager, (req, res) => {
+  const { name, pickupPrice, dropPrice } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ success: false, message: 'Route name is required' });
+
+  const db = readDB();
+  db.vehicleSettings = db.vehicleSettings || {};
+  db.vehicleSettings.routes = db.vehicleSettings.routes || [];
+
+  const newRoute = {
+    id: `route-${Date.now()}`,
+    name: name.trim(),
+    pickupPrice: (pickupPrice !== null && pickupPrice !== undefined && pickupPrice !== '') ? parseFloat(pickupPrice) : null,
+    dropPrice: (dropPrice !== null && dropPrice !== undefined && dropPrice !== '') ? parseFloat(dropPrice) : null
+  };
+
+  db.vehicleSettings.routes.push(newRoute);
+  logAudit(db, req.user, 'Vehicle Route Added', `${req.user?.name || 'Staff'} added route: "${newRoute.name}".`, req);
+  writeDB(db);
+
+  res.json({ success: true, route: newRoute, routes: db.vehicleSettings.routes, message: 'Route added successfully' });
+});
+
+app.put('/api/vehicles/routes/:routeId', requireManager, (req, res) => {
+  const { routeId } = req.params;
+  const { name, pickupPrice, dropPrice } = req.body;
+
+  const db = readDB();
+  db.vehicleSettings = db.vehicleSettings || {};
+  db.vehicleSettings.routes = db.vehicleSettings.routes || [];
+
+  const r = db.vehicleSettings.routes.find(item => item.id === routeId);
+  if (!r) return res.status(404).json({ success: false, message: 'Route not found' });
+
+  if (name !== undefined && name.trim()) r.name = name.trim();
+  if (pickupPrice !== undefined) r.pickupPrice = (pickupPrice !== null && pickupPrice !== '') ? parseFloat(pickupPrice) : null;
+  if (dropPrice !== undefined) r.dropPrice = (dropPrice !== null && dropPrice !== '') ? parseFloat(dropPrice) : null;
+
+  logAudit(db, req.user, 'Vehicle Route Updated', `${req.user?.name || 'Staff'} updated route: "${r.name}".`, req);
+  writeDB(db);
+
+  res.json({ success: true, route: r, routes: db.vehicleSettings.routes, message: 'Route updated successfully' });
+});
+
+app.delete('/api/vehicles/routes/:routeId', requireManager, (req, res) => {
+  const { routeId } = req.params;
+  const db = readDB();
+  db.vehicleSettings = db.vehicleSettings || {};
+  db.vehicleSettings.routes = db.vehicleSettings.routes || [];
+
+  const idx = db.vehicleSettings.routes.findIndex(item => item.id === routeId);
+  if (idx === -1) return res.status(404).json({ success: false, message: 'Route not found' });
+
+  const deleted = db.vehicleSettings.routes.splice(idx, 1)[0];
+  logAudit(db, req.user, 'Vehicle Route Deleted', `${req.user?.name || 'Staff'} deleted route: "${deleted.name}".`, req);
+  writeDB(db);
+
+  res.json({ success: true, routes: db.vehicleSettings.routes, message: 'Route deleted successfully' });
 });
 
 // ============================================================================

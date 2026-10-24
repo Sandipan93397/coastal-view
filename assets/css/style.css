@@ -872,7 +872,6 @@ textarea:focus-visible,
   padding-top: 14px;
   border-top: 1px dashed rgba(232, 199, 123, 0.35);
   animation: slideDownFade 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  overflow: hidden;
 }
 
 @keyframes slideDownFade {
@@ -884,8 +883,102 @@ textarea:focus-visible,
   to {
     opacity: 1;
     transform: translateY(0);
-    max-height: 380px;
+    max-height: 2500px;
   }
+}
+
+/* Multi-line Vehicle Cards */
+.vehicle-lines-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vehicle-line-card {
+  background: rgba(7, 59, 76, 0.55);
+  border: 1px solid rgba(232, 199, 123, 0.3);
+  border-radius: 10px;
+  padding: 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  transition: border-color 0.2s ease;
+}
+
+.vehicle-line-card:hover {
+  border-color: var(--champagne-gold);
+}
+
+.vehicle-line-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.vehicle-line-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--champagne-gold);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.btn-remove-line {
+  background: rgba(239, 71, 111, 0.12);
+  border: 1px solid rgba(239, 71, 111, 0.45);
+  color: #FFA5B8;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: all 0.2s ease;
+}
+
+.btn-remove-line:hover {
+  background: var(--sunset-coral);
+  color: #FFFFFF;
+}
+
+.vehicle-selectors-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1.3fr auto;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.vehicle-extra-fields {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.vehicle-line-price-strip {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: rgba(13, 148, 136, 0.15);
+  border: 1px solid rgba(13, 148, 136, 0.35);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  color: #FFFFFF;
+}
+
+.vehicle-line-price-val {
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--champagne-gold);
 }
 
 .vehicle-inputs-row {

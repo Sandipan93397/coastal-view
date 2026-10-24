@@ -57,7 +57,10 @@
       "servingTime": "7:30 AM to 10:30 AM",
       "note": "Served 7:30 AM to 10:30 AM."
     },
-    "captchaPolicy": "smart"
+    "captchaPolicy": "smart",
+    "childComplimentaryAgeLimit": 5,
+    "extraPersonAllowed": false,
+    "extraPersonPrice": 0
   },
   "rooms": [
     {
@@ -69,7 +72,7 @@
       "view": "Sea-facing",
       "isLuxury": true,
       "isSoldOut": false,
-      "maxAdults": 3,
+      "maxAdults": 2,
       "maxChildren": 1,
       "bed": "King Size Premium Bed",
       "size": "450 sq ft",
@@ -177,7 +180,8 @@
         }
       ],
       "quantity": 5,
-      "blockedQuantity": 0
+      "blockedQuantity": 0,
+      "capacity": "Max 2 Adults + 1 Child"
     },
     {
       "id": "pool-haven-room",
@@ -276,7 +280,8 @@
         }
       ],
       "quantity": 4,
-      "blockedQuantity": 0
+      "blockedQuantity": 0,
+      "capacity": "Max 2 Adults + 1 Child"
     },
     {
       "id": "cosy-deluxe-room",
@@ -362,7 +367,8 @@
         }
       ],
       "quantity": 7,
-      "blockedQuantity": 0
+      "blockedQuantity": 0,
+      "capacity": "Max 2 Adults + 1 Child"
     },
     {
       "id": "palm-grove-family-suite",
@@ -448,7 +454,8 @@
         }
       ],
       "quantity": 2,
-      "blockedQuantity": 0
+      "blockedQuantity": 0,
+      "capacity": "Max 4 Adults + 2 Children"
     }
   ],
   "restaurant": [
@@ -5898,28 +5905,82 @@
       "id": "toto",
       "name": "Toto (E-Rickshaw)",
       "description": "Local short trips around Mandarmani, up to 4 passengers.",
-      "pricePerDay": 200,
       "capacity": 4,
       "enabled": true,
-      "maxQuantity": 5
+      "maxQuantity": 5,
+      "pricePerDay": null,
+      "services": {
+        "pickup": {
+          "price": null,
+          "enabled": false
+        },
+        "drop": {
+          "price": null,
+          "enabled": false
+        },
+        "pickup_drop": {
+          "price": null,
+          "enabled": false
+        },
+        "tour": {
+          "price": null,
+          "enabled": false
+        }
+      }
     },
     {
       "id": "auto",
       "name": "Auto",
       "description": "Local sightseeing and station/bus-stand pickup, up to 3 passengers.",
-      "pricePerDay": 1200,
       "capacity": 3,
       "enabled": true,
-      "maxQuantity": 5
+      "maxQuantity": 5,
+      "pricePerDay": null,
+      "services": {
+        "pickup": {
+          "price": null,
+          "enabled": false
+        },
+        "drop": {
+          "price": null,
+          "enabled": false
+        },
+        "pickup_drop": {
+          "price": null,
+          "enabled": false
+        },
+        "tour": {
+          "price": null,
+          "enabled": false
+        }
+      }
     },
     {
       "id": "car",
       "name": "Car",
       "description": "Luxury AC pickup or Mandarmani tour cab, up to 4 passengers.",
-      "pricePerDay": 2500,
       "capacity": 4,
       "enabled": true,
-      "maxQuantity": 5
+      "maxQuantity": 5,
+      "pricePerDay": 2500,
+      "services": {
+        "pickup": {
+          "price": null,
+          "enabled": false
+        },
+        "drop": {
+          "price": null,
+          "enabled": false
+        },
+        "pickup_drop": {
+          "price": null,
+          "enabled": false
+        },
+        "tour": {
+          "price": 2500,
+          "enabled": true
+        }
+      }
     }
   ],
   "vehicleSettings": {
@@ -5933,9 +5994,78 @@
         "id": "pickup_drop",
         "label": "Pickup / Drop only"
       }
+    ],
+    "enableRoutePricing": false,
+    "routes": [
+      {
+        "id": "route-1",
+        "name": "Contai / Kanthi Railway Station",
+        "pickupPrice": null,
+        "dropPrice": null
+      },
+      {
+        "id": "route-2",
+        "name": "Digha Railway Station",
+        "pickupPrice": null,
+        "dropPrice": null
+      },
+      {
+        "id": "route-3",
+        "name": "Chawalkhola Bus Stop",
+        "pickupPrice": null,
+        "dropPrice": null
+      },
+      {
+        "id": "route-4",
+        "name": "Ramnagar Railway Station",
+        "pickupPrice": null,
+        "dropPrice": null
+      },
+      {
+        "id": "route-5",
+        "name": "Mecheda Station / Kolaghat",
+        "pickupPrice": null,
+        "dropPrice": null
+      },
+      {
+        "id": "route-6",
+        "name": "Kolkata Doorstep (AC Cab)",
+        "pickupPrice": null,
+        "dropPrice": null
+      }
     ]
   },
   "auditLog": [
+    {
+      "id": "audit-1792817965294-931",
+      "timestamp": "2026-10-24T04:59:25.294Z",
+      "user": "admin",
+      "role": "Super Admin",
+      "name": "System",
+      "ip": "127.0.0.1",
+      "action": "Failed Login Attempt",
+      "details": "Failed login attempt from IP 127.0.0.1 for \"admin\". Attempts: 2/5"
+    },
+    {
+      "id": "audit-1792817958706-158",
+      "timestamp": "2026-10-24T04:59:18.706Z",
+      "user": "admin",
+      "role": "Super Admin",
+      "name": "System",
+      "ip": "1",
+      "action": "Failed Login Attempt",
+      "details": "Failed login attempt from IP 1 for \"admin\". Attempts: 1/5"
+    },
+    {
+      "id": "audit-1792815968454-835",
+      "timestamp": "2026-10-24T04:26:08.454Z",
+      "user": "admin",
+      "role": "Super Admin",
+      "name": "System",
+      "ip": "1",
+      "action": "Failed Login Attempt",
+      "details": "Failed login attempt from IP 1 for \"admin\". Attempts: 2/5"
+    },
     {
       "id": "audit-1792815651470-658",
       "timestamp": "2026-10-24T04:20:51.470Z",
@@ -15905,36 +16035,6 @@
       "ip": "1",
       "action": "Staff API Login Success",
       "details": "Staff \"admin\" authenticated via direct API integration from IP 1."
-    },
-    {
-      "id": "audit-1792128167895-261",
-      "timestamp": "2026-10-16T05:22:47.895Z",
-      "user": "admin",
-      "role": "Super Admin",
-      "name": "Anirban Das",
-      "ip": "1",
-      "action": "Booking Status: Confirmed",
-      "details": "Super Admin Anirban Das changed status of CV-2026-512301 (Vikram Singhania) from \"Pending Advance\" to \"Confirmed\"."
-    },
-    {
-      "id": "audit-1792128162994-23",
-      "timestamp": "2026-10-16T05:22:42.994Z",
-      "user": "admin",
-      "role": "Super Admin",
-      "name": "Anirban Das",
-      "ip": "1",
-      "action": "Confirmation Email Resent",
-      "details": "Resent confirmation email for booking CV-2026-512301 to vikram.singhania@example.com."
-    },
-    {
-      "id": "audit-1792128150158-274",
-      "timestamp": "2026-10-16T05:22:30.159Z",
-      "user": "admin",
-      "role": "Super Admin",
-      "name": "Anirban Das",
-      "ip": "1",
-      "action": "Confirmation Email Resent",
-      "details": "Resent confirmation email for booking CV-2026-773287 to rohit.sen@example.com."
     }
   ],
   "users": [
@@ -18865,6 +18965,27 @@
     }
   },
   "loginHistory": [
+    {
+      "id": "login-1792817965294",
+      "timestamp": "2026-10-24T04:59:25.294Z",
+      "username": "admin",
+      "ip": "127.0.0.1",
+      "status": "Failed"
+    },
+    {
+      "id": "login-1792817958706",
+      "timestamp": "2026-10-24T04:59:18.706Z",
+      "username": "admin",
+      "ip": "1",
+      "status": "Failed"
+    },
+    {
+      "id": "login-1792815968454",
+      "timestamp": "2026-10-24T04:26:08.454Z",
+      "username": "admin",
+      "ip": "1",
+      "status": "Failed"
+    },
     {
       "id": "login-1792815651370",
       "timestamp": "2026-10-24T04:20:51.370Z",

@@ -2094,7 +2094,7 @@ function renderRoomsGrid() {
 
           <div class="room-card-meta">
             <span><span class="material-symbols-outlined" style="font-size: 15px; vertical-align: middle;">inventory_2</span> Total: <strong>${room.quantity || 1} Rooms</strong></span>
-            <span><span class="material-symbols-outlined" style="font-size: 15px; vertical-align: middle;">person</span> Max ${room.maxAdults || 2} Adults${room.maxChildren ? ` + ${room.maxChildren} Ch.` : ''}</span>
+            <span><span class="material-symbols-outlined" style="font-size: 15px; vertical-align: middle;">person</span> ${room.capacity || (room.maxAdults ? `Max ${room.maxAdults} Adult${room.maxAdults > 1 ? 's' : ''}${room.maxChildren ? ` + ${room.maxChildren} Child${room.maxChildren > 1 ? 'ren' : ''}` : ''}` : 'Max 2 Adults + 1 Child')}</span>
             <span><span class="material-symbols-outlined" style="font-size: 15px; vertical-align: middle;">king_bed</span> ${room.bed || 'King Bed'}</span>
             ${room.blockedQuantity ? `<span style="color: var(--sunset-coral); font-weight:600;"><span class="material-symbols-outlined" style="font-size: 15px; vertical-align: middle;">block</span> Blocked: ${room.blockedQuantity}</span>` : ''}
           </div>
@@ -2324,7 +2324,8 @@ function openAddRoomModal() {
   document.getElementById('editRoomBed').value = 'Comfortable King Bed';
   document.getElementById('editRoomSize').value = '450 sq. ft.';
   document.getElementById('editRoomAdults').value = 2;
-  document.getElementById('editRoomChildren').value = 0;
+  document.getElementById('editRoomChildren').value = 1;
+  updateEditRoomCapacityDisplay();
   document.getElementById('editRoomFeatures').value = 'Direct Ocean View & Balcony\nKing Bed, AC & Wi-Fi\nModern Bathroom with Rain Shower';
   document.getElementById('editRoomDesc').value = '';
   document.getElementById('editRoomImage').value = 'assets/images/room-ocean-whisper.jpg';
@@ -2351,6 +2352,15 @@ function openAddRoomModal() {
   document.getElementById('editRoomModal').classList.add('open');
 }
 
+window.updateEditRoomCapacityDisplay = function() {
+  const a = parseInt(document.getElementById('editRoomAdults')?.value, 10) || 2;
+  const c = parseInt(document.getElementById('editRoomChildren')?.value, 10) || 0;
+  const adultStr = `${a} Adult${a > 1 ? 's' : ''}`;
+  const childStr = c > 0 ? ` + ${c} Child${c > 1 ? 'ren' : ''}` : '';
+  const disp = document.getElementById('editRoomCapacityDisplay');
+  if (disp) disp.value = `Max ${adultStr}${childStr}`;
+};
+
 function openEditRoomModal(roomId) {
   adminState.activeRoomIdForEdit = roomId;
   const room = (adminState.rooms || []).find(r => r.id === roomId);
@@ -2366,7 +2376,8 @@ function openEditRoomModal(roomId) {
   document.getElementById('editRoomBed').value = room.bed || '';
   document.getElementById('editRoomSize').value = room.size || '';
   document.getElementById('editRoomAdults').value = room.maxAdults || 2;
-  document.getElementById('editRoomChildren').value = room.maxChildren || 0;
+  document.getElementById('editRoomChildren').value = (room.maxChildren !== undefined && room.maxChildren !== null) ? room.maxChildren : 1;
+  updateEditRoomCapacityDisplay();
   document.getElementById('editRoomFeatures').value = Array.isArray(room.features) ? room.features.join('\n') : (room.features || '');
   document.getElementById('editRoomDesc').value = room.description || '';
   document.getElementById('editRoomImage').value = room.image || '';
@@ -2413,6 +2424,9 @@ async function saveRoomDetails(roomId) {
   const size = document.getElementById('editRoomSize').value.trim();
   const maxAdults = parseInt(document.getElementById('editRoomAdults').value, 10) || 2;
   const maxChildren = parseInt(document.getElementById('editRoomChildren').value, 10) || 0;
+  const adultStr = `${maxAdults} Adult${maxAdults > 1 ? 's' : ''}`;
+  const childStr = maxChildren > 0 ? ` + ${maxChildren} Child${maxChildren > 1 ? 'ren' : ''}` : '';
+  const capacity = `Max ${adultStr}${childStr}`;
   const featuresText = document.getElementById('editRoomFeatures').value;
   const features = featuresText.split('\n').map(s => s.trim()).filter(Boolean);
   const description = document.getElementById('editRoomDesc').value.trim();
@@ -2429,6 +2443,7 @@ async function saveRoomDetails(roomId) {
     size,
     maxAdults,
     maxChildren,
+    capacity,
     features,
     description,
     image,
@@ -2820,7 +2835,9 @@ function renderBookingsTable() {
       </td>
       <td>
         ${b.breakfast ? `<span style="display:inline-block; background: #DCFCE7; color: #166534; padding: 2px 8px; border-radius: 4px; font-size: 0.74rem; font-weight: 600; margin-bottom: 2px;">🍳 Breakfast (${b.breakfastUnit === 'per_room_per_day' ? (b.roomsCount || 1) + ' room' : (b.breakfastGuests || 2) + ' guests'})</span><br>` : ''}
-        ${b.needCar ? `<span style="display:inline-block; background: #E0F2FE; color: #0369A1; padding: 2px 8px; border-radius: 4px; font-size: 0.74rem; font-weight: 600; margin-bottom: 2px;">🚗 ${b.vehicleName || 'Car'}</span><br>` : ''}
+        ${b.vehicleLines && b.vehicleLines.length > 0
+    ? b.vehicleLines.map(vl => `<span style="display:inline-block; background: #E0F2FE; color: #0369A1; padding: 2px 8px; border-radius: 4px; font-size: 0.74rem; font-weight: 600; margin-bottom: 2px;">🚗 ${vl.vehicleName || 'Vehicle'} · ${vl.serviceLabel || vl.serviceType} (×${vl.quantity}${vl.serviceType === 'tour' ? ', ' + (vl.days || 1) + 'd' : ''})</span>`).join('<br>')
+    : (b.needCar ? `<span style="display:inline-block; background: #E0F2FE; color: #0369A1; padding: 2px 8px; border-radius: 4px; font-size: 0.74rem; font-weight: 600; margin-bottom: 2px;">🚗 ${b.vehicleName || 'Car'}</span><br>` : '')}
         ${b.candlelightDinner ? `<span style="display:inline-block; background: #FEF3C7; color: #92400E; padding: 2px 8px; border-radius: 4px; font-size: 0.74rem; font-weight: 600;">🕯️ ${b.dinnerSetup} Dinner</span>` : (!b.breakfast && !b.needCar ? '<span style="color: #94A3B8; font-size: 0.76rem;">None</span>' : '')}
       </td>
       <td>
@@ -2892,7 +2909,12 @@ function getBookingBreakdownFallback(b) {
       lines.push(`Breakfast × ${b.breakfastGuests || 2} guest(s) × ${b.nights || 1} day(s) = ₹${(b.breakfastTotal || 0).toLocaleString('en-IN')}`);
     }
   }
-  if (b.needCar) {
+  if (b.vehicleLines && b.vehicleLines.length > 0) {
+    b.vehicleLines.forEach(vl => {
+      const isTour = vl.serviceType === 'tour';
+      lines.push(`${vl.vehicleName} · ${vl.serviceLabel || vl.serviceType} × ${vl.quantity}${isTour ? ' × ' + (vl.days || 1) + ' day(s)' : ''} = ₹${(vl.lineTotal || 0).toLocaleString('en-IN')}${vl.pickupPoint ? ' (Pickup: ' + vl.pickupPoint + (vl.pickupTime ? ' ' + vl.pickupTime : '') + ')' : ''}${vl.dropPoint ? ' (Drop: ' + vl.dropPoint + (vl.dropTime ? ' ' + vl.dropTime : '') + ')' : ''}`);
+    });
+  } else if (b.needCar) {
     const vName = b.vehicleName ? (b.vehicleName.toLowerCase().includes('toto') ? 'Toto' : (b.vehicleName.toLowerCase().includes('auto') ? 'Auto' : (b.vehicleName.toLowerCase().includes('car') ? 'Car' : b.vehicleName.split('(')[0].trim()))) : 'Vehicle';
     lines.push(`${vName} × ${b.carCount || 1} × ${b.nights} day${b.nights > 1 ? 's' : ''}`);
   }
@@ -2967,7 +2989,9 @@ function viewBookingVoucher(bookingId) {
         <div style="background: #F8FAFC; border-radius: 8px; padding: 12px; font-size: 0.82rem; margin-bottom: 20px;">
           <strong>Included Add-Ons & Transport:</strong><br>
           ${booking.breakfast ? `• Optional Breakfast: ${booking.breakfastUnit === 'per_room_per_day' ? (booking.roomsCount || 1) + ' room(s)' : (booking.breakfastGuests || 2) + ' guest(s)'} × ${booking.nights || 1} day(s) (₹${(booking.breakfastTotal || 0).toLocaleString('en-IN')})<br>` : ''}
-          ${booking.needCar ? `• Ani's Private Transport: ${booking.vehicleName} (${booking.vehicleTripType || 'Full-day'})\n<br>` : ''}
+          ${booking.vehicleLines && booking.vehicleLines.length > 0
+    ? '<strong>Ani\'s Transport:</strong><br>' + booking.vehicleLines.map(vl => `&nbsp;&nbsp;• ${vl.vehicleName} · ${vl.serviceLabel || vl.serviceType} (Qty: ${vl.quantity}${vl.serviceType === 'tour' ? ', ' + (vl.days || 1) + 'd' : ''}) = ₹${(vl.lineTotal || 0).toLocaleString('en-IN')}${vl.pickupPoint ? ' | Pick: ' + vl.pickupPoint + (vl.pickupTime ? ' ' + vl.pickupTime : '') : ''}${vl.dropPoint ? ' | Drop: ' + vl.dropPoint + (vl.dropTime ? ' ' + vl.dropTime : '') : ''}`).join('<br>') + '<br>'
+    : (booking.needCar ? `• Ani's Private Transport: ${booking.vehicleName} (${booking.vehicleTripType || 'Full-day'})\n<br>` : '')}
           ${booking.candlelightDinner ? `• Romance: ${booking.dinnerSetup} Candlelight Dinner` : ''}
         </div>
       ` : ''}
@@ -4678,39 +4702,144 @@ async function deleteMenuItem(type, id) {
 }
 
 // ----------------------------------------------------------------------------
-// 7. VEHICLES FLEET
+// 7. VEHICLES FLEET & PRICING MATRIX
 // ----------------------------------------------------------------------------
 
 function renderVehiclesTable() {
-  const tbody = document.getElementById('vehiclesTableBody');
+  const tbody = document.getElementById('vehicleMatrixTableBody') || document.getElementById('vehiclesTableBody');
   if (!tbody) return;
 
-  // Sync Trip Type Toggle Checkbox
   const tripToggle = document.getElementById('adminEnableTripTypeToggle');
   if (tripToggle && adminState.vehicleSettings) {
     tripToggle.checked = adminState.vehicleSettings.enableTripType !== false;
   }
 
-  tbody.innerHTML = (adminState.vehicles || []).map(v => `
-    <tr>
-      <td><strong>${v.name}</strong></td>
-      <td style="max-width: 280px; font-size: 0.82rem; color: #475569;">${v.description}</td>
-      <td><span class="material-symbols-outlined" style="font-size: 15px; vertical-align: middle; color: var(--turquoise);">groups</span> Up to ${v.capacity} Passengers</td>
-      <td><strong style="color: var(--ocean-blue); font-size: 0.95rem;">₹${v.pricePerDay.toLocaleString('en-IN')}</strong> <span style="font-size: 0.75rem; color: #64748B;">/ day</span></td>
-      <td><strong>${v.maxQuantity || 5}</strong> max</td>
-      <td><span class="badge-status ${v.enabled ? 'available' : 'sold-out'}">${v.enabled ? 'Active Fleet' : 'Disabled'}</span></td>
-      <td>
-        <div style="display: flex; gap: 6px;">
-          <button class="btn-turquoise" style="padding: 5px 12px; font-size: 0.74rem;" onclick="openEditVehicleModal('${v.id}')">
-            <span class="material-symbols-outlined" style="font-size: 14px;">edit</span> Edit
-          </button>
-          <button class="btn-outline-gold" style="padding: 5px 10px; font-size: 0.74rem;" onclick="toggleVehicleActive('${v.id}', ${!v.enabled})">
-            ${v.enabled ? 'Disable' : 'Enable'}
-          </button>
-        </div>
-      </td>
-    </tr>
-  `).join('');
+  const routeToggle = document.getElementById('adminEnableRoutePricingToggle');
+  if (routeToggle && adminState.vehicleSettings) {
+    routeToggle.checked = !!adminState.vehicleSettings.enableRoutePricing;
+  }
+
+  const serviceDefs = [
+    { key: 'pickup', label: 'Pickup' },
+    { key: 'drop', label: 'Drop' },
+    { key: 'pickup_drop', label: 'Pickup + Drop' },
+    { key: 'tour', label: 'Tour (per day)' }
+  ];
+
+  tbody.innerHTML = (adminState.vehicles || []).map(v => {
+    const services = v.services || {};
+
+    const cellHtml = serviceDefs.map(svc => {
+      const cell = services[svc.key];
+      const hasPrice = cell && cell.price != null && Number(cell.price) > 0;
+      const isEnabled = cell ? !!cell.enabled : false;
+      const priceText = hasPrice ? ('₹' + Number(cell.price).toLocaleString('en-IN')) : 'Not set';
+
+      return `
+        <td style="text-align: center; cursor: pointer; padding: 10px; transition: all 0.15s ease;"
+            onclick="openEditMatrixCellModal('${v.id}', '${svc.key}')"
+            title="Click to edit ${v.name} ${svc.label} price and status">
+          <div style="display: inline-flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 12px; border-radius: 8px; border: 1px solid ${hasPrice && isEnabled ? '#A7F3D0' : '#E2E8F0'}; background: ${hasPrice && isEnabled ? '#F0FDF4' : '#F8FAFC'};">
+            <span style="font-weight: 700; font-size: 0.92rem; color: ${hasPrice && isEnabled ? '#065F46' : (hasPrice ? '#64748B' : '#94A3B8')};">
+              ${priceText}
+            </span>
+            <span style="font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 6px; border-radius: 4px; background: ${isEnabled && hasPrice ? '#10B981' : '#CBD5E1'}; color: #FFFFFF;">
+              ${isEnabled && hasPrice ? 'ACTIVE' : (hasPrice ? 'DISABLED' : 'OFF')}
+            </span>
+          </div>
+        </td>
+      `;
+    }).join('');
+
+    return `
+      <tr>
+        <td>
+          <div style="font-weight: 700; font-size: 0.95rem; color: var(--ocean-blue);">${v.name}</div>
+          <div style="font-size: 0.78rem; color: #64748B; margin-top: 2px;">${v.description || ''}</div>
+          <div style="font-size: 0.75rem; color: var(--turquoise); font-weight: 600; margin-top: 3px;">
+            <span class="material-symbols-outlined" style="font-size: 14px; vertical-align: middle;">groups</span> Up to ${v.capacity || 4} passengers
+          </div>
+        </td>
+        ${cellHtml}
+        <td style="text-align: right;">
+          <div style="display: flex; gap: 6px; justify-content: flex-end;">
+            <button class="btn-turquoise" style="padding: 5px 10px; font-size: 0.72rem;" onclick="openEditVehicleModal('${v.id}')" title="Rename or edit details">
+              <span class="material-symbols-outlined" style="font-size: 14px;">settings</span> Edit
+            </button>
+            <button class="btn-outline-gold" style="padding: 5px 10px; font-size: 0.72rem;" onclick="toggleVehicleActive('${v.id}', ${!v.enabled})" title="${v.enabled ? 'Disable' : 'Enable'} entire vehicle">
+              ${v.enabled ? 'Disable' : 'Enable'}
+            </button>
+            <button style="padding: 5px 8px; font-size: 0.72rem; background: #FEE2E2; border: 1px solid #FECACA; color: #DC2626; border-radius: 6px; cursor: pointer;" onclick="deleteVehicle('${v.id}')" title="Delete vehicle">
+              <span class="material-symbols-outlined" style="font-size: 14px;">delete</span>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  renderRoutesTable();
+}
+
+function openEditMatrixCellModal(vehicleId, serviceType) {
+  const v = (adminState.vehicles || []).find(item => item.id === vehicleId);
+  if (!v) return;
+
+  const svc = (v.services || {})[serviceType] || { price: null, enabled: false };
+  const labels = {
+    pickup: 'Pickup Trip',
+    drop: 'Drop Trip',
+    pickup_drop: 'Pickup + Drop Round Trip',
+    tour: 'Tour (per day)'
+  };
+
+  document.getElementById('matrixCellVehicleId').value = vehicleId;
+  document.getElementById('matrixCellServiceType').value = serviceType;
+  document.getElementById('matrixCellPrice').value = (svc.price != null && svc.price !== '') ? svc.price : '';
+  document.getElementById('matrixCellEnabled').checked = svc.enabled !== false && svc.price != null && Number(svc.price) > 0;
+  document.getElementById('matrixCellModalTitle').textContent = `Pricing: ${v.name} · ${labels[serviceType] || serviceType}`;
+  document.getElementById('matrixCellLabel').textContent = `${labels[serviceType] || serviceType} Rate (₹)`;
+
+  document.getElementById('editMatrixCellModal').classList.add('open');
+}
+
+async function handleSaveMatrixCellSubmit(e) {
+  e.preventDefault();
+  const vehicleId = document.getElementById('matrixCellVehicleId').value;
+  const serviceType = document.getElementById('matrixCellServiceType').value;
+  const priceVal = document.getElementById('matrixCellPrice').value.trim();
+  const price = priceVal === '' ? null : Number(priceVal);
+  const enabled = document.getElementById('matrixCellEnabled').checked;
+
+  try {
+    const res = await authFetch(`/api/vehicles/${vehicleId}/cell`, {
+      method: 'POST',
+      body: { serviceType, price, enabled }
+    });
+
+    if (res.success) {
+      closeModal('editMatrixCellModal');
+      showToast(`Saved ${serviceType} rate for vehicle. Logged in audit trail.`, 'success');
+      loadAllAdminData();
+    } else {
+      showToast(res.message || 'Failed to update price cell', 'error');
+    }
+  } catch (err) {
+    showToast('Network error saving price cell.', 'error');
+  }
+}
+
+function openAddVehicleModal() {
+  document.getElementById('editVehicleId').value = 'new';
+  document.getElementById('editVehicleName').value = '';
+  document.getElementById('editVehicleDesc').value = '';
+  document.getElementById('editVehicleRate').value = '0';
+  document.getElementById('editVehicleCapacity').value = '4';
+  document.getElementById('editVehicleMaxQty').value = '5';
+  document.getElementById('editVehicleEnabled').value = 'true';
+  document.getElementById('editVehicleModalTitle').textContent = 'Add New Vehicle Type';
+
+  document.getElementById('editVehicleModal').classList.add('open');
 }
 
 function openEditVehicleModal(id) {
@@ -4720,7 +4849,7 @@ function openEditVehicleModal(id) {
   document.getElementById('editVehicleId').value = v.id;
   document.getElementById('editVehicleName').value = v.name || '';
   document.getElementById('editVehicleDesc').value = v.description || '';
-  document.getElementById('editVehicleRate').value = v.pricePerDay;
+  document.getElementById('editVehicleRate').value = v.pricePerDay || 0;
   document.getElementById('editVehicleCapacity').value = v.capacity || 4;
   document.getElementById('editVehicleMaxQty').value = v.maxQuantity || 5;
   document.getElementById('editVehicleEnabled').value = v.enabled ? 'true' : 'false';
@@ -4734,26 +4863,52 @@ async function handleSaveVehicleSubmit(e) {
   const id = document.getElementById('editVehicleId').value;
   const name = document.getElementById('editVehicleName').value.trim();
   const description = document.getElementById('editVehicleDesc').value.trim();
-  const pricePerDay = Number(document.getElementById('editVehicleRate').value);
+  const pricePerDay = Number(document.getElementById('editVehicleRate').value) || 0;
   const capacity = parseInt(document.getElementById('editVehicleCapacity').value, 10);
   const maxQuantity = parseInt(document.getElementById('editVehicleMaxQty').value, 10);
   const enabled = document.getElementById('editVehicleEnabled').value === 'true';
 
   try {
-    const res = await authFetch(`/api/vehicles/${id}`, {
-      method: 'POST',
-      body: { name, description, pricePerDay, capacity, maxQuantity, enabled }
-    });
+    let res;
+    if (id === 'new' || !id) {
+      res = await authFetch('/api/vehicles', {
+        method: 'POST',
+        body: { name, description, capacity, maxQuantity, enabled }
+      });
+    } else {
+      res = await authFetch(`/api/vehicles/${id}`, {
+        method: 'POST',
+        body: { name, description, pricePerDay, capacity, maxQuantity, enabled }
+      });
+    }
 
     if (res.success) {
       closeModal('editVehicleModal');
-      showToast(`${name} updated successfully & recorded in audit log.`, 'success');
+      showToast(`${name} saved successfully & recorded in audit log.`, 'success');
       loadAllAdminData();
     } else {
       showToast(res.message || 'Failed to update vehicle', 'error');
     }
   } catch (err) {
     showToast('Network error updating vehicle configuration.', 'error');
+  }
+}
+
+async function deleteVehicle(id) {
+  const v = (adminState.vehicles || []).find(item => item.id === id);
+  const name = v ? v.name : 'vehicle';
+  if (!confirm(`Are you sure you want to delete ${name}? All matrix pricing and audit logs will reflect this.`)) return;
+
+  try {
+    const res = await authFetch(`/api/vehicles/${id}`, { method: 'DELETE' });
+    if (res.success) {
+      showToast(`${name} deleted successfully & logged in audit trail.`, 'success');
+      loadAllAdminData();
+    } else {
+      showToast(res.message || 'Failed to delete vehicle', 'error');
+    }
+  } catch (err) {
+    showToast('Network error deleting vehicle.', 'error');
   }
 }
 
@@ -4790,6 +4945,125 @@ async function handleTripTypeToggleChange(enabled) {
     showToast('Failed to update trip type settings.', 'error');
   }
 }
+
+// ----------------------------------------------------------------------------
+// ROUTE PRICING HANDLERS
+// ----------------------------------------------------------------------------
+
+function renderRoutesTable() {
+  const tbody = document.getElementById('routesTableBody');
+  if (!tbody) return;
+
+  const routes = adminState.vehicleSettings?.routes || [];
+  if (routes.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #94A3B8; padding: 18px;">No custom routes added yet. Click "+ Add Route" to configure station/area routes.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = routes.map(r => `
+    <tr>
+      <td><strong>${escapeHtml(r.name)}</strong></td>
+      <td style="color: #64748B; font-size: 0.82rem;">${escapeHtml(r.description || '—')}</td>
+      <td><strong>₹${Number(r.pickupPrice || 0).toLocaleString('en-IN')}</strong></td>
+      <td><strong>₹${Number(r.dropPrice || 0).toLocaleString('en-IN')}</strong></td>
+      <td><span class="badge-status ${r.enabled ? 'available' : 'sold-out'}">${r.enabled ? 'Active' : 'Disabled'}</span></td>
+      <td style="text-align: right;">
+        <button class="btn-turquoise" style="padding: 4px 10px; font-size: 0.72rem; margin-right: 4px;" onclick="openRouteModal('${r.id}')">Edit</button>
+        <button style="padding: 4px 8px; font-size: 0.72rem; background: #FEE2E2; border: 1px solid #FECACA; color: #DC2626; border-radius: 6px; cursor: pointer;" onclick="deleteRoute('${r.id}')">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function handleRoutePricingToggle(checked) {
+  try {
+    const res = await authFetch('/api/vehicles/settings', {
+      method: 'POST',
+      body: { enableRoutePricing: !!checked }
+    });
+    if (res.success) {
+      showToast(`Route-based pricing ${checked ? 'enabled' : 'disabled'}.`, 'success');
+      if (adminState.vehicleSettings) adminState.vehicleSettings.enableRoutePricing = !!checked;
+    }
+  } catch (err) {
+    showToast('Failed to update route pricing setting.', 'error');
+  }
+}
+
+function openRouteModal(routeId) {
+  const routes = adminState.vehicleSettings?.routes || [];
+  const route = routes.find(r => r.id === routeId);
+
+  document.getElementById('editRouteId').value = route ? route.id : '';
+  document.getElementById('editRouteName').value = route ? route.name : '';
+  document.getElementById('editRouteDesc').value = route ? (route.description || '') : '';
+  document.getElementById('editRoutePickupPrice').value = route ? (route.pickupPrice || '') : '';
+  document.getElementById('editRouteDropPrice').value = route ? (route.dropPrice || '') : '';
+  document.getElementById('editRouteEnabled').checked = route ? (route.enabled !== false) : true;
+  document.getElementById('routeModalTitle').textContent = route ? `Edit Route: ${route.name}` : 'Add New Route';
+
+  document.getElementById('editRouteModal').classList.add('open');
+}
+
+async function handleSaveRouteSubmit(e) {
+  e.preventDefault();
+  const routeId = document.getElementById('editRouteId').value;
+  const name = document.getElementById('editRouteName').value.trim();
+  const description = document.getElementById('editRouteDesc').value.trim();
+  const pickupPrice = Number(document.getElementById('editRoutePickupPrice').value) || 0;
+  const dropPrice = Number(document.getElementById('editRouteDropPrice').value) || 0;
+  const enabled = document.getElementById('editRouteEnabled').checked;
+
+  try {
+    let res;
+    if (routeId) {
+      res = await authFetch(`/api/vehicles/routes/${routeId}`, {
+        method: 'PUT',
+        body: { name, description, pickupPrice, dropPrice, enabled }
+      });
+    } else {
+      res = await authFetch('/api/vehicles/routes', {
+        method: 'POST',
+        body: { name, description, pickupPrice, dropPrice, enabled }
+      });
+    }
+
+    if (res.success) {
+      closeModal('editRouteModal');
+      showToast(`Route ${name} saved successfully.`, 'success');
+      loadAllAdminData();
+    } else {
+      showToast(res.message || 'Failed to save route', 'error');
+    }
+  } catch (err) {
+    showToast('Network error saving route.', 'error');
+  }
+}
+
+async function deleteRoute(routeId) {
+  if (!confirm('Are you sure you want to delete this route?')) return;
+  try {
+    const res = await authFetch(`/api/vehicles/routes/${routeId}`, { method: 'DELETE' });
+    if (res.success) {
+      showToast('Route deleted successfully.', 'success');
+      loadAllAdminData();
+    } else {
+      showToast(res.message || 'Failed to delete route', 'error');
+    }
+  } catch (err) {
+    showToast('Network error deleting route.', 'error');
+  }
+}
+
+window.openEditMatrixCellModal = openEditMatrixCellModal;
+window.handleSaveMatrixCellSubmit = handleSaveMatrixCellSubmit;
+window.openAddVehicleModal = openAddVehicleModal;
+window.deleteVehicle = deleteVehicle;
+window.renderRoutesTable = renderRoutesTable;
+window.handleRoutePricingToggle = handleRoutePricingToggle;
+window.openRouteModal = openRouteModal;
+window.handleSaveRouteSubmit = handleSaveRouteSubmit;
+window.deleteRoute = deleteRoute;
 
 // ----------------------------------------------------------------------------
 // 8. SEO & SCHEMA MANAGER
@@ -4936,6 +5210,9 @@ function renderSettingsForm() {
   if (document.getElementById('cfgEnableTax')) document.getElementById('cfgEnableTax').checked = !!s.enableTax;
   if (document.getElementById('cfgTaxPct')) document.getElementById('cfgTaxPct').value = s.taxPercentage || 12;
   if (document.getElementById('cfgCaptchaPolicy')) document.getElementById('cfgCaptchaPolicy').value = s.captchaPolicy || 'smart';
+  if (document.getElementById('cfgChildAgeLimit')) document.getElementById('cfgChildAgeLimit').value = s.childComplimentaryAgeLimit || 5;
+  if (document.getElementById('cfgExtraPersonAllowed')) document.getElementById('cfgExtraPersonAllowed').checked = !!s.extraPersonAllowed;
+  if (document.getElementById('cfgExtraPersonPrice')) document.getElementById('cfgExtraPersonPrice').value = s.extraPersonPrice || 0;
   if (document.getElementById('cfgUpiId')) document.getElementById('cfgUpiId').value = s.paymentUPI || '';
   if (document.getElementById('cfgBankWire')) document.getElementById('cfgBankWire').value = s.paymentBank || '';
 
@@ -4955,6 +5232,9 @@ async function saveHotelSettingsForm() {
     enableTax: document.getElementById('cfgEnableTax') ? document.getElementById('cfgEnableTax').checked : false,
     taxPercentage: Number(document.getElementById('cfgTaxPct').value),
     captchaPolicy: document.getElementById('cfgCaptchaPolicy') ? document.getElementById('cfgCaptchaPolicy').value : 'smart',
+    childComplimentaryAgeLimit: Number(document.getElementById('cfgChildAgeLimit')?.value || 5),
+    extraPersonAllowed: document.getElementById('cfgExtraPersonAllowed') ? document.getElementById('cfgExtraPersonAllowed').checked : false,
+    extraPersonPrice: Number(document.getElementById('cfgExtraPersonPrice')?.value || 0),
     paymentUPI: document.getElementById('cfgUpiId').value.trim(),
     paymentBank: document.getElementById('cfgBankWire').value.trim()
   };

@@ -18,21 +18,34 @@ db.settings.ipAllowlistEnabled = false;
 db.settings.allowedIps = ['127.0.0.1', '::1'];
 db.settings.loginAlerts = true;
 
-// Ensure rooms have soldOut and inventory quantity fields
+// Ensure rooms have soldOut, inventory quantity, and capacity fields
 const defaultQuantities = {
   'cosy-deluxe-room': 7,
   'ocean-whisper-room': 4,
   'pool-haven-room': 4,
   'palm-grove-family-suite': 2
 };
-db.rooms = db.rooms.map(r => ({
-  ...r,
-  quantity: r.quantity || defaultQuantities[r.id] || 1,
-  blockedQuantity: r.blockedQuantity || 0,
-  isSoldOut: !!r.isSoldOut,
-  soldOutUntil: r.soldOutUntil || (r.isSoldOut ? 'indefinite' : null),
-  soldOutReason: r.soldOutReason || (r.isSoldOut ? 'Peak Season Maintenance' : null)
-}));
+db.rooms = db.rooms.map(r => {
+  const isFamily = r.id === 'palm-grove-family-suite';
+  const maxAdults = isFamily ? (r.maxAdults || 4) : 2;
+  const maxChildren = isFamily ? (r.maxChildren || 2) : 1;
+  const adultStr = `${maxAdults} Adult${maxAdults > 1 ? 's' : ''}`;
+  const childStr = maxChildren > 0 ? ` + ${maxChildren} Child${maxChildren > 1 ? 'ren' : ''}` : '';
+  return {
+    ...r,
+    quantity: r.quantity || defaultQuantities[r.id] || 1,
+    blockedQuantity: r.blockedQuantity || 0,
+    isSoldOut: !!r.isSoldOut,
+    soldOutUntil: r.soldOutUntil || (r.isSoldOut ? 'indefinite' : null),
+    soldOutReason: r.soldOutReason || (r.isSoldOut ? 'Peak Season Maintenance' : null),
+    maxAdults,
+    maxChildren,
+    capacity: `Max ${adultStr}${childStr}`
+  };
+});
+db.settings.childComplimentaryAgeLimit = db.settings.childComplimentaryAgeLimit || 5;
+db.settings.extraPersonAllowed = !!db.settings.extraPersonAllowed;
+db.settings.extraPersonPrice = db.settings.extraPersonPrice || 0;
 
 // Initialize website content
 db.websiteContent = db.websiteContent || {
@@ -252,6 +265,71 @@ db.botSettings = db.botSettings || {
   }
 };
 
+// Vehicle Pricing Matrix (Toto, Auto, Car x Pickup, Drop, Pickup+Drop, Tour)
+if (!db.vehicles || !Array.isArray(db.vehicles) || db.vehicles.length === 0) {
+  db.vehicles = [
+    {
+      id: 'toto',
+      name: 'Toto (E-Rickshaw)',
+      description: 'Local short trips around Mandarmani, up to 4 passengers.',
+      capacity: 4,
+      enabled: true,
+      maxQuantity: 5,
+      pricePerDay: null,
+      services: {
+        pickup: { price: null, enabled: false },
+        drop: { price: null, enabled: false },
+        pickup_drop: { price: null, enabled: false },
+        tour: { price: null, enabled: false }
+      }
+    },
+    {
+      id: 'auto',
+      name: 'Auto',
+      description: 'Local sightseeing and station/bus-stand pickup, up to 3 passengers.',
+      capacity: 3,
+      enabled: true,
+      maxQuantity: 5,
+      pricePerDay: null,
+      services: {
+        pickup: { price: null, enabled: false },
+        drop: { price: null, enabled: false },
+        pickup_drop: { price: null, enabled: false },
+        tour: { price: null, enabled: false }
+      }
+    },
+    {
+      id: 'car',
+      name: 'Car',
+      description: 'Luxury AC pickup or Mandarmani tour cab, up to 4 passengers.',
+      capacity: 4,
+      enabled: true,
+      maxQuantity: 5,
+      pricePerDay: 2500,
+      services: {
+        pickup: { price: null, enabled: false },
+        drop: { price: null, enabled: false },
+        pickup_drop: { price: null, enabled: false },
+        tour: { price: 2500, enabled: true }
+      }
+    }
+  ];
+}
+
+db.vehicleSettings = db.vehicleSettings || {};
+db.vehicleSettings.enableTripType = true;
+db.vehicleSettings.enableRoutePricing = db.vehicleSettings.enableRoutePricing || false;
+if (!db.vehicleSettings.routes || db.vehicleSettings.routes.length === 0) {
+  db.vehicleSettings.routes = [
+    { id: 'route-1', name: 'Contai / Kanthi Railway Station', pickupPrice: null, dropPrice: null },
+    { id: 'route-2', name: 'Digha Railway Station', pickupPrice: null, dropPrice: null },
+    { id: 'route-3', name: 'Chawalkhola Bus Stop', pickupPrice: null, dropPrice: null },
+    { id: 'route-4', name: 'Ramnagar Railway Station', pickupPrice: null, dropPrice: null },
+    { id: 'route-5', name: 'Mecheda Station / Kolaghat', pickupPrice: null, dropPrice: null },
+    { id: 'route-6', name: 'Kolkata Doorstep (AC Cab)', pickupPrice: null, dropPrice: null }
+  ];
+}
+
 // Login history & reset tokens
 db.loginHistory = db.loginHistory || [];
 db.passwordResetTokens = db.passwordResetTokens || [];
@@ -259,3 +337,4 @@ db.auditLog = db.auditLog || [];
 
 fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), 'utf8');
 console.log('Database successfully initialized.');
+

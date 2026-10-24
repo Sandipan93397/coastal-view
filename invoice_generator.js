@@ -357,20 +357,46 @@ async function generateInvoicePDF(booking, db, options = {}) {
       amount: formatINR(roomSub)
     });
 
-    // Line 2: Private Transport (if applicable)
+    // Line 2: Private Transport (Vehicle Pricing Matrix)
     if (booking.needCar) {
-      const vQty = booking.carCount || booking.vehicleQuantity || 1;
-      const vDays = booking.vehicleDays || nights;
-      const vRate = booking.vehiclePricePerDay || Math.round((booking.carTotal || 0) / (vQty * vDays));
-      const vTrip = booking.vehicleTripType ? ` (${booking.vehicleTripType})` : '';
+      if (Array.isArray(booking.vehicleLines) && booking.vehicleLines.length > 0) {
+        booking.vehicleLines.forEach(line => {
+          let details = [];
+          if (line.pickupPoint || line.pickupTime) {
+            details.push(`Pickup: ${line.pickupPoint || 'Specified location'}${line.pickupTime ? ' @ ' + line.pickupTime : ''}`.trim());
+          }
+          if (line.dropPoint || line.dropTime) {
+            details.push(`Drop: ${line.dropPoint || 'Specified location'}${line.dropTime ? ' @ ' + line.dropTime : ''}`.trim());
+          }
+          if (line.tourNotes) {
+            details.push(`Notes: ${line.tourNotes}`);
+          }
+          const detStr = details.length ? ` • ${details.join(' | ')}` : '';
+          const dayStr = line.days ? ` × ${line.days} day(s)` : '';
+          const qtyStr = line.days ? `${line.quantity}U × ${line.days}d` : `${line.quantity} trip`;
 
-      rows.push({
-        title: `Private Transport: ${booking.vehicleName || 'Vehicle'}`,
-        subtitle: `${vQty} vehicle(s) × ${vDays} day(s)${vTrip} - Ani's Travels Fleet`,
-        qty: `${vQty} unit × ${vDays}d`,
-        rate: formatINR(vRate),
-        amount: formatINR(booking.carTotal || 0)
-      });
+          rows.push({
+            title: `Private Transport: ${line.vehicleName || 'Vehicle'} · ${line.serviceLabel || 'Service'}`,
+            subtitle: `${line.quantity} vehicle(s)${dayStr}${detStr} - Ani's Travels Fleet`,
+            qty: qtyStr,
+            rate: formatINR(line.price || Math.round(line.subtotal / (line.quantity * (line.days || 1)))),
+            amount: formatINR(line.subtotal || 0)
+          });
+        });
+      } else {
+        const vQty = booking.carCount || booking.vehicleQuantity || 1;
+        const vDays = booking.vehicleDays || nights;
+        const vRate = booking.vehiclePricePerDay || Math.round((booking.carTotal || 0) / (vQty * vDays));
+        const vTrip = booking.vehicleTripType ? ` (${booking.vehicleTripType})` : '';
+
+        rows.push({
+          title: `Private Transport: ${booking.vehicleName || 'Vehicle'}`,
+          subtitle: `${vQty} vehicle(s) × ${vDays} day(s)${vTrip} - Ani's Travels Fleet`,
+          qty: `${vQty} unit × ${vDays}d`,
+          rate: formatINR(vRate),
+          amount: formatINR(booking.carTotal || 0)
+        });
+      }
     }
 
     // Line 3: Candlelight Dinner (if applicable)

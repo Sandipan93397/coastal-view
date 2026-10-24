@@ -12,6 +12,11 @@
   <link rel="icon" type="image/png" href="assets/images/favicon.png">
   <link rel="apple-touch-icon" href="assets/images/logo-emblem.png">
 
+  <!-- Google Fonts & Material Symbols -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Poppins:wght@300;400;500;600;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap">
+
   <!-- Stylesheets -->
   <link rel="stylesheet" href="assets/css/style.css">
   <!-- Hotel & 4 Distinct Rooms JSON-LD Structured Data Schema -->
@@ -50,7 +55,7 @@
       },
       "occupancy": {
         "@type": "QuantitativeValue",
-        "maxValue": 2
+        "maxValue": 3
       },
       "offers": {
         "@type": "Offer",
@@ -92,7 +97,7 @@
       },
       "occupancy": {
         "@type": "QuantitativeValue",
-        "maxValue": 2
+        "maxValue": 3
       },
       "offers": {
         "@type": "Offer",
@@ -1237,7 +1242,7 @@
       "name": "How do I arrange a private car transfer or local sightseeing tour?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Our founder Anirban Das operates Ani's Tour and Travels. You can toggle 'Need a car?' in our booking engine for daily car hire (₹2,500/day) or visit our tours link for customized Kolkata pickups and Tajpur/Digha day trips."
+        "text": "Our founder Anirban Das operates Ani's Tour and Travels. You can toggle 'Need a vehicle?' in our booking engine for Toto, Auto, and luxury AC Car transfers (Pickup, Drop, and Tour options powered by our live pricing matrix) or contact our tours desk for customized Kolkata pickups and coastal day trips."
       }
     },
     {
@@ -1328,8 +1333,16 @@
 
       <div class="mobile-drawer-footer">
         <a href="#bookingSection" class="btn btn-gold mobile-drawer-book-btn" id="mobileDrawerBookBtn">
-          <span class="material-symbols-outlined">calendar_month</span> Book Stay
+          <span class="material-symbols-outlined">hotel</span> Book Stay
         </a>
+        <div class="mobile-drawer-contact-actions">
+          <a href="tel:+917812027551" class="btn btn-outline-gold mobile-drawer-action-btn">
+            <span class="material-symbols-outlined">call</span> Call Desk
+          </a>
+          <a href="https://wa.me/917812027551?text=Hi%20Coastal%20View%2C%20I%20would%20like%20to%20inquire%20about%20booking%20a%20stay" target="_blank" rel="noopener noreferrer" class="btn btn-coral mobile-drawer-action-btn">
+            <span class="material-symbols-outlined">chat</span> WhatsApp
+          </a>
+        </div>
       </div>
     </div>
   </header>
@@ -1339,7 +1352,10 @@
        ========================================================================== -->
   <section class="hero-section" id="hero">
     <div class="hero-bg-wrapper">
-      <img src="assets/images/hero-sunset-pool.jpg" alt="Coastal View beachfront resort sunset infinity pool" class="hero-bg-img">
+      <picture class="hero-bg-picture">
+        <source media="(max-width: 768px)" srcset="assets/images/hero-sunset-pool-mobile.webp" type="image/webp">
+        <img src="assets/images/hero-sunset-pool.jpg" alt="Coastal View beachfront resort sunset infinity pool" class="hero-bg-img" fetchpriority="high">
+      </picture>
     </div>
     <div class="hero-overlay"></div>
     <canvas id="heroParticles" class="hero-particles-canvas"></canvas>
@@ -1366,6 +1382,14 @@
         </a>
       </div>
     </div>
+
+    <!-- Small Animated Scroll Down Cue -->
+    <a href="#bookingSection" class="hero-scroll-cue" id="heroScrollCue" aria-label="Scroll down to booking">
+      <div class="scroll-mouse-pill">
+        <span class="scroll-mouse-dot"></span>
+      </div>
+      <span class="scroll-cue-label">Scroll</span>
+    </a>
   </section>
 
   <!-- ==========================================================================
@@ -1373,6 +1397,35 @@
        ========================================================================== -->
   <section class="booking-section-wrapper" id="bookingSection">
     <div class="container">
+      <!-- Mobile Compact Booking Summary Card (Visible on <= 768px) -->
+      <div class="mobile-booking-summary-card" id="mobileBookingSummaryCard">
+        <div class="m-summary-header">
+          <div class="m-summary-badge">
+            <span class="material-symbols-outlined">verified</span> Best Direct Rate
+          </div>
+          <div class="m-summary-note">Reserve with 20% Advance</div>
+        </div>
+        <div class="m-summary-pills-row" id="mSummaryPillsTrigger" role="button" tabindex="0" aria-label="Tap to customize booking dates and guests">
+          <div class="m-summary-pill">
+            <span class="material-symbols-outlined m-pill-icon">calendar_month</span>
+            <div class="m-pill-text">
+              <span class="m-pill-label">Dates</span>
+              <span class="m-pill-value" id="mSummaryDatesText">Select Dates</span>
+            </div>
+          </div>
+          <div class="m-summary-pill">
+            <span class="material-symbols-outlined m-pill-icon">group</span>
+            <div class="m-pill-text">
+              <span class="m-pill-label">Guests</span>
+              <span class="m-pill-value" id="mSummaryGuestsText">2 Adults • 1 Room</span>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-gold m-summary-cta-btn" id="mOpenBookingSheetBtn">
+          <span class="material-symbols-outlined">tune</span> Customize Stay & Check Rates
+        </button>
+      </div>
+
       <div class="booking-card-glass">
         <form id="liveBookingForm" onsubmit="return false;">
           <div class="booking-form-grid">
@@ -1423,9 +1476,6 @@
               <select id="bookAdults" class="booking-select">
                 <option value="1">1 Adult</option>
                 <option value="2" selected>2 Adults</option>
-                <option value="3">3 Adults</option>
-                <option value="4">4 Adults</option>
-                <option value="5">5+ Adults</option>
               </select>
             </div>
 
@@ -1437,10 +1487,31 @@
               <select id="bookChildren" class="booking-select">
                 <option value="0" selected>0 Children</option>
                 <option value="1">1 Child</option>
-                <option value="2">2 Children</option>
-                <option value="3">3+ Children</option>
               </select>
             </div>
+          </div>
+
+          <!-- Room Capacity Warning Banner with One-Click Add Room Button -->
+          <div id="roomCapacityAlert" class="room-capacity-alert" style="display: none; background: rgba(239, 68, 68, 0.12); border: 1.5px solid rgba(239, 68, 68, 0.4); color: #F87171; padding: 12px 16px; border-radius: 10px; margin: 12px 0 6px; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="material-symbols-outlined" style="color: #EF4444; font-size: 20px;">info</span>
+              <span id="roomCapacityAlertMsg" style="font-weight: 500;">Each room accommodates up to 2 adults and 1 child. Please add another room.</span>
+            </div>
+            <button type="button" id="btnAddAnotherRoomBtn" class="btn btn-sm btn-gold" style="white-space: nowrap; font-size: 0.8rem; padding: 6px 14px; font-weight: 600;" onclick="if(window.addAnotherRoomForCapacity) window.addAnotherRoomForCapacity();">
+              <span class="material-symbols-outlined" style="font-size: 15px; vertical-align: middle;">add</span> Add another room
+            </button>
+          </div>
+
+          <!-- Children Age & Extra Bed Hints (Data-Driven from Admin Settings) -->
+          <div style="display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.78rem; margin: 8px 2px 4px; color: var(--warm-sand);">
+            <span id="bookingChildAgeNote" style="display: inline-flex; align-items: center; gap: 4px;">
+              <span class="material-symbols-outlined" style="font-size: 14px; color: var(--turquoise);">child_care</span>
+              Children up to 5 years stay complimentary without extra bed.
+            </span>
+            <span id="bookingExtraBedNote" style="display: inline-flex; align-items: center; gap: 4px; color: #94A3B8;">
+              <span class="material-symbols-outlined" style="font-size: 14px; color: var(--champagne-gold);">call</span>
+              Need an extra bed? Please call front desk at +91 7812027551.
+            </span>
           </div>
 
           <!-- Selected Suite Inclusions Banner (MakeMyTrip Style) -->
@@ -1496,9 +1567,9 @@
               <div class="addon-header-row">
                 <div class="addon-info">
                   <div class="addon-title">
-                    <span class="material-symbols-outlined" style="color: var(--turquoise);">directions_car</span> Need a Car? (Ani's Travels)
+                    <span class="material-symbols-outlined" style="color: var(--turquoise);">directions_car</span> Need a vehicle? (Ani's Travels)
                   </div>
-                  <div class="addon-desc" id="carAddonSubtitle">Mandarmani tour cab, Toto & Auto transport service</div>
+                  <div class="addon-desc" id="carAddonSubtitle">Mandarmani tour cab, Toto & Auto transport service (Pickup, Drop, Tour)</div>
                 </div>
                 <div class="addon-controls">
                   <label class="switch" title="Toggle Transport Service">
@@ -1510,49 +1581,17 @@
 
               <!-- Animated Slide-down Controls Box -->
               <div id="carControlsBox" class="vehicle-controls-box" style="display: none;">
-                <div class="vehicle-inputs-row">
-                  <!-- Vehicle Type Dropdown -->
-                  <div class="vehicle-input-group vehicle-type-col">
-                    <label for="vehicleTypeSelect" class="vehicle-sublabel">
-                      <span class="material-symbols-outlined" style="font-size: 14px;">commute</span> Vehicle Type
-                    </label>
-                    <select id="vehicleTypeSelect" class="booking-select vehicle-select" aria-label="Select Vehicle Type">
-                      <!-- Populated dynamically from API -->
-                    </select>
-                  </div>
-
-                  <!-- Quantity Field -->
-                  <div class="vehicle-input-group vehicle-qty-col">
-                    <label for="carCountInput" class="vehicle-sublabel">
-                      <span class="material-symbols-outlined" style="font-size: 14px;">pin</span> Quantity
-                    </label>
-                    <div class="vehicle-stepper-wrap">
-                      <button type="button" class="vehicle-stepper-btn" id="carQtyMinusBtn" aria-label="Decrease vehicle quantity">−</button>
-                      <input type="number" id="carCountInput" class="booking-input vehicle-qty-input" min="1" max="5" value="1" readonly>
-                      <button type="button" class="vehicle-stepper-btn" id="carQtyPlusBtn" aria-label="Increase vehicle quantity">+</button>
-                    </div>
-                  </div>
-
-                  <!-- Optional Trip Type Selector (shown if admin enables) -->
-                  <div class="vehicle-input-group vehicle-trip-col" id="vehicleTripTypeWrapper" style="display: none;">
-                    <label for="vehicleTripTypeSelect" class="vehicle-sublabel">
-                      <span class="material-symbols-outlined" style="font-size: 14px;">route</span> Trip Plan
-                    </label>
-                    <select id="vehicleTripTypeSelect" class="booking-select vehicle-select" aria-label="Select Trip Type">
-                      <option value="Full-day tour">Full-day tour</option>
-                      <option value="Pickup / Drop only">Pickup / Drop only</option>
-                    </select>
-                  </div>
+                <!-- Container for Multiple Vehicle Lines -->
+                <div id="vehicleLinesContainer" class="vehicle-lines-container">
+                  <!-- Rendered dynamically by assets/js/booking.js -->
                 </div>
 
-                <!-- Short description and per-day price under the dropdown -->
-                <div class="vehicle-info-banner" id="vehicleInfoBanner">
-                  <div class="vehicle-info-text" id="vehicleDescriptionDisplay">
-                    <!-- Populated dynamically from DB -->
-                  </div>
-                  <div class="vehicle-price-pill" id="vehiclePriceDisplay">
-                    <!-- Populated dynamically from DB -->
-                  </div>
+                <!-- Add Vehicle Line Button & Transport Total -->
+                <div class="vehicle-actions-bar" style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                  <button type="button" class="btn-add-vehicle-line" id="addVehicleLineBtn" style="background: rgba(13,148,136,0.14); border: 1.5px dashed var(--turquoise); color: var(--turquoise); padding: 8px 16px; border-radius: 8px; font-weight: 600; font-size: 0.82rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">add_circle</span> + Add another vehicle
+                  </button>
+                  <div id="vehiclesTotalBanner" class="vehicles-total-banner" style="font-size: 0.86rem; font-weight: 700; color: var(--champagne-gold);"></div>
                 </div>
               </div>
             </div>
@@ -1639,6 +1678,214 @@
       </div>
     </div>
   </section>
+
+  <!-- ==========================================================================
+       MOBILE BOOKING BOTTOM SHEET (STEP-BY-STEP LUXURY APP FLOW)
+       ========================================================================== -->
+  <div class="mobile-sheet-backdrop" id="mobileSheetBackdrop"></div>
+  <div class="mobile-booking-sheet" id="mobileBookingSheet" role="dialog" aria-modal="true" aria-labelledby="mSheetTitle">
+    <div class="m-sheet-drag-handle" id="mSheetDragHandle"><span class="m-drag-bar"></span></div>
+    
+    <div class="m-sheet-header">
+      <div>
+        <div class="m-sheet-badge"><span class="material-symbols-outlined">hotel</span> Direct Booking</div>
+        <h3 class="m-sheet-title" id="mSheetTitle">Reserve Your Stay</h3>
+        <p class="m-sheet-subtitle">Instant Direct Booking • Pay 20% Advance</p>
+      </div>
+      <button type="button" class="m-sheet-close-btn" id="mSheetCloseBtn" aria-label="Close booking sheet">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+
+    <div class="m-sheet-body">
+      <!-- Step 1: Dates -->
+      <div class="m-sheet-section">
+        <div class="m-section-label">
+          <span class="material-symbols-outlined">date_range</span> 1. Select Dates
+          <span class="m-nights-badge" id="mSheetNightsCount">1 Night</span>
+        </div>
+        <div class="m-dates-grid">
+          <div class="m-date-box">
+            <label for="mCheckIn">Check-In</label>
+            <input type="date" id="mCheckIn" class="m-input" required>
+          </div>
+          <div class="m-date-box">
+            <label for="mCheckOut">Check-Out</label>
+            <input type="date" id="mCheckOut" class="m-input" required>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: Guests & Rooms Steppers -->
+      <div class="m-sheet-section">
+        <div class="m-section-label">
+          <span class="material-symbols-outlined">group</span> 2. Guests & Rooms
+        </div>
+        <div class="m-steppers-list">
+          <div class="m-stepper-row">
+            <div>
+              <div class="m-stepper-name">Rooms</div>
+              <div class="m-stepper-sub">Number of suites required</div>
+            </div>
+            <div class="m-stepper-controls">
+              <button type="button" class="m-stepper-btn" id="mRoomMinus" aria-label="Decrease rooms">−</button>
+              <span class="m-stepper-val" id="mRoomCountVal">1</span>
+              <button type="button" class="m-stepper-btn" id="mRoomPlus" aria-label="Increase rooms">+</button>
+            </div>
+          </div>
+          <div class="m-stepper-row">
+            <div>
+              <div class="m-stepper-name">Adults</div>
+              <div class="m-stepper-sub">Age 12+ years</div>
+            </div>
+            <div class="m-stepper-controls">
+              <button type="button" class="m-stepper-btn" id="mAdultMinus" aria-label="Decrease adults">−</button>
+              <span class="m-stepper-val" id="mAdultCountVal">2</span>
+              <button type="button" class="m-stepper-btn" id="mAdultPlus" aria-label="Increase adults">+</button>
+            </div>
+          </div>
+          <div class="m-stepper-row">
+            <div>
+              <div class="m-stepper-name">Children</div>
+              <div class="m-stepper-sub">Age 0–11 years</div>
+            </div>
+            <div class="m-stepper-controls">
+              <button type="button" class="m-stepper-btn" id="mChildMinus" aria-label="Decrease children">−</button>
+              <span class="m-stepper-val" id="mChildCountVal">0</span>
+              <button type="button" class="m-stepper-btn" id="mChildPlus" aria-label="Increase children">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3: Choose Suite -->
+      <div class="m-sheet-section">
+        <div class="m-section-label">
+          <span class="material-symbols-outlined">hotel</span> 3. Choose Suite
+        </div>
+        <div class="m-rooms-selector" id="mRoomsSelector">
+          <label class="m-room-option selected" data-room-id="ocean-whisper-room">
+            <input type="radio" name="mRoomRadio" value="ocean-whisper-room" checked class="m-room-radio">
+            <img src="/uploads/rooms/ocean-whisper/ocean-whisper-room-bedroom.webp" alt="The Ocean Whisper Room" class="m-room-thumb" loading="lazy">
+            <div class="m-room-details">
+              <div class="m-room-name-row">
+                <span class="m-room-name">The Ocean Whisper Room</span>
+                <span class="m-room-badge sea">Sea View</span>
+              </div>
+              <div class="m-room-sub">King Bed • Balcony • Max 2 Guests</div>
+              <div class="m-room-price">₹2,500 <span class="m-price-unit">/ night</span></div>
+            </div>
+            <span class="m-radio-check"><span class="material-symbols-outlined">check</span></span>
+          </label>
+
+          <label class="m-room-option" data-room-id="pool-haven-room">
+            <input type="radio" name="mRoomRadio" value="pool-haven-room" class="m-room-radio">
+            <img src="/uploads/rooms/pool-haven/pool-haven-room-bedroom.webp" alt="The Pool Haven Room" class="m-room-thumb" loading="lazy">
+            <div class="m-room-details">
+              <div class="m-room-name-row">
+                <span class="m-room-name">The Pool Haven Room</span>
+                <span class="m-room-badge pool">Pool View</span>
+              </div>
+              <div class="m-room-sub">King Bed • Balcony • Max 3 Guests</div>
+              <div class="m-room-price">₹2,200 <span class="m-price-unit">/ night</span></div>
+            </div>
+            <span class="m-radio-check"><span class="material-symbols-outlined">check</span></span>
+          </label>
+
+          <label class="m-room-option" data-room-id="cosy-deluxe-room">
+            <input type="radio" name="mRoomRadio" value="cosy-deluxe-room" class="m-room-radio">
+            <img src="/uploads/rooms/cosy-deluxe/cosy-deluxe-room-bedroom.webp" alt="Cosy Deluxe Room" class="m-room-thumb" loading="lazy">
+            <div class="m-room-details">
+              <div class="m-room-name-row">
+                <span class="m-room-name">Cosy Deluxe Room</span>
+                <span class="m-room-badge cosy">Cosy</span>
+              </div>
+              <div class="m-room-sub">Queen Bed • AC • Max 2 Guests</div>
+              <div class="m-room-price">₹1,800 <span class="m-price-unit">/ night</span></div>
+            </div>
+            <span class="m-radio-check"><span class="material-symbols-outlined">check</span></span>
+          </label>
+
+          <label class="m-room-option" data-room-id="palm-grove-family-suite">
+            <input type="radio" name="mRoomRadio" value="palm-grove-family-suite" class="m-room-radio">
+            <img src="/uploads/rooms/palm-grove/palm-grove-family-suite-bedroom.webp" alt="The Palm Grove Family Suite" class="m-room-thumb" loading="lazy">
+            <div class="m-room-details">
+              <div class="m-room-name-row">
+                <span class="m-room-name">The Palm Grove Family Suite</span>
+                <span class="m-room-badge family">Family</span>
+              </div>
+              <div class="m-room-sub">2 Beds (King + Extra) • Max 6 Guests</div>
+              <div class="m-room-price">₹2,700 <span class="m-price-unit">/ night</span></div>
+            </div>
+            <span class="m-radio-check"><span class="material-symbols-outlined">check</span></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Step 4: Add-ons Toggle Cards -->
+      <div class="m-sheet-section">
+        <div class="m-section-label">
+          <span class="material-symbols-outlined">add_task</span> 4. Enhance Your Stay (Optional)
+        </div>
+        <div class="m-addons-stack">
+          <!-- Breakfast -->
+          <label class="m-addon-card" id="mBreakfastCard">
+            <input type="checkbox" id="mToggleBreakfast" class="m-addon-checkbox">
+            <div class="m-addon-icon"><span class="material-symbols-outlined">restaurant</span></div>
+            <div class="m-addon-info">
+              <div class="m-addon-title">Bengali Buffet Breakfast</div>
+              <div class="m-addon-desc">Authentic breakfast buffet • ₹200 / person / day</div>
+            </div>
+            <span class="m-addon-switch"></span>
+          </label>
+
+          <!-- Vehicle / Transfer -->
+          <label class="m-addon-card" id="mVehicleCard">
+            <input type="checkbox" id="mToggleCar" class="m-addon-checkbox">
+            <div class="m-addon-icon"><span class="material-symbols-outlined">directions_car</span></div>
+            <div class="m-addon-info">
+              <div class="m-addon-title">Ani's Private AC Vehicle</div>
+              <div class="m-addon-desc">Doorstep Kolkata pickup / station drop / local tour</div>
+            </div>
+            <span class="m-addon-switch"></span>
+          </label>
+          <div class="m-vehicle-suboptions" id="mVehicleSuboptions" style="display: none;">
+            <div style="font-size:0.85rem; color:var(--champagne-gold); margin-bottom: 6px;">Select Service:</div>
+            <select id="mVehicleServiceSelect" class="m-input" style="height:44px; margin-bottom: 8px;">
+              <option value="pickup">Airport / Station Pickup</option>
+              <option value="drop">Drop to Station / Kolkata</option>
+              <option value="pickup_drop">Round Trip Pickup & Drop</option>
+              <option value="tour">Mandarmani & Coastal Sightseeing Tour</option>
+            </select>
+          </div>
+
+          <!-- Candlelight Dinner -->
+          <label class="m-addon-card" id="mCandleCard">
+            <input type="checkbox" id="mToggleCandlelight" class="m-addon-checkbox">
+            <div class="m-addon-icon"><span class="material-symbols-outlined">local_fire_department</span></div>
+            <div class="m-addon-info">
+              <div class="m-addon-title">Romantic Candlelight Dinner</div>
+              <div class="m-addon-desc">Beachside candlelight dinner setup with flowers & private table</div>
+            </div>
+            <span class="m-addon-switch"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sticky Bottom Total Bar in Sheet -->
+    <div class="m-sheet-sticky-footer" id="mSheetStickyFooter">
+      <div class="m-footer-price-col">
+        <div class="m-footer-total-label">Total Estimate</div>
+        <div class="m-footer-total-amount" id="mSheetTotalAmount">₹2,500</div>
+        <div class="m-footer-advance-badge" id="mSheetAdvanceBadge">Pay 20% Now: ₹500</div>
+      </div>
+      <button type="button" class="btn btn-gold m-sheet-continue-btn" id="mSheetContinueBtn">
+        <span>Continue</span>
+        <span class="material-symbols-outlined">arrow_forward</span>
+      </button>
+    </div>
+  </div>
 
   <!-- ==========================================================================
        MEET THE OWNER SECTION - ANIRBAN DAS (ANI'S TOUR & TRAVELS)
@@ -1744,7 +1991,7 @@
               <span class="summary-divider">•</span>
               <span class="summary-item"><span class="material-symbols-outlined">bed</span> King Bed</span>
               <span class="summary-divider">•</span>
-              <span class="summary-item"><span class="material-symbols-outlined">group</span> Max 2 Guests</span>
+              <span class="summary-item"><span class="material-symbols-outlined">group</span> Max 2 Adults + 1 Child</span>
             </div>
             <h3 class="room-title">The Ocean Whisper Room</h3>
             <p class="room-desc">
@@ -1882,7 +2129,7 @@
               <span class="summary-divider">•</span>
               <span class="summary-item"><span class="material-symbols-outlined">bed</span> Comfortable Queen Bed</span>
               <span class="summary-divider">•</span>
-              <span class="summary-item"><span class="material-symbols-outlined">group</span> Max 2 Guests</span>
+              <span class="summary-item"><span class="material-symbols-outlined">group</span> Max 2 Adults + 1 Child</span>
             </div>
             <h3 class="room-title">Cosy Deluxe Room</h3>
             <p class="room-desc">
@@ -1951,7 +2198,7 @@
               <span class="summary-divider">•</span>
               <span class="summary-item"><span class="material-symbols-outlined">bed</span> Two Beds (King + Extra)</span>
               <span class="summary-divider">•</span>
-              <span class="summary-item"><span class="material-symbols-outlined">group</span> Max 4 Adults + 2 Kids</span>
+              <span class="summary-item"><span class="material-symbols-outlined">group</span> Max 4 Adults + 2 Children</span>
             </div>
             <h3 class="room-title">The Palm Grove Family Suite</h3>
             <p class="room-desc">
@@ -2127,7 +2374,7 @@
         <div class="menu-bottom-motto">Good Food Brings People Together ♡</div>
       </div>
 
-                                                                                                                              <!-- Category Chips Linking to Full Menu -->
+                                                                                                                                    <!-- Category Chips Linking to Full Menu -->
       <div class="menu-category-chips-row">
         <a href="/menu#cat-breakfast" class="menu-cat-chip"><span class="material-symbols-outlined">wb_sunny</span> Breakfast</a>
         <a href="/menu#cat-vegetable-dal" class="menu-cat-chip"><span class="material-symbols-outlined">eco</span> Vegetable / Dal</a>
@@ -2943,7 +3190,7 @@
           </button>
           <div class="faq-answer">
             <p>
-              Our founder Anirban Das operates Ani's Tour and Travels. You can toggle "Need a car?" in our booking engine for daily car hire (₹2,500/day) or visit our tours link (<a href="https://bengal-tours-ani.preview.emergentagent.com/#enquire" target="_blank" style="color: var(--turquoise); text-decoration: underline;">Ani's Tour Enquiry</a>) for customized Kolkata pickups and Tajpur/Digha day trips.
+              Our founder Anirban Das operates Ani's Tour and Travels. You can toggle "Need a vehicle?" in our booking engine for daily car hire (<span class="dyn-car-tour-price">₹2,500/day</span>), Toto & Auto station pickups, or visit our tours link (<a href="#booking" style="color: var(--turquoise); text-decoration: underline;" onclick="const c=document.getElementById('toggleCarNeed'); if(c){ c.checked=true; c.dispatchEvent(new Event('change')); }">Select Fleet Vehicle in Booking</a>) for customized Kolkata pickups and Tajpur/Digha day trips.
             </p>
           </div>
         </div>

@@ -198,6 +198,19 @@ class IntentRouter {
         }
       }
 
+      // Explicit specificity rule: Transport & Vehicle Pricing (Toto, Auto, Car, Pickup, Drop, Tour) beats Room Price & generic tours
+      if (hasAddons && (normalized.includes('toto') || normalized.includes('auto') || normalized.includes('car') || normalized.includes('pickup') || normalized.includes('drop') || normalized.includes('টোটো') || normalized.includes('অটো') || normalized.includes('গাড়ি'))) {
+        if (top.intentId === 'room_price' || top.intentId === 'rooms_list' || top.intentId === 'booking_start' || (top.intentId === 'tours' && (normalized.includes('auto') || normalized.includes('toto') || normalized.includes('car')))) {
+          return {
+            intentId: 'addons',
+            confidence: hasAddons.totalScore,
+            language: lang,
+            matchedPhrase: hasAddons.bestPhrase,
+            needsClarification: false
+          };
+        }
+      }
+
       // Explicit specificity rule: Location query ("address", "kothay") beats booking_how
       const hasLocation = scoredIntents.find(s => s.intentId === 'location');
       if (hasLocation && hasLocation.matchScore >= 80) {

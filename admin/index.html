@@ -1730,24 +1730,68 @@
           </div>
         </div>
 
-        <div class="glass-card">
+        <!-- Vehicle & Service Pricing Matrix -->
+        <div class="glass-card" style="margin-bottom: 24px;">
           <div class="glass-card-header">
-            <div class="glass-card-title">Fleet Roster & Rate Card</div>
+            <div>
+              <div class="glass-card-title">Vehicle & Service Pricing Matrix</div>
+              <p style="font-size: 0.82rem; color: #64748B; margin-top: 4px;">Click any pricing cell to edit amount or toggle on/off. Services with no price or turned off are hidden from the booking form and show as "Ask us" in the chatbot. Every price change logs an audit trail entry.</p>
+            </div>
+            <div style="display: flex; gap: 10px;">
+              <button class="btn-turquoise" onclick="openAddVehicleModal()">
+                <span class="material-symbols-outlined">add</span> Add Vehicle Type
+              </button>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="luxury-table matrix-table" style="width: 100%;">
+              <thead>
+                <tr>
+                  <th style="min-width: 200px;">Vehicle</th>
+                  <th style="text-align: center; min-width: 130px;">Pickup</th>
+                  <th style="text-align: center; min-width: 130px;">Drop</th>
+                  <th style="text-align: center; min-width: 140px;">Pickup + Drop</th>
+                  <th style="text-align: center; min-width: 150px;">Tour (per day)</th>
+                  <th style="text-align: right; min-width: 140px;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="vehicleMatrixTableBody">
+                <!-- Rendered dynamically via admin.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Route-Based Custom Pricing (Optional) -->
+        <div class="glass-card" style="margin-bottom: 24px;">
+          <div class="glass-card-header">
+            <div>
+              <div class="glass-card-title">Route-Based Custom Pricing (Optional)</div>
+              <p style="font-size: 0.82rem; color: #64748B; margin-top: 4px;">Station or area routes with custom pricing. Used only if enabled. When enabled, pickup & drop point fields become a dropdown of routes plus "Other (ask us)".</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 14px;">
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.86rem; font-weight: 600; color: var(--ocean-blue);">
+                <span>Enable Route Pricing</span>
+                <input type="checkbox" id="adminEnableRoutePricingToggle" onchange="handleRoutePricingToggle(this.checked)" style="width: 20px; height: 20px; cursor: pointer; accent-color: var(--turquoise);">
+              </label>
+              <button class="btn-outline-gold" onclick="openRouteModal()">
+                <span class="material-symbols-outlined">add_location_alt</span> Add Route
+              </button>
+            </div>
           </div>
           <div class="table-responsive">
             <table class="luxury-table">
               <thead>
                 <tr>
-                  <th>Vehicle Type</th>
+                  <th>Route / Station Name</th>
                   <th>Description</th>
-                  <th>Capacity</th>
-                  <th>Daily Rate (₹)</th>
-                  <th>Max / Booking</th>
+                  <th>Pickup Price (₹)</th>
+                  <th>Drop Price (₹)</th>
                   <th>Status</th>
-                  <th>Actions</th>
+                  <th style="text-align: right;">Actions</th>
                 </tr>
               </thead>
-              <tbody id="vehiclesTableBody">
+              <tbody id="routesTableBody">
                 <!-- Rendered dynamically via admin.js -->
               </tbody>
             </table>
@@ -2163,6 +2207,26 @@
                   <option value="always">Always Require (Mandatory on every login attempt)</option>
                 </select>
                 <small style="color: #64748B; font-size: 0.74rem;">Configures Cloudflare Turnstile bot protection for the administrative login portal.</small>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Children Complimentary Age Limit (Years)</label>
+                <input type="number" id="cfgChildAgeLimit" class="form-control" value="5" min="1" max="18" required>
+                <small style="color: #64748B; font-size: 0.74rem;">Children up to this age stay complimentary without an extra bed.</small>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Extra Person / Bed Allowed</label>
+                <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px;">
+                  <label class="switch" style="margin: 0;">
+                    <input type="checkbox" id="cfgExtraPersonAllowed">
+                    <span class="slider"></span>
+                  </label>
+                  <span style="font-size: 0.85rem; color: #475569;" id="cfgExtraPersonAllowedLabel">Extra person allowed (Off by default)</span>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Extra Person Price / Night (INR, Optional)</label>
+                <input type="number" id="cfgExtraPersonPrice" class="form-control" value="0" min="0" placeholder="e.g. 800">
+                <small style="color: #64748B; font-size: 0.74rem;">Guests must call front desk (+91 7812027551) to arrange extra bed.</small>
               </div>
             </div>
             <div class="form-group">
@@ -2594,12 +2658,17 @@
           </div>
           <div class="form-group">
             <label class="form-label">Max Adults</label>
-            <input type="number" id="editRoomAdults" class="form-control" min="1" max="10" value="2">
+            <input type="number" id="editRoomAdults" class="form-control" min="1" max="10" value="2" oninput="if(window.updateEditRoomCapacityDisplay) window.updateEditRoomCapacityDisplay();">
           </div>
           <div class="form-group">
             <label class="form-label">Max Children</label>
-            <input type="number" id="editRoomChildren" class="form-control" min="0" max="6" value="0">
+            <input type="number" id="editRoomChildren" class="form-control" min="0" max="6" value="1" oninput="if(window.updateEditRoomCapacityDisplay) window.updateEditRoomCapacityDisplay();">
           </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Generated Capacity Display Line <small style="color: #64748B;">(Data-driven display line shown on live room cards & booking)</small></label>
+          <input type="text" id="editRoomCapacityDisplay" class="form-control" readonly style="background: #F1F5F9; font-weight: 700; color: var(--turquoise-dark);" value="Max 2 Adults + 1 Child">
         </div>
 
         <div class="form-group" style="background: #F8FAFC; padding: 14px; border-radius: 12px; border: 1px solid #E2E8F0;">
@@ -3132,6 +3201,78 @@
           </div>
           <button type="submit" class="btn-turquoise" style="width: 100%; justify-content: center;">
             <span class="material-symbols-outlined">save</span> Save Vehicle Configuration
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  
+  <!-- Edit Matrix Cell Modal -->
+  <div class="modal-overlay" id="editMatrixCellModal">
+    <div class="modal-box" style="max-width: 440px;">
+      <div class="modal-header">
+        <div class="modal-title" id="matrixCellModalTitle">Edit Service Pricing</div>
+        <button class="modal-close-btn" onclick="closeModal('editMatrixCellModal')">×</button>
+      </div>
+      <div class="modal-body">
+        <form onsubmit="handleSaveMatrixCellSubmit(event)">
+          <input type="hidden" id="matrixCellVehicleId">
+          <input type="hidden" id="matrixCellServiceType">
+          <div class="form-group">
+            <label class="form-label" id="matrixCellLabel">Service Price (₹)</label>
+            <input type="number" id="matrixCellPrice" class="form-control" placeholder="Leave blank for 'Not set'" min="0" step="50">
+            <span style="font-size: 0.74rem; color: #64748B; margin-top: 4px; display: block;">Empty or 0 displays as "Not set" and hides this service from the booking form.</span>
+          </div>
+          <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-top: 14px;">
+            <input type="checkbox" id="matrixCellEnabled" style="width: 20px; height: 20px; cursor: pointer; accent-color: var(--turquoise);">
+            <label for="matrixCellEnabled" style="font-size: 0.86rem; font-weight: 600; color: var(--ocean-blue); cursor: pointer;">Enable Service in Booking Form</label>
+          </div>
+          <div style="font-size: 0.76rem; color: #64748B; margin-top: 10px; margin-bottom: 16px;">
+            * Rate updates are recorded immediately in the security Audit Trail with user timestamp.
+          </div>
+          <button type="submit" class="btn-turquoise" style="width: 100%; justify-content: center;">
+            <span class="material-symbols-outlined">save</span> Save Price & Status
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add / Edit Route Modal -->
+  <div class="modal-overlay" id="editRouteModal">
+    <div class="modal-box" style="max-width: 500px;">
+      <div class="modal-header">
+        <div class="modal-title" id="routeModalTitle">Add / Edit Route</div>
+        <button class="modal-close-btn" onclick="closeModal('editRouteModal')">×</button>
+      </div>
+      <div class="modal-body">
+        <form onsubmit="handleSaveRouteSubmit(event)">
+          <input type="hidden" id="editRouteId">
+          <div class="form-group">
+            <label class="form-label">Route / Station Name</label>
+            <input type="text" id="editRouteName" class="form-control" placeholder="e.g. Kanthi Railway Station" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description / Distance</label>
+            <input type="text" id="editRouteDesc" class="form-control" placeholder="e.g. ~35 km from Mandarmani beach resort">
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">Pickup Price (₹)</label>
+              <input type="number" id="editRoutePickupPrice" class="form-control" placeholder="e.g. 1200" min="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Drop Price (₹)</label>
+              <input type="number" id="editRouteDropPrice" class="form-control" placeholder="e.g. 1200" min="0">
+            </div>
+          </div>
+          <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-top: 14px; margin-bottom: 16px;">
+            <input type="checkbox" id="editRouteEnabled" style="width: 20px; height: 20px; cursor: pointer; accent-color: var(--turquoise);" checked>
+            <label for="editRouteEnabled" style="font-size: 0.86rem; font-weight: 600; color: var(--ocean-blue); cursor: pointer;">Active Route</label>
+          </div>
+          <button type="submit" class="btn-turquoise" style="width: 100%; justify-content: center;">
+            <span class="material-symbols-outlined">save</span> Save Route
           </button>
         </form>
       </div>
