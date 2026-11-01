@@ -7212,16 +7212,14 @@ img.mobile-drawer-logo,
 
   /* --- 4. Booking on Mobile: Compact Summary Card + Bottom Sheet --- */
   .booking-section-wrapper {
-    padding-top: 0 !important;
+    padding-top: 12px !important;
     padding-bottom: 24px !important;
     position: relative !important;
   }
 
-  /* Show booking form on mobile with 1 field per row */
+  /* Hide long desktop booking form on mobile */
   .booking-card-glass {
-    display: block !important;
-    padding: 20px 16px !important;
-    margin-top: 12px !important;
+    display: none !important;
   }
 
   .booking-form-grid {
@@ -7229,20 +7227,21 @@ img.mobile-drawer-logo,
     gap: 14px !important;
   }
 
-  /* Compact Booking Summary Card */
+  /* Compact Luxury Booking Summary Card */
   .mobile-booking-summary-card {
     display: block !important;
-    background: rgba(7, 40, 55, 0.96) !important;
-    backdrop-filter: blur(18px) !important;
-    -webkit-backdrop-filter: blur(18px) !important;
+    background: linear-gradient(165deg, rgba(7, 40, 55, 0.98) 0%, rgba(4, 28, 38, 0.99) 100%) !important;
+    backdrop-filter: blur(20px) !important;
+    -webkit-backdrop-filter: blur(20px) !important;
     border: 1px solid rgba(232, 199, 123, 0.35) !important;
-    border-radius: 20px !important;
-    padding: 16px 18px !important;
-    margin: -32px auto 20px auto !important;
+    border-radius: 18px !important;
+    padding: 14px 14px 13px 14px !important;
+    margin: 0 auto 16px auto !important;
     max-width: 480px !important;
     position: relative !important;
     z-index: 10 !important;
-    box-shadow: 0 16px 38px rgba(4, 24, 33, 0.5) !important;
+    scroll-margin-top: 80px !important;
+    box-shadow: 0 14px 34px rgba(4, 24, 33, 0.5), 0 0 0 1px rgba(232, 199, 123, 0.15) !important;
     color: #FFFFFF !important;
   }
 
@@ -7250,20 +7249,25 @@ img.mobile-drawer-logo,
     display: flex !important;
     justify-content: space-between !important;
     align-items: center !important;
-    margin-bottom: 12px !important;
+    gap: 8px !important;
+    margin-bottom: 11px !important;
+    padding-bottom: 9px !important;
+    border-bottom: 1px solid rgba(232, 199, 123, 0.18) !important;
   }
 
   .m-summary-badge {
-    background: rgba(232, 199, 123, 0.15) !important;
+    background: rgba(232, 199, 123, 0.14) !important;
     color: var(--champagne-gold) !important;
     border: 1px solid rgba(232, 199, 123, 0.35) !important;
     border-radius: 999px !important;
-    padding: 3px 10px !important;
-    font-size: 0.74rem !important;
+    padding: 3px 9px !important;
+    font-size: 0.72rem !important;
     font-weight: 600 !important;
+    letter-spacing: 0.2px !important;
     display: inline-flex !important;
     align-items: center !important;
     gap: 4px !important;
+    white-space: nowrap !important;
   }
 
   .m-summary-badge .material-symbols-outlined {
@@ -7271,56 +7275,66 @@ img.mobile-drawer-logo,
   }
 
   .m-summary-note {
-    font-size: 0.74rem !important;
-    color: rgba(255, 255, 255, 0.75) !important;
+    font-size: 0.72rem !important;
+    font-weight: 500 !important;
+    color: rgba(255, 255, 255, 0.85) !important;
+    white-space: nowrap !important;
   }
 
   .m-summary-pills-row {
     display: grid !important;
-    grid-template-columns: 1fr 1fr !important;
-    gap: 10px !important;
-    margin-bottom: 14px !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    margin-bottom: 12px !important;
     cursor: pointer !important;
   }
 
   .m-summary-pill {
-    background: rgba(255, 255, 255, 0.06) !important;
-    border: 1px solid rgba(255, 255, 255, 0.12) !important;
-    border-radius: 14px !important;
-    padding: 10px 12px !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid rgba(232, 199, 123, 0.22) !important;
+    border-radius: 12px !important;
+    padding: 8px 10px !important;
     display: flex !important;
-    align-items: center !important;
-    gap: 10px !important;
-    transition: border-color 0.2s ease !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    min-width: 0 !important;
+    transition: all 0.2s ease !important;
   }
 
+  .m-summary-pill:hover,
   .m-summary-pill:active {
-    border-color: var(--champagne-gold) !important;
+    background: rgba(255, 255, 255, 0.09) !important;
+    border-color: rgba(232, 199, 123, 0.5) !important;
+  }
+
+  .m-pill-top {
+    display: flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    margin-bottom: 3px !important;
   }
 
   .m-pill-icon {
-    font-size: 22px !important;
+    font-size: 15px !important;
     color: var(--turquoise) !important;
     flex-shrink: 0 !important;
   }
 
-  .m-pill-text {
-    display: flex !important;
-    flex-direction: column !important;
-    overflow: hidden !important;
-  }
-
   .m-pill-label {
-    font-size: 0.7rem !important;
-    color: rgba(255, 255, 255, 0.6) !important;
+    font-size: 0.63rem !important;
+    color: rgba(232, 199, 123, 0.88) !important;
     text-transform: uppercase !important;
     letter-spacing: 0.5px !important;
+    font-weight: 600 !important;
+    line-height: 1.1 !important;
+    white-space: nowrap !important;
   }
 
   .m-pill-value {
-    font-size: 0.88rem !important;
+    font-size: 0.82rem !important;
     font-weight: 600 !important;
     color: #FFFFFF !important;
+    line-height: 1.25 !important;
     white-space: nowrap !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
@@ -7328,17 +7342,58 @@ img.mobile-drawer-logo,
 
   .m-summary-cta-btn {
     width: 100% !important;
-    height: 48px !important;
+    height: 46px !important;
     border-radius: 12px !important;
-    font-size: 0.94rem !important;
+    font-size: 0.92rem !important;
     font-weight: 700 !important;
+    letter-spacing: 0.2px !important;
     background: linear-gradient(135deg, #E8C77B 0%, #D4AF37 100%) !important;
     color: #04242F !important;
+    border: none !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
     gap: 8px !important;
-    box-shadow: 0 6px 20px rgba(212, 175, 55, 0.35) !important;
+    box-shadow: 0 4px 18px rgba(212, 175, 55, 0.35) !important;
+    transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+  }
+
+  .m-summary-cta-btn:active {
+    transform: scale(0.98) !important;
+    box-shadow: 0 2px 8px rgba(212, 175, 55, 0.25) !important;
+  }
+
+  @media (max-width: 360px) {
+    .m-summary-pills-row {
+      gap: 6px !important;
+    }
+    .m-summary-pill {
+      padding: 7px 8px !important;
+    }
+    .m-pill-top {
+      gap: 4px !important;
+      margin-bottom: 2px !important;
+    }
+    .m-pill-icon {
+      font-size: 14px !important;
+    }
+    .m-pill-label {
+      font-size: 0.6rem !important;
+    }
+    .m-pill-value {
+      font-size: 0.77rem !important;
+    }
+    .m-summary-badge {
+      font-size: 0.67rem !important;
+      padding: 2px 7px !important;
+    }
+    .m-summary-note {
+      font-size: 0.67rem !important;
+    }
+    .m-summary-cta-btn {
+      font-size: 0.86rem !important;
+      height: 44px !important;
+    }
   }
 
   /* Bottom Sheet Backdrop */

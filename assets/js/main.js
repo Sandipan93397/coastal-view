@@ -2081,7 +2081,10 @@ window.syncMobileBookingDisplays = function(data) {
     }
   }
   if (mSummaryGuests) {
-    mSummaryGuests.textContent = `${data.adultsCount} Adult${data.adultsCount > 1 ? 's' : ''}${data.currentChildren > 0 ? ', ' + data.currentChildren + ' Ch' : ''} • ${data.roomsCount} Rm`;
+    const adults = data.adultsCount || 2;
+    const rooms = data.roomsCount || 1;
+    const chText = data.currentChildren > 0 ? `, ${data.currentChildren} Ch` : '';
+    mSummaryGuests.textContent = `${adults} Adult${adults > 1 ? 's' : ''}${chText} · ${rooms} Room${rooms > 1 ? 's' : ''}`;
   }
 
   const mSheetNights = document.getElementById('mSheetNightsCount');
