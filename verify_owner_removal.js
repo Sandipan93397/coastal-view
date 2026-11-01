@@ -1,6 +1,8 @@
+const testEnv = require('./test_db_helper');
 const fs = require('fs');
 
 async function verify() {
+  await testEnv.startIsolatedServer();
   console.log('--- Checking Live Server Output ---');
   const res = await fetch('http://localhost:3000/');
   const html = await res.text();
@@ -24,7 +26,7 @@ async function verify() {
   console.log('Mobile media query for badge:', css.includes('@media (max-width: 600px)') && css.includes('.owner-badge-floating'));
 
   console.log('\n--- Checking Database & Admin Panel Defaults ---');
-  const db = JSON.parse(fs.readFileSync('data/db.json', 'utf8'));
+  const db = JSON.parse(fs.readFileSync(testEnv.TEMP_DB_PATH, 'utf8'));
   console.log('DB owner title is blank:', db.websiteContent?.owner?.title === '');
 
   const adminHtml = fs.readFileSync('admin/index.html', 'utf8');

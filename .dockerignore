@@ -1,0 +1,19 @@
+# Exclude test suites, verification scripts, dev tools, and local data from production builds
+.git
+.gitignore
+.env*
+node_modules
+npm-debug.log*
+data/
+uploads/
+scratch/
+test_*.js
+verify_*.js
+scripts/test_*.js
+scripts/verify_*.js
+scripts/capture_*.js
+scripts/cdp_helper.js
+scripts/patch_*.js
+scripts/apply_*.js
+*.png
+*.md

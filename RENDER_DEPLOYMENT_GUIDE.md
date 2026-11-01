@@ -45,7 +45,7 @@ This guide walks you through deploying **Coastal View, Mandarmani** to **Render.
    * `NODE_ENV`: `production`
    * `COOKIE_SECURE`: `true`
    * `SESSION_SECRET`: Click "Generate" or set a long random string
-   * `ADMIN_EMAIL`: `your_admin_email@example.com`
+   * `ADMIN_EMAIL`: `your_admin_email@coastalviewmandarmani.com`
    * `CAPTCHA_POLICY`: `smart`
    * `TURNSTILE_SITE_KEY`: `your_cloudflare_turnstile_site_key`
    * `TURNSTILE_SECRET_KEY`: `your_cloudflare_turnstile_secret_key`

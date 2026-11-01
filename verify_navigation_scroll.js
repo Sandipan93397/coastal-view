@@ -1,3 +1,4 @@
+const testEnv = require('./test_db_helper');
 const fs = require('fs');
 const path = require('path');
 

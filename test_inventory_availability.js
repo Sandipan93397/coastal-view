@@ -1,9 +1,11 @@
+const testEnv = require('./test_db_helper');
 // Comprehensive Verification Script for Room Prices, Quantities, and Availability
 const fs = require('fs');
 
 const BASE_URL = 'http://localhost:3000';
 
 async function runTests() {
+  await testEnv.startIsolatedServer();
   console.log('====================================================');
   console.log('STARTING ROOM INVENTORY & AVAILABILITY VERIFICATION');
   console.log('====================================================\n');
@@ -28,7 +30,7 @@ async function runTests() {
     const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'admin', password: 'CoastalAdmin@2026' })
+      body: JSON.stringify({ username: 'admin', password: testEnv.TEST_PASSWORDS.admin })
     });
     const loginData = await loginRes.json();
     if (loginData.success && loginData.token) {
@@ -43,7 +45,7 @@ async function runTests() {
 
   // 1. Check Room Initial Prices, Tags, and Quantities in DB
   console.log('\n--- Test 1: Verify Initial Room Database Data (17 Inventory) ---');
-  const db = JSON.parse(fs.readFileSync('data/db.json', 'utf8'));
+  const db = JSON.parse(fs.readFileSync(testEnv.TEMP_DB_PATH, 'utf8'));
   const rooms = db.rooms || [];
   
   const cosy = rooms.find(r => r.id === 'cosy-deluxe-room');
@@ -124,7 +126,7 @@ async function runTests() {
       roomsCount: 2,
       guestName: 'Family Suite Full Booking',
       guestPhone: '9876543211',
-      guestEmail: 'family@example.com'
+      guestEmail: 'family@testdomain.in'
     })
   });
   const bookData = await bookRes.json();
@@ -149,11 +151,11 @@ async function runTests() {
   // 6. Test Cancellation Returning Rooms to Available Count
   console.log('\n--- Test 6: Cancel Booking and Verify Inventory Restored ---');
   // Read DB directly or call cancel endpoint
-  const cancelDb = JSON.parse(fs.readFileSync('data/db.json', 'utf8'));
+  const cancelDb = JSON.parse(fs.readFileSync(testEnv.TEMP_DB_PATH, 'utf8'));
   const bIndex = cancelDb.bookings.findIndex(b => b.bookingId === createdBookingId);
   if (bIndex !== -1) {
     cancelDb.bookings[bIndex].status = 'Cancelled';
-    fs.writeFileSync('data/db.json', JSON.stringify(cancelDb, null, 2), 'utf8');
+    fs.writeFileSync(testEnv.TEMP_DB_PATH, JSON.stringify(cancelDb, null, 2), 'utf8');
   }
 
   const afterCancelAvail = await fetch(`${BASE_URL}/api/rooms/availability?checkIn=${futureCheckIn}&checkOut=${futureCheckOut}`).then(r => r.json());

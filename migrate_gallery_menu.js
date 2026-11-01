@@ -1,5 +1,5 @@
-const fs = require('fs');
-const db = JSON.parse(fs.readFileSync('data/db.json', 'utf8'));
+const { readDB, writeDB } = require('./db_store');
+const db = readDB();
 
 db.gallery = [
   {
@@ -197,5 +197,5 @@ db.restaurant.forEach(dish => {
   }
 });
 
-fs.writeFileSync('data/db.json', JSON.stringify(db, null, 2), 'utf8');
+writeDB(db);
 console.log('Database updated successfully with gallery items and featured dishes!');

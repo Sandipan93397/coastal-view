@@ -17,8 +17,16 @@ out/
 # Uploads Folder
 uploads/
 
-# Database Backups & Temporary files
+# Database Files, Backups & Persistent Auth Store
+data/db.json
+data/*.sqlite*
+data/admin_staff.sqlite*
+data/admin_staff_persistent.json*
+data/sessions.json
 data/backups/
+data/**/db-backup-*.json
+**/db-backup-*.json
+data/*.tmp*
 data/invoices/*.pdf
 data/invoices/*.zip
 data/*.bak*
@@ -34,6 +42,7 @@ admin_login_*.png
 modal_*.png
 before_*.png
 after_*.png
+vehicle_pricing_*.png
 
 # Operating System & IDE
 .DS_Store

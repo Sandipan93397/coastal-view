@@ -168,7 +168,7 @@ const menuHtml = `<!DOCTYPE html>
           </div>
           <div class="footer-contact-item">
             <span class="material-symbols-outlined">call</span>
-            <span>+91 98300 12345 / 9620536361</span>
+            <span>+91 7812027551 / 9620536361</span>
           </div>
           <div class="footer-contact-item">
             <span class="material-symbols-outlined">mail</span>

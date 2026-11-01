@@ -1,3 +1,4 @@
+const testEnv = require('./test_db_helper');
 /**
  * Coastal View Mandarmani - Comprehensive Security Verification Suite
  * Tests all requirements from Section 6 of the audit prompt.
@@ -76,7 +77,7 @@ async function loginUser(username, password) {
   const preAuthToken = step1.data.preAuthToken;
 
   // Retrieve code from emailOutbox
-  const db = JSON.parse(fs.readFileSync('data/db.json', 'utf8'));
+  const db = JSON.parse(fs.readFileSync(testEnv.TEMP_DB_PATH, 'utf8'));
   const user = db.users.find(u => u.username === username);
   const outbox = db.emailOutbox || [];
   const emailItem = outbox.find(e => e.to === user.email);
@@ -103,11 +104,12 @@ async function loginUser(username, password) {
 }
 
 async function runSuite() {
+  await testEnv.startIsolatedServer();
   console.log('============================================================');
   console.log(' COASTAL VIEW MANDARMANI - COMPREHENSIVE SECURITY TEST SUITE');
   console.log('============================================================\n');
 
-  const db = JSON.parse(fs.readFileSync('data/db.json', 'utf8'));
+  const db = JSON.parse(fs.readFileSync(testEnv.TEMP_DB_PATH, 'utf8'));
 
   // --------------------------------------------------------------------------
   // TEST 1: Security Headers Verification
@@ -140,7 +142,7 @@ async function runSuite() {
   const isScriptLocked = db.superAdminLocked === true;
 
   recordTest('Super Admin Email from ADMIN_EMAIL env var', isEmailFromEnv, superAdmin?.email);
-  recordTest('Password hashed with Argon2id', isArgon2, superAdmin?.passwordHash?.slice(0, 30) + '...');
+  recordTest('Password hashed with Argon2id', isArgon2, "[Argon2id hash verified - redacted]");
   recordTest('One-time script self-locking flag set', isScriptLocked);
 
   // --------------------------------------------------------------------------
@@ -151,7 +153,7 @@ async function runSuite() {
   // Step 1: Login with Super Admin credentials
   const loginRes = await request('POST', '/api/auth/login', {
     username: superAdmin.username,
-    password: 'MandarmaniBeach@2026Secure!',
+    password: testEnv.TEST_PASSWORDS.admin,
     captchaToken: 'XXXX.test-turnstile-token'
   });
 
@@ -161,7 +163,7 @@ async function runSuite() {
   recordTest('No plaintext password or 2FA code leaked in login response', !loginRes.data.tempCode && !loginRes.data.password);
 
   // Find the generated auth code from email outbox
-  const freshDb = JSON.parse(fs.readFileSync('data/db.json', 'utf8'));
+  const freshDb = JSON.parse(fs.readFileSync(testEnv.TEMP_DB_PATH, 'utf8'));
   const latestEmail = (freshDb.emailOutbox || []).find(e => e.to === superAdmin.email);
   const codeMatch = latestEmail ? latestEmail.subject.match(/\b\d{6}\b/) : null;
   const liveCode = codeMatch ? codeMatch[0] : null;
@@ -208,12 +210,12 @@ async function runSuite() {
   console.log('\n--- 4. Testing Progressive Lockout & Account Enumeration ---');
   const wrongUserRes = await request('POST', '/api/auth/login', {
     username: 'nonexistent_account_' + Date.now(),
-    password: 'SomePassword123!',
+    password: testEnv.TEST_PASSWORDS.wrong,
     captchaToken: 'XXXX.test-turnstile-token'
   });
   const wrongPassRes = await request('POST', '/api/auth/login', {
     username: superAdmin.username,
-    password: 'WrongPasswordAt2026!',
+    password: testEnv.TEST_PASSWORDS.wrong,
     captchaToken: 'XXXX.test-turnstile-token'
   });
 
@@ -228,7 +230,7 @@ async function runSuite() {
   for (let i = 1; i <= 6; i++) {
     const failRes = await request('POST', '/api/auth/login', {
       username: testLockoutUser,
-      password: 'WrongPassword' + i,
+      password: testEnv.TEST_PASSWORDS.wrong + i,
       captchaToken: 'XXXX.test-turnstile-token'
     }, { 'X-Forwarded-For': '198.51.100.99' });
     if (failRes.status === 429) {
@@ -261,7 +263,7 @@ async function runSuite() {
   console.log('\n--- 5. Testing Role-Based Authorization ---');
 
   // Authenticate as Front Desk
-  const frontDeskSession = await loginUser('frontdesk', 'FrontDesk@2026Test!');
+  const frontDeskSession = await loginUser('frontdesk', testEnv.TEST_PASSWORDS.staff);
 
   // Try Manager route: Media Upload
   const fdMediaRes = await request('POST', '/api/media/upload', { slotKey: 'hero', imageBase64: 'abc' }, frontDeskSession.headers);
@@ -276,7 +278,7 @@ async function runSuite() {
   recordTest('Front Desk blocked from User Management (403)', fdUsersRes.status === 403, fdUsersRes.data.message);
 
   // Authenticate as Manager
-  const managerSession = await loginUser('manager', 'Manager@2026Test!');
+  const managerSession = await loginUser('manager', testEnv.TEST_PASSWORDS.manager);
 
   // Try Super Admin route with Manager session
   const mgrUsersRes = await request('POST', '/api/admin/users', { username: 'hacker' }, managerSession.headers);

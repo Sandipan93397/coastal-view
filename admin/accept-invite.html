@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+  <title>Accept Staff Invitation · Coastal View Admin</title>
+
+  <!-- Typography & Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Poppins:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200">
+
+  <!-- Core Admin Stylesheet -->
+  <link rel="stylesheet" href="admin.css">
+
+  <style>
+    .invite-container {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      background: radial-gradient(circle at 10% 20%, rgba(197, 160, 89, 0.08) 0%, transparent 40%),
+                  radial-gradient(circle at 90% 80%, rgba(6, 182, 176, 0.08) 0%, transparent 40%),
+                  #FAF8F5;
+      font-family: 'Poppins', sans-serif;
+    }
+    .invite-card {
+      width: 100%;
+      max-width: 520px;
+      background: #FFFFFF;
+      border: 1px solid rgba(226, 232, 240, 0.85);
+      border-radius: 16px;
+      box-shadow: 0 10px 35px -5px rgba(15, 31, 44, 0.08), 0 0 0 1px rgba(197, 160, 89, 0.1);
+      overflow: hidden;
+      padding: 32px 28px;
+    }
+    @media (max-width: 480px) {
+      .invite-card {
+        padding: 24px 18px;
+        border-radius: 12px;
+      }
+    }
+    .invite-header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .invite-logo {
+      height: 48px;
+      width: auto;
+      margin-bottom: 12px;
+    }
+    .invite-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.55rem;
+      font-weight: 700;
+      color: #0F1F2C;
+      margin: 0 0 6px 0;
+    }
+    .invite-subtitle {
+      font-size: 0.88rem;
+      color: #64748B;
+      margin: 0;
+    }
+    .role-badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(197, 160, 89, 0.12);
+      border: 1px solid rgba(197, 160, 89, 0.35);
+      color: #8C6A28;
+      font-weight: 600;
+      font-size: 0.82rem;
+      padding: 4px 12px;
+      border-radius: 20px;
+      margin-top: 10px;
+    }
+
+    .strength-meter-wrap {
+      margin-top: 8px;
+      margin-bottom: 12px;
+    }
+    .strength-meter-bar {
+      height: 6px;
+      background: #E2E8F0;
+      border-radius: 4px;
+      overflow: hidden;
+      display: flex;
+      gap: 3px;
+    }
+    .strength-segment {
+      flex: 1;
+      height: 100%;
+      background: #E2E8F0;
+      transition: background 0.25s ease;
+      border-radius: 2px;
+    }
+    .strength-label {
+      font-size: 0.76rem;
+      font-weight: 600;
+      margin-top: 4px;
+      display: flex;
+      justify-content: space-between;
+      color: #64748B;
+    }
+    .password-checklist {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 10px;
+      font-size: 0.74rem;
+      color: #64748B;
+    }
+    .checklist-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: color 0.2s ease;
+    }
+    .checklist-item.valid {
+      color: #048A85;
+      font-weight: 600;
+    }
+    .checklist-item.valid .material-symbols-outlined {
+      color: #06B6B0;
+    }
+    .checklist-item .material-symbols-outlined {
+      font-size: 14px;
+      color: #94A3B8;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #334155;
+      margin-bottom: 6px;
+    }
+    .input-field-wrap {
+      position: relative;
+    }
+    .input-field-wrap input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px 40px 12px 14px;
+      border: 1.5px solid #CBD5E1;
+      border-radius: 8px;
+      font-size: 0.92rem;
+      color: #0F1F2C;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .input-field-wrap input:focus {
+      outline: none;
+      border-color: #C5A059;
+      box-shadow: 0 0 0 3px rgba(197, 160, 89, 0.2);
+    }
+    .toggle-pass-btn {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #94A3B8;
+      display: flex;
+      align-items: center;
+      padding: 4px;
+    }
+
+    .btn-gold {
+      width: 100%;
+      padding: 12px 18px;
+      background: linear-gradient(135deg, #C5A059 0%, #D4AF37 100%);
+      border: none;
+      border-radius: 8px;
+      color: #FFFFFF;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: opacity 0.2s, transform 0.1s;
+      box-shadow: 0 4px 12px rgba(197, 160, 89, 0.3);
+    }
+    .btn-gold:hover {
+      opacity: 0.94;
+    }
+    .btn-gold:active {
+      transform: scale(0.99);
+    }
+    .btn-gold:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .alert-banner {
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      line-height: 1.45;
+      margin-bottom: 16px;
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+    }
+    .alert-banner.error {
+      background: #FEF2F2;
+      border: 1px solid #FCA5A5;
+      color: #991B1B;
+    }
+    .alert-banner.info {
+      background: #F0FDF4;
+      border: 1px solid #86EFAC;
+      color: #166534;
+    }
+
+    .mfa-box {
+      background: #F8FAFC;
+      border: 1.5px solid #E2E8F0;
+      border-radius: 12px;
+      padding: 18px;
+      text-align: center;
+      margin: 16px 0;
+    }
+    .qr-container {
+      background: #FFFFFF;
+      border: 1px solid #CBD5E1;
+      padding: 12px;
+      display: inline-block;
+      border-radius: 8px;
+      margin: 10px 0;
+    }
+    .qr-container img {
+      display: block;
+      width: 180px;
+      height: 180px;
+    }
+    .manual-key-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.84rem;
+      letter-spacing: 1px;
+      background: #EDF2F7;
+      padding: 6px 10px;
+      border-radius: 6px;
+      word-break: break-all;
+      display: inline-block;
+      margin-top: 6px;
+      color: #334155;
+      user-select: all;
+    }
+
+    .recovery-code-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      background: #0F1F2C;
+      padding: 14px;
+      border-radius: 8px;
+      margin: 14px 0;
+    }
+    .recovery-code-item {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.86rem;
+      color: #20B2AA;
+      text-align: center;
+      user-select: all;
+    }
+  </style>
+</head>
+<body>
+  <div class="invite-container">
+    <div class="invite-card">
+      <div class="invite-header">
+        <img src="../assets/images/logo.png" alt="Coastal View Logo" class="invite-logo" onerror="this.src='../assets/images/logo-emblem.png'">
+        <h1 class="invite-title">Welcome to Coastal View</h1>
+        <p class="invite-subtitle" id="inviteSubtitle">Staff Account Onboarding</p>
+        <div id="roleBadgeContainer"></div>
+      </div>
+
+      <div id="errorBanner" class="alert-banner error" style="display: none;"></div>
+
+      <!-- STATE 0: INITIAL VERIFYING -->
+      <div id="stateVerifying" style="text-align: center; padding: 40px 10px;">
+        <span class="material-symbols-outlined" style="font-size: 44px; color: #C5A059; animation: spin 1.2s linear infinite;">progress_activity</span>
+        <div style="font-size: 0.95rem; color: #64748B; margin-top: 14px; font-weight: 500;">
+          Verifying your secure invitation link...
+        </div>
+      </div>
+
+      <!-- STATE: INVALID / EXPIRED -->
+      <div id="stateInvalid" style="display: none; text-align: center; padding: 20px 10px;">
+        <span class="material-symbols-outlined" style="font-size: 54px; color: #EF4444; margin-bottom: 12px;">link_off</span>
+        <h2 style="font-size: 1.2rem; color: #0F1F2C; margin: 0 0 8px 0; font-family: 'Playfair Display', serif;">Invitation Link Unavailable</h2>
+        <p style="font-size: 0.88rem; color: #64748B; line-height: 1.5; margin: 0 0 20px 0;">
+          This invitation link has expired, already been redeemed, or is invalid. Invitation links are valid for 24 hours and single-use only.
+        </p>
+        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; font-size: 0.84rem; color: #475569; margin-bottom: 20px;">
+          Please contact your <strong>Super Admin</strong> to generate and send a fresh invitation to your email.
+        </div>
+        <a href="/admin/index.html" class="btn-gold" style="text-decoration: none; justify-content: center;">
+          <span class="material-symbols-outlined">login</span>
+          <span>Go to Staff Login</span>
+        </a>
+      </div>
+
+      <!-- STATE 1: SET PASSWORD -->
+      <div id="stateSetPassword" style="display: none;">
+        <p style="font-size: 0.88rem; color: #475569; margin-bottom: 18px; line-height: 1.5;">
+          Hello <strong id="userNameDisplay">Staff Member</strong>! Please set a strong, private password for your staff account.
+        </p>
+
+        <form id="setPasswordForm" autocomplete="off">
+          <div class="form-group">
+            <label for="newPassword">Create Password</label>
+            <div class="input-field-wrap">
+              <input type="password" id="newPassword" name="newPassword" placeholder="Minimum 12 characters" required autocomplete="new-password">
+              <button type="button" class="toggle-pass-btn" id="togglePass1" aria-label="Toggle password visibility">
+                <span class="material-symbols-outlined" style="font-size: 20px;">visibility</span>
+              </button>
+            </div>
+            
+            <div class="strength-meter-wrap">
+              <div class="strength-meter-bar">
+                <div class="strength-segment" id="seg1"></div>
+                <div class="strength-segment" id="seg2"></div>
+                <div class="strength-segment" id="seg3"></div>
+                <div class="strength-segment" id="seg4"></div>
+              </div>
+              <div class="strength-label">
+                <span>Password Strength</span>
+                <span id="strengthText" style="color: #94A3B8;">Too short</span>
+              </div>
+            </div>
+
+            <div class="password-checklist">
+              <div class="checklist-item" id="chkLength">
+                <span class="material-symbols-outlined">check_circle</span>
+                <span>12+ characters</span>
+              </div>
+              <div class="checklist-item" id="chkUpper">
+                <span class="material-symbols-outlined">check_circle</span>
+                <span>Uppercase letter</span>
+              </div>
+              <div class="checklist-item" id="chkLower">
+                <span class="material-symbols-outlined">check_circle</span>
+                <span>Lowercase letter</span>
+              </div>
+              <div class="checklist-item" id="chkNumber">
+                <span class="material-symbols-outlined">check_circle</span>
+                <span>Number</span>
+              </div>
+              <div class="checklist-item" id="chkSpecial">
+                <span class="material-symbols-outlined">check_circle</span>
+                <span>Special symbol</span>
+              </div>
+              <div class="checklist-item" id="chkCommon">
+                <span class="material-symbols-outlined">check_circle</span>
+                <span>Not a common pass</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="confirmPassword">Confirm Password</label>
+            <div class="input-field-wrap">
+              <input type="password" id="confirmPassword" name="confirmPassword" placeholder="Re-type password exactly" required autocomplete="new-password">
+              <button type="button" class="toggle-pass-btn" id="togglePass2" aria-label="Toggle confirm password visibility">
+                <span class="material-symbols-outlined" style="font-size: 20px;">visibility</span>
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" class="btn-gold" id="btnSubmitPassword" style="margin-top: 20px;">
+            <span class="material-symbols-outlined">lock</span>
+            <span id="btnSubmitPasswordText">Save Password & Continue</span>
+          </button>
+        </form>
+      </div>
+
+      <!-- STATE 2: SETUP AUTHENTICATOR (TOTP 2FA) -->
+      <div id="stateSetupMfa" style="display: none;">
+        <h2 style="font-size: 1.15rem; color: #0F1F2C; margin: 0 0 6px 0; font-family: 'Playfair Display', serif;">Two-Factor Authentication Setup</h2>
+        <p style="font-size: 0.84rem; color: #64748B; margin: 0 0 16px 0;">
+          Two-factor verification protects our luxury resort operations. Scan the QR code using Google Authenticator, Microsoft Authenticator, or 1Password.
+        </p>
+
+        <div class="mfa-box">
+          <div class="qr-container">
+            <img id="mfaQrCode" alt="Scan Authenticator QR" src="">
+          </div>
+          <div style="font-size: 0.78rem; color: #64748B; margin-top: 8px;">
+            Can't scan? Enter this secret manually in your app:
+          </div>
+          <div>
+            <code class="manual-key-text" id="mfaManualKey">---- ---- ---- ----</code>
+          </div>
+        </div>
+
+        <form id="verifyMfaForm">
+          <div class="form-group">
+            <label for="mfaCode">Enter 6-digit Code from Authenticator</label>
+            <div class="input-field-wrap">
+              <input type="text" id="mfaCode" name="mfaCode" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" placeholder="123456" required style="font-family: 'JetBrains Mono', monospace; font-size: 1.2rem; letter-spacing: 4px; text-align: center;">
+            </div>
+          </div>
+
+          <button type="submit" class="btn-gold" id="btnSubmitMfa">
+            <span class="material-symbols-outlined">verified_user</span>
+            <span id="btnSubmitMfaText">Verify & Activate Account</span>
+          </button>
+        </form>
+      </div>
+
+      <!-- STATE 3: COMPLETED / RECOVERY CODES -->
+      <div id="stateCompleted" style="display: none;">
+        <div style="text-align: center; margin-bottom: 18px;">
+          <span class="material-symbols-outlined" style="font-size: 48px; color: #10B981;">check_circle</span>
+          <h2 style="font-size: 1.25rem; color: #0F1F2C; margin: 6px 0; font-family: 'Playfair Display', serif;">Account Activated!</h2>
+          <p style="font-size: 0.86rem; color: #64748B; margin: 0;">
+            Your Coastal View staff account is now fully active.
+          </p>
+        </div>
+
+        <div id="recoveryCodesSection" style="display: none;">
+          <div style="background: #FEF3C7; border: 1px solid #FCD34D; border-radius: 8px; padding: 12px; font-size: 0.82rem; color: #92400E; margin-bottom: 12px; display: flex; gap: 8px; align-items: flex-start;">
+            <span class="material-symbols-outlined" style="font-size: 18px;">warning</span>
+            <span><strong>Important:</strong> Save your one-time recovery codes now. They will not be shown again and can be used to log in if you lose your authenticator.</span>
+          </div>
+
+          <div class="recovery-code-grid" id="recoveryCodesGrid"></div>
+
+          <button type="button" class="btn-gold" id="btnCopyCodes" style="background: #0F1F2C; margin-bottom: 16px;">
+            <span class="material-symbols-outlined">content_copy</span>
+            <span>Copy All Recovery Codes</span>
+          </button>
+        </div>
+
+        <a href="/admin/index.html" class="btn-gold" style="text-decoration: none; justify-content: center; margin-top: 10px;">
+          <span class="material-symbols-outlined">login</span>
+          <span>Proceed to Admin Login</span>
+        </a>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // Capture token from query param immediately
+    const urlParams = new URLSearchParams(window.location.search);
+    const inviteToken = urlParams.get('token');
+
+    // Clean sensitive token from address bar immediately to protect browser history and referrer leaks
+    if (inviteToken && window.history.replaceState) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    let verifiedUserData = null;
+
+    const stateVerifying = document.getElementById('stateVerifying');
+    const stateInvalid = document.getElementById('stateInvalid');
+    const stateSetPassword = document.getElementById('stateSetPassword');
+    const stateSetupMfa = document.getElementById('stateSetupMfa');
+    const stateCompleted = document.getElementById('stateCompleted');
+    const errorBanner = document.getElementById('errorBanner');
+
+    function showError(msg) {
+      if (!msg) {
+        errorBanner.style.display = 'none';
+        errorBanner.textContent = '';
+      } else {
+        errorBanner.style.display = 'flex';
+        errorBanner.innerHTML = `<span class="material-symbols-outlined" style="font-size: 18px;">error</span><span>${msg}</span>`;
+      }
+    }
+
+    // Toggle password visibility
+    function setupPassToggle(btnId, inputId) {
+      const btn = document.getElementById(btnId);
+      const input = document.getElementById(inputId);
+      btn.addEventListener('click', () => {
+        const isPass = input.type === 'password';
+        input.type = isPass ? 'text' : 'password';
+        btn.querySelector('.material-symbols-outlined').textContent = isPass ? 'visibility_off' : 'visibility';
+      });
+    }
+    setupPassToggle('togglePass1', 'newPassword');
+    setupPassToggle('togglePass2', 'confirmPassword');
+
+    // Password strength & checklist
+    const newPassInput = document.getElementById('newPassword');
+    const commonPasswords = ['password', '123456', 'coastalview', 'admin123', 'mandarmani', 'welcome123'];
+
+    function evaluatePassword(pwd) {
+      const checks = {
+        length: pwd.length >= 12,
+        upper: /[A-Z]/.test(pwd),
+        lower: /[a-z]/.test(pwd),
+        number: /[0-9]/.test(pwd),
+        special: /[^A-Za-z0-9]/.test(pwd),
+        common: !commonPasswords.some(c => pwd.toLowerCase().includes(c))
+      };
+
+      document.getElementById('chkLength').classList.toggle('valid', checks.length);
+      document.getElementById('chkUpper').classList.toggle('valid', checks.upper);
+      document.getElementById('chkLower').classList.toggle('valid', checks.lower);
+      document.getElementById('chkNumber').classList.toggle('valid', checks.number);
+      document.getElementById('chkSpecial').classList.toggle('valid', checks.special);
+      document.getElementById('chkCommon').classList.toggle('valid', checks.common);
+
+      let score = 0;
+      if (checks.length) score++;
+      if (checks.upper && checks.lower) score++;
+      if (checks.number) score++;
+      if (checks.special) score++;
+      if (pwd.length >= 16) score++;
+
+      const segments = [document.getElementById('seg1'), document.getElementById('seg2'), document.getElementById('seg3'), document.getElementById('seg4')];
+      const strengthText = document.getElementById('strengthText');
+
+      segments.forEach(s => s.style.background = '#E2E8F0');
+
+      if (pwd.length === 0) {
+        strengthText.textContent = 'Too short';
+        strengthText.style.color = '#94A3B8';
+      } else if (score < 2) {
+        segments[0].style.background = '#EF4444';
+        strengthText.textContent = 'Weak';
+        strengthText.style.color = '#EF4444';
+      } else if (score < 4) {
+        segments[0].style.background = '#F59E0B';
+        segments[1].style.background = '#F59E0B';
+        strengthText.textContent = 'Moderate';
+        strengthText.style.color = '#F59E0B';
+      } else if (score === 4) {
+        segments[0].style.background = '#10B981';
+        segments[1].style.background = '#10B981';
+        segments[2].style.background = '#10B981';
+        strengthText.textContent = 'Strong';
+        strengthText.style.color = '#10B981';
+      } else {
+        segments.forEach(s => s.style.background = '#06B6B0');
+        strengthText.textContent = 'Very Strong';
+        strengthText.style.color = '#06B6B0';
+      }
+
+      return Object.values(checks).every(Boolean);
+    }
+
+    newPassInput.addEventListener('input', (e) => {
+      evaluatePassword(e.target.value);
+    });
+
+    // Step 0: Verify Token on load
+    async function verifyToken() {
+      if (!inviteToken) {
+        stateVerifying.style.display = 'none';
+        stateInvalid.style.display = 'block';
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/admin/invite/verify?token=${encodeURIComponent(inviteToken)}`);
+        const data = await res.json();
+
+        stateVerifying.style.display = 'none';
+
+        if (!res.ok || !data.valid) {
+          stateInvalid.style.display = 'block';
+          return;
+        }
+
+        verifiedUserData = data;
+        document.getElementById('userNameDisplay').textContent = data.name || 'Staff Member';
+        document.getElementById('inviteSubtitle').textContent = `Staff Onboarding · ${data.email}`;
+        
+        const roleContainer = document.getElementById('roleBadgeContainer');
+        roleContainer.innerHTML = `<span class="role-badge-pill"><span class="material-symbols-outlined" style="font-size: 16px;">badge</span> ${data.role}</span>`;
+
+        stateSetPassword.style.display = 'block';
+      } catch (err) {
+        stateVerifying.style.display = 'none';
+        stateInvalid.style.display = 'block';
+      }
+    }
+
+    // Step 1: Submit Password Form
+    const setPasswordForm = document.getElementById('setPasswordForm');
+    setPasswordForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      showError('');
+
+      const password = document.getElementById('newPassword').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+
+      if (!evaluatePassword(password)) {
+        showError('Password must meet all 6 security requirements.');
+        return;
+      }
+      if (password !== confirmPassword) {
+        showError('Passwords do not match. Please re-enter.');
+        return;
+      }
+
+      const btn = document.getElementById('btnSubmitPassword');
+      const btnText = document.getElementById('btnSubmitPasswordText');
+      btn.disabled = true;
+      btnText.textContent = 'Saving password...';
+
+      try {
+        const res = await fetch('/api/admin/invite/accept', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token: inviteToken,
+            password,
+            confirmPassword
+          })
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          btn.disabled = false;
+          btnText.textContent = 'Save Password & Continue';
+          showError(data.error || 'Failed to set password. Link may have expired.');
+          return;
+        }
+
+        stateSetPassword.style.display = 'none';
+
+        if (data.requireMfa && data.qrCodeDataUrl) {
+          // Proceed to Step 2: MFA Setup
+          document.getElementById('mfaQrCode').src = data.qrCodeDataUrl;
+          document.getElementById('mfaManualKey').textContent = data.manualEntryKey;
+          stateSetupMfa.style.display = 'block';
+        } else {
+          // Completed directly (if 2FA wasn't required)
+          stateCompleted.style.display = 'block';
+        }
+      } catch (err) {
+        btn.disabled = false;
+        btnText.textContent = 'Save Password & Continue';
+        showError('Network error while saving password. Please try again.');
+      }
+    });
+
+    // Step 2: Submit MFA Verification Form
+    const verifyMfaForm = document.getElementById('verifyMfaForm');
+    verifyMfaForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      showError('');
+
+      const totpCode = document.getElementById('mfaCode').value.trim();
+      if (!/^\d{6}$/.test(totpCode)) {
+        showError('Please enter a valid 6-digit numeric verification code.');
+        return;
+      }
+
+      const btn = document.getElementById('btnSubmitMfa');
+      const btnText = document.getElementById('btnSubmitMfaText');
+      btn.disabled = true;
+      btnText.textContent = 'Verifying code...';
+
+      try {
+        const res = await fetch('/api/admin/invite/complete-mfa', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token: inviteToken,
+            totpCode
+          })
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          btn.disabled = false;
+          btnText.textContent = 'Verify & Activate Account';
+          showError(data.error || 'Invalid authenticator code. Check your device clock and try again.');
+          return;
+        }
+
+        // Account is now fully active!
+        stateSetupMfa.style.display = 'none';
+        stateCompleted.style.display = 'block';
+
+        if (data.recoveryCodes && data.recoveryCodes.length > 0) {
+          const recSec = document.getElementById('recoveryCodesSection');
+          const grid = document.getElementById('recoveryCodesGrid');
+          grid.innerHTML = data.recoveryCodes.map(c => `<div class="recovery-code-item">${c}</div>`).join('');
+          recSec.style.display = 'block';
+
+          document.getElementById('btnCopyCodes').addEventListener('click', () => {
+            navigator.clipboard.writeText(data.recoveryCodes.join('\n')).then(() => {
+              const copyBtn = document.getElementById('btnCopyCodes');
+              copyBtn.innerHTML = '<span class="material-symbols-outlined">done</span><span>Codes Copied!</span>';
+              setTimeout(() => {
+                copyBtn.innerHTML = '<span class="material-symbols-outlined">content_copy</span><span>Copy All Recovery Codes</span>';
+              }, 3000);
+            });
+          });
+        }
+      } catch (err) {
+        btn.disabled = false;
+        btnText.textContent = 'Verify & Activate Account';
+        showError('Network error while verifying 2FA code.');
+      }
+    });
+
+    // Initialize
+    verifyToken();
+  </script>
+</body>
+</html>

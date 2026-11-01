@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
+const { readDB } = require('./db_store');
 
-const dbPath = path.join(__dirname, 'data', 'db.json');
-const db = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+const db = readDB();
 
 const phone = db.settings?.menuPhone || "+91 7812027551";
 const cleanPhone = phone.replace(/\s+/g, '');

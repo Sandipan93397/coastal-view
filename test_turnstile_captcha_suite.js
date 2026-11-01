@@ -1,3 +1,4 @@
+const testEnv = require('./test_db_helper');
 const fs = require('fs');
 const http = require('http');
 
@@ -36,6 +37,7 @@ async function request(options, body = null) {
 }
 
 async function runCaptchaSuite() {
+  await testEnv.startIsolatedServer();
   console.log('====================================================');
   console.log('CLOUDFLARE TURNSTILE & CAPTCHA SECURITY TEST SUITE');
   console.log('====================================================\n');
@@ -92,7 +94,7 @@ async function runCaptchaSuite() {
   console.log('\n--- Test 4: Single Failed Attempt (Accurate message & no CAPTCHA yet) ---');
   const fail1 = await request({ path: '/api/auth/login', method: 'POST' }, {
     username: testUser,
-    password: 'WrongPassword123!'
+    password: testEnv.TEST_PASSWORDS.wrong
   });
   assert(fail1.status === 401, 'HTTP 401 for wrong password');
   assert(fail1.data.message === 'Wrong email or password', 'Accurate generic message: "Wrong email or password"');
@@ -102,7 +104,7 @@ async function runCaptchaSuite() {
   console.log('\n--- Test 5: 2nd Failed Attempt (Triggers CAPTCHA requirement in smart mode) ---');
   const fail2 = await request({ path: '/api/auth/login', method: 'POST' }, {
     username: testUser,
-    password: 'WrongPasswordAgain!'
+    password: testEnv.TEST_PASSWORDS.wrong
   });
   assert(fail2.status === 401, 'HTTP 401 for 2nd wrong password');
   assert(fail2.data.requireCaptcha === true, 'requireCaptcha is TRUE after 2 failed attempts');
@@ -112,7 +114,7 @@ async function runCaptchaSuite() {
   console.log('\n--- Test 6: Attempt after 2 failures without CAPTCHA token ---');
   const noTokenRes = await request({ path: '/api/auth/login', method: 'POST' }, {
     username: testUser,
-    password: 'WrongPassword3!'
+    password: testEnv.TEST_PASSWORDS.wrong
   });
   assert(noTokenRes.status === 400, 'HTTP 400 when CAPTCHA is required but missing token');
   assert(noTokenRes.data.message === 'Please complete the security check', 'Message is "Please complete the security check"');
@@ -122,7 +124,7 @@ async function runCaptchaSuite() {
   console.log('\n--- Test 6B: Attempt with valid test CAPTCHA token on localhost ---');
   const withTestTokenRes = await request({ path: '/api/auth/login', method: 'POST' }, {
     username: testUser,
-    password: 'WrongPassword4!',
+    password: testEnv.TEST_PASSWORDS.wrong,
     captchaToken: 'XXXX.test-turnstile-token'
   });
   assert(withTestTokenRes.status === 401, 'HTTP 401: Security check passed, password failed as expected');

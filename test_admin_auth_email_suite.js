@@ -1,3 +1,4 @@
+const testEnv = require('./test_db_helper');
 /**
  * Comprehensive Verification Suite for Coastal View Admin Login, 2FA & SMTP Email System
  * 
@@ -97,11 +98,12 @@ function extractCookie(setCookies, cookieName) {
 }
 
 async function runTestSuite() {
+  await testEnv.startIsolatedServer();
   console.log('================================================================');
   console.log(' coastal View - Admin Auth, 2FA & SMTP System Verification');
   console.log('================================================================\n');
 
-  const dbPath = path.join(__dirname, 'data', 'db.json');
+  const dbPath = testEnv.TEMP_DB_PATH;
   const dbBackup = fs.readFileSync(dbPath, 'utf8');
 
   try {
@@ -120,12 +122,12 @@ async function runTestSuite() {
     }
 
     // Scan codebase for hardcoded passwords
-    const scanFiles = ['data/db.json', 'scripts/create_super_admin.js', 'server.js', 'api/auth.php'];
+    const scanFiles = [testEnv.TEMP_DB_PATH, 'scripts/create_super_admin.js', 'server.js', 'api/auth.php'];
     let leakFound = false;
     for (const f of scanFiles) {
       if (fs.existsSync(f)) {
         const content = fs.readFileSync(f, 'utf8');
-        if (content.includes('CoastalAdmin@2026') || content.includes('supersecretpassword123')) {
+        if (content.includes(testEnv.TEST_PASSWORDS.admin) || content.includes('supersecretpassword123')) {
           leakFound = true;
           break;
         }
@@ -141,7 +143,7 @@ async function runTestSuite() {
     // Non-existent user
     const resBadUser = await request('POST', '/api/auth/login', {
       username: 'nonexistentuser_' + Date.now(),
-      password: 'SomeRandomPassword123!'
+      password: testEnv.TEST_PASSWORDS.wrong
     });
     recordTest('Non-existent user returns generic "Wrong email or password"', 
       resBadUser.statusCode === 401 && resBadUser.json && resBadUser.json.message === 'Wrong email or password');
@@ -153,16 +155,16 @@ async function runTestSuite() {
       id: 'usr_' + testUsername,
       username: testUsername,
       name: 'Err Test',
-      email: testUsername + '@example.com',
+      email: testUsername + '@testdomain.in',
       role: 'Staff',
       active: true,
-      passwordHash: await authSec.hashPassword('Correct#2026')
+      passwordHash: await authSec.hashPassword(testEnv.TEST_PASSWORDS.staff)
     });
     fs.writeFileSync(dbPath, JSON.stringify(dbTest, null, 2));
 
     const resBadPass1 = await request('POST', '/api/auth/login', {
       username: testUsername,
-      password: 'WrongPassword123!'
+      password: testEnv.TEST_PASSWORDS.wrong
     });
     recordTest('Wrong password attempt 1 returns generic "Wrong email or password"', 
       resBadPass1.statusCode === 401 && resBadPass1.json && resBadPass1.json.message === 'Wrong email or password');
@@ -170,7 +172,7 @@ async function runTestSuite() {
     // Attempt 2
     const resBadPass2 = await request('POST', '/api/auth/login', {
       username: testUsername,
-      password: 'WrongPassword123!'
+      password: testEnv.TEST_PASSWORDS.wrong
     });
     recordTest('Second failed attempt requires CAPTCHA verification',
       resBadPass2.json && resBadPass2.json.requireCaptcha === true,
@@ -179,7 +181,7 @@ async function runTestSuite() {
     // Attempt 3 without CAPTCHA
     const resBadPass3 = await request('POST', '/api/auth/login', {
       username: testUsername,
-      password: 'WrongPassword123!'
+      password: testEnv.TEST_PASSWORDS.wrong
     });
     recordTest('Subsequent attempt without CAPTCHA is blocked',
       resBadPass3.statusCode === 400 && resBadPass3.json && resBadPass3.json.message.includes('security check'));
@@ -192,7 +194,7 @@ async function runTestSuite() {
     // Set a known TOTP secret and password for a temporary test user in DB
     const db = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
     const testTotpSecret = authSec.generateTotpSecret();
-    const testPasswordPlain = 'TestCoastal#2026';
+    const testPasswordPlain = testEnv.TEST_PASSWORDS.altAdmin;
     const testHash = await authSec.hashPassword(testPasswordPlain);
     const generatedRecovery = authSec.generateBackupCodes();
     const testCaptchaToken = '1x00000000000000000000AA';
@@ -365,7 +367,7 @@ async function runTestSuite() {
     console.log('\n--- TEST 7: Role Authorization Enforcement ---');
     
     // Front desk login
-    const frontDeskHash = await authSec.hashPassword('FrontDesk#2026');
+    const frontDeskHash = await authSec.hashPassword(testEnv.TEST_PASSWORDS.staff);
     let fdUser = db.users.find(u => u.role === 'Front Desk');
     if (!fdUser) {
       fdUser = {
@@ -385,7 +387,7 @@ async function runTestSuite() {
 
     const resFdLogin = await request('POST', '/api/auth/login', {
       username: fdUser.username,
-      password: 'FrontDesk#2026',
+      password: testEnv.TEST_PASSWORDS.staff,
       captchaToken: testCaptchaToken
     });
 
@@ -449,7 +451,7 @@ async function runTestSuite() {
       roomId: 'ocean-whisper-room',
       guestName: 'Resilience Test Guest',
       guestPhone: '9876543210',
-      guestEmail: 'testguest@example.com',
+      guestEmail: 'testguest@testdomain.in',
       checkIn: '2026-11-01',
       checkOut: '2026-11-03',
       nights: 2,

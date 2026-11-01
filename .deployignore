@@ -1,0 +1,17 @@
+# Hostinger / Production Deployment Exclusion List
+.git/
+.env
+.env.*
+!.env.example
+data/
+scratch/
+test_*.js
+verify_*.js
+scripts/test_*.js
+scripts/verify_*.js
+scripts/capture_*.js
+scripts/cdp_helper.js
+scripts/patch_*.js
+scripts/apply_*.js
+*.png
+*.log

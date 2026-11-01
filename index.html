@@ -25,6 +25,8 @@
   "@context": "https://schema.org",
   "@type": "Hotel",
   "name": "Coastal View Hotel & Resort, Mandarmani",
+  "checkinTime": "11:00",
+  "checkoutTime": "09:30",
   "image": "https://coastalviewmandarmani.com/assets/images/hero-sunset-pool.jpg",
   "telephone": "+917812027551",
   "hasMap": "https://maps.app.goo.gl/muo77rATAnodfDCRA",
@@ -1202,7 +1204,7 @@
       "name": "What are the check-in and check-out timings?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Our standard check-in time is 12:00 PM (noon) and check-out time is 11:00 AM. Early check-in or late check-out is subject to room availability upon request with our front desk."
+        "text": "Our standard check-in time is 11:00 AM and check-out time is 9:30 AM. Early check-in or late check-out is subject to room availability upon request with our front desk."
       }
     },
     {
@@ -1258,6 +1260,35 @@
   </script>
 </head>
 <body>
+  <!-- Lightweight Branded Hosting Wake-up / Preloader Screen -->
+  <div id="hostingWakeupLoader" class="hosting-wakeup-loader" aria-hidden="true">
+    <div class="wakeup-inner">
+      <div class="wakeup-emblem-wrap">
+        <img src="assets/images/logo-emblem.png" alt="Coastal View Logo" class="wakeup-logo" width="64" height="64">
+        <div class="wakeup-spinner-ring"></div>
+      </div>
+      <div class="wakeup-title">Coastal View</div>
+      <div class="wakeup-byline">Managed By Ani's • Mandarmani</div>
+      <div class="wakeup-progress-bar"><div class="wakeup-progress-fill"></div></div>
+    </div>
+  </div>
+  <script>
+    (function() {
+      function dismissLoader() {
+        var el = document.getElementById('hostingWakeupLoader');
+        if (el && !el.classList.contains('dismissed')) {
+          el.classList.add('dismissed');
+          setTimeout(function() { if (el && el.parentNode) el.parentNode.removeChild(el); }, 400);
+        }
+      }
+      if (document.readyState === 'complete') {
+        dismissLoader();
+      } else {
+        window.addEventListener('load', dismissLoader);
+        setTimeout(dismissLoader, 1200);
+      }
+    })();
+  </script>
 
   <!-- ==========================================================================
        TOP NAVIGATION BAR
@@ -1427,32 +1458,35 @@
       </div>
 
       <div class="booking-card-glass">
-        <form id="liveBookingForm" onsubmit="return false;">
+        <form id="liveBookingForm" onsubmit="return false;" novalidate>
           <div class="booking-form-grid">
             <!-- Check In -->
             <div class="booking-field-group">
               <label for="bookCheckIn">
-                <span class="material-symbols-outlined" style="font-size: 16px;">calendar_today</span> Check-In Date
+                <span class="material-symbols-outlined" style="font-size: 16px;">calendar_today</span> Check-in date
               </label>
               <input type="date" id="bookCheckIn" class="booking-input" required>
+              <div class="booking-helper-text" id="checkInTimeHelper">From <span class="dyn-checkin-time">11:00 AM</span></div>
             </div>
 
             <!-- Check Out -->
             <div class="booking-field-group">
               <label for="bookCheckOut">
-                <span class="material-symbols-outlined" style="font-size: 16px;">event</span> Check-Out Date
+                <span class="material-symbols-outlined" style="font-size: 16px;">event</span> Check-out date
               </label>
               <input type="date" id="bookCheckOut" class="booking-input" required>
+              <div class="booking-helper-text" id="checkOutTimeHelper">Until <span class="dyn-checkout-time">9:30 AM</span></div>
             </div>
 
-            <!-- Select Suite/Room (Only Available Rooms) -->
+            <!-- Select Suite/Room -->
             <div class="booking-field-group">
               <label for="bookRoomSelect">
                 <span class="material-symbols-outlined" style="font-size: 16px;">king_bed</span> Select Suite
               </label>
               <select id="bookRoomSelect" class="booking-select" required>
-                <!-- Populated dynamically via JS -->
+                <option value="" selected>Select a suite</option>
               </select>
+              <div class="booking-helper-text" id="suiteSelectHelper">Choose from 4 luxury suites</div>
             </div>
 
             <!-- Rooms Count -->
@@ -1466,6 +1500,7 @@
                 <option value="3">3 Rooms</option>
                 <option value="4">4+ Rooms</option>
               </select>
+              <div class="booking-helper-text" id="roomsCountHelper">Select room count</div>
             </div>
 
             <!-- Guests (Adults) -->
@@ -1477,6 +1512,7 @@
                 <option value="1">1 Adult</option>
                 <option value="2" selected>2 Adults</option>
               </select>
+              <div class="booking-helper-text" id="adultsLimitHelper">Max 2 adults / room</div>
             </div>
 
             <!-- Children -->
@@ -1488,6 +1524,7 @@
                 <option value="0" selected>0 Children</option>
                 <option value="1">1 Child</option>
               </select>
+              <div class="booking-helper-text" id="childrenLimitHelper">Max 1 child / room</div>
             </div>
           </div>
 
@@ -1502,14 +1539,16 @@
             </button>
           </div>
 
-          <!-- Children Age & Extra Bed Hints (Data-Driven from Admin Settings) -->
-          <div style="display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.78rem; margin: 8px 2px 4px; color: var(--warm-sand);">
-            <span id="bookingChildAgeNote" style="display: inline-flex; align-items: center; gap: 4px;">
-              <span class="material-symbols-outlined" style="font-size: 14px; color: var(--turquoise);">child_care</span>
-              Children up to 5 years stay complimentary without extra bed.
+          <!-- Guest Capacity Helper, Child Policy (Hidden unless set in Admin), & Extra Bed Note -->
+          <div class="booking-policy-notes-row" style="display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.85rem; margin: 10px 2px 6px; color: #F8FAFC;">
+            <span id="bookingGuestRuleHelper" style="display: inline-flex; align-items: center; gap: 5px; color: #F8FAFC; font-size: 0.85rem;">
+              <span class="material-symbols-outlined" style="font-size: 15px; color: var(--champagne-gold);">group</span>
+              <span id="bookingGuestRuleText">Max 2 adults &amp; 1 child per room</span>
             </span>
-            <span id="bookingExtraBedNote" style="display: inline-flex; align-items: center; gap: 4px; color: #94A3B8;">
-              <span class="material-symbols-outlined" style="font-size: 14px; color: var(--champagne-gold);">call</span>
+            <span id="bookingChildAgeNote" style="display: none; align-items: center; gap: 5px; color: #F8FAFC; font-size: 0.85rem;">
+            </span>
+            <span id="bookingExtraBedNote" style="display: inline-flex; align-items: center; gap: 5px; color: #F8FAFC; font-size: 0.85rem;">
+              <span class="material-symbols-outlined" style="font-size: 15px; color: var(--champagne-gold);">call</span>
               Need an extra bed? Please call front desk at +91 7812027551.
             </span>
           </div>
@@ -1641,12 +1680,12 @@
           <div class="price-breakdown-bar">
             <div class="price-summary-col">
               <div class="price-summary-header">
-                <span class="price-summary-label">Estimated Total (<span id="liveNightsCount">1 night</span>):</span>
-                <span class="price-summary-amount" id="liveTotalAmount">₹2,500</span>
+                <span class="price-summary-label" id="liveTotalLabel">Estimated Total<span id="liveNightsWrap" style="display: none;"> (<span id="liveNightsCount">0 nights</span>)</span>:</span>
+                <span class="price-summary-amount neutral-message" id="liveTotalAmount">Select dates and a suite to see your price</span>
               </div>
               <!-- Clear itemized breakdown directly under the total -->
-              <div class="price-breakdown-container" id="priceBreakdownContainer">
-                <div class="price-breakdown-line room-breakdown-line" id="liveRoomSummaryLine">Room: ₹2,500 × 1 night × 1 room</div>
+              <div class="price-breakdown-container" id="priceBreakdownContainer" style="display: none;">
+                <div class="price-breakdown-line room-breakdown-line" id="liveRoomSummaryLine" style="display: none;"></div>
                 <div class="price-breakdown-line breakfast-summary-subline" id="liveBreakfastSummaryLine" style="display: none; color: #FBBF24;"></div>
                 <div class="price-breakdown-line transport-summary-subline" id="liveTransportSummaryLine" style="display: none;"></div>
                 <div class="price-breakdown-line dinner-summary-subline" id="liveDinnerSummaryLine" style="display: none;"></div>
@@ -1657,20 +1696,23 @@
             <div class="split-payment-boxes">
               <div class="split-pill pay-now">
                 <span class="split-pill-label">Pay Now (20% Advance)</span>
-                <span class="split-pill-val" id="livePayNow">₹500</span>
+                <span class="split-pill-val" id="livePayNow">—</span>
               </div>
               <div class="split-pill pay-hotel">
                 <span class="split-pill-label">Pay at Hotel (80%)</span>
-                <span class="split-pill-val" id="livePayHotel">₹2,000</span>
+                <span class="split-pill-val" id="livePayHotel">—</span>
               </div>
             </div>
 
-            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
-              <button type="button" class="btn btn-coral" id="openCheckoutModalBtn">
-                <span class="material-symbols-outlined">verified</span> Reserve Stay (Pay 20% Now)
-              </button>
-              <span class="policy-badge-note">
-                <span class="material-symbols-outlined" style="font-size: 14px;">info</span> The 20% advance is non-refundable.
+            <div class="reserve-action-col" style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
+              <div id="reserveBtnTapArea" class="reserve-btn-tap-area" style="position: relative; display: inline-block;">
+                <button type="button" class="btn btn-coral" id="openCheckoutModalBtn" disabled aria-disabled="true">
+                  <span class="material-symbols-outlined">verified</span> <span id="reserveBtnText">Reserve Stay (Pay 20% Now)</span>
+                </button>
+              </div>
+              <div id="bookingFormErrorMsg" class="booking-form-error-msg" role="alert" aria-live="polite" style="display: none;"></div>
+              <span class="policy-badge-note" id="bookingAdvancePolicyNote">
+                <span class="material-symbols-outlined" style="font-size: 15px;">info</span> The 20% advance is non-refundable.
               </span>
             </div>
           </div>
@@ -1702,16 +1744,18 @@
       <div class="m-sheet-section">
         <div class="m-section-label">
           <span class="material-symbols-outlined">date_range</span> 1. Select Dates
-          <span class="m-nights-badge" id="mSheetNightsCount">1 Night</span>
+          <span class="m-nights-badge" id="mSheetNightsCount">Select dates</span>
         </div>
         <div class="m-dates-grid">
           <div class="m-date-box">
-            <label for="mCheckIn">Check-In</label>
+            <label for="mCheckIn">Check-in date</label>
             <input type="date" id="mCheckIn" class="m-input" required>
+            <div class="booking-helper-text">From <span class="dyn-checkin-time">11:00 AM</span></div>
           </div>
           <div class="m-date-box">
-            <label for="mCheckOut">Check-Out</label>
+            <label for="mCheckOut">Check-out date</label>
             <input type="date" id="mCheckOut" class="m-input" required>
+            <div class="booking-helper-text">Until <span class="dyn-checkout-time">9:30 AM</span></div>
           </div>
         </div>
       </div>
@@ -1861,9 +1905,9 @@
             <div style="margin-bottom: 8px;">
               <label for="mVehicleTypeSelect" style="font-size:0.78rem; color:var(--turquoise); font-weight:600; display: block; margin-bottom: 4px;">Vehicle Type:</label>
               <select id="mVehicleTypeSelect" class="m-input" style="height:48px; min-height:48px; font-size:16px;">
-                <option value="car" selected>Car (Up to 4 passengers)</option>
-                <option value="toto">Toto (Up to 4 passengers)</option>
-                <option value="auto">Auto (Up to 3 passengers)</option>
+                <option value="car" selected>Car — Up to 4 people</option>
+                <option value="toto">Toto — Up to 4 people</option>
+                <option value="auto">Auto — Up to 3 people</option>
               </select>
             </div>
             <div style="margin-bottom: 8px;">
@@ -1921,8 +1965,8 @@
     <div class="m-sheet-sticky-footer" id="mSheetStickyFooter">
       <div class="m-footer-price-col">
         <div class="m-footer-total-label">Total Estimate</div>
-        <div class="m-footer-total-amount" id="mSheetTotalAmount">₹2,500</div>
-        <div class="m-footer-advance-badge" id="mSheetAdvanceBadge">Pay 20% Now: ₹500</div>
+        <div class="m-footer-total-amount" id="mSheetTotalAmount" style="font-size: 0.92rem;">Select dates and a suite to see your price</div>
+        <div class="m-footer-advance-badge" id="mSheetAdvanceBadge">Pay 20% Now: — • Pay at Hotel: —</div>
       </div>
       <button type="button" class="btn btn-gold m-sheet-continue-btn" id="mSheetContinueBtn">
         <span>Continue</span>
@@ -1954,16 +1998,22 @@
 
         <div class="owner-content">
           <div class="section-tag gold">Meet Your Host</div>
-          <h2 class="section-heading" style="margin-bottom: 8px;">A Warm Welcome to Coastal View</h2>
+          <h2 class="section-heading" style="margin-bottom: 6px;">A Warm Welcome to Coastal View</h2>
+          <div class="owner-host-name">Anirban Das</div>
           <div class="owner-designation">Founder & Host, Coastal View • Ani's Tour and Travels</div>
 
-          <p class="owner-quote">
-            "Mandarmani holds a very special place in my heart — the gentle roar of the Bay of Bengal, the serene hard-sand beach, and the golden sunsets are unlike anywhere else in the country. With Coastal View, my vision was simple: to create a luxury beachfront sanctuary where every guest experiences genuine Bengali hospitality, bespoke comfort, and unforgettable memories."
-          </p>
-
-          <p style="font-size: 0.95rem; color: #556670; line-height: 1.7; margin-bottom: 24px;">
-            "Together with Ani's Tour and Travels, we take care of your entire journey — from doorstep Kolkata AC car pickups and personalized coastal excursions, to candlelit beach dinners right in front of the waves. My team and I are at your service 24/7."
-          </p>
+          <div class="owner-quote-container" id="ownerQuoteContainer">
+            <p class="owner-quote" id="ownerQuoteMain">
+              "Mandarmani holds a very special place in my heart — the gentle roar of the Bay of Bengal, the serene hard-sand beach, and the golden sunsets are unlike anywhere else in the country.<span class="owner-quote-more" id="ownerQuoteMore"> With Coastal View, my vision was simple: to create a luxury beachfront sanctuary where every guest experiences genuine Bengali hospitality, bespoke comfort, and unforgettable memories.</span>"
+            </p>
+            <p class="owner-extra-para" id="ownerExtraPara" style="font-size: 0.95rem; color: #556670; line-height: 1.7; margin-bottom: 16px;">
+              "Together with Ani's Tour and Travels, we take care of your entire journey — from doorstep Kolkata AC car pickups and personalized coastal excursions, to candlelit beach dinners right in front of the waves. My team and I are at your service 24/7."
+            </p>
+            <button type="button" class="owner-read-more-btn" id="ownerReadMoreBtn" onclick="toggleOwnerQuote(this)" aria-expanded="false" aria-label="Toggle full welcome message">
+              <span>Read more</span>
+              <span class="material-symbols-outlined" style="font-size: 16px;">expand_more</span>
+            </button>
+          </div>
 
           <div class="owner-highlights">
             <div class="owner-highlight-item">
@@ -2026,7 +2076,7 @@
         <!-- Room 1: The Ocean Whisper Room -->
         <div class="room-card" data-id="ocean-whisper-room" data-category="sea-view">
           <div class="room-img-wrapper">
-            <img src="/uploads/rooms/ocean-whisper/ocean-whisper-room-bedroom.webp" alt="The Ocean Whisper Room at Coastal View, Mandarmani: AC bedroom with king bed and balcony access" class="room-img" style="object-fit: cover; object-position: center 40%;">
+            <img src="/uploads/rooms/ocean-whisper/ocean-whisper-room-bedroom.webp" alt="The Ocean Whisper Room at Coastal View, Mandarmani: AC bedroom with king bed and balcony access" class="room-img" loading="lazy" decoding="async" style="object-fit: cover; object-position: center 40%;">
             <span class="room-tag-badge">Sea View</span>
           </div>
           <div class="room-body">
@@ -2041,11 +2091,6 @@
             <p class="room-desc">
               Comfortable AC room with a private balcony and views of the pool, garden, and sea. Features a plush king bed, Wi-Fi, smart TV, and modern bathroom.
             </p>
-            <ul class="room-features-list">
-              <li><span class="material-symbols-outlined">check_circle</span> Private Balcony with Pool, Garden & Sea Views</li>
-              <li><span class="material-symbols-outlined">check_circle</span> King Bed, AC & Smart TV</li>
-              <li><span class="material-symbols-outlined">check_circle</span> Modern Bathroom & High-Speed Wi-Fi</li>
-            </ul>
             <div class="room-footer-pricing">
               <div class="pricing-main-block">
                 <span class="room-price-val">₹2,500</span>
@@ -2057,28 +2102,44 @@
               </div>
               <span class="room-avail-hint"></span>
             </div>
-            <!-- MakeMyTrip Style "Included in your stay" Block -->
-            <div class="room-inclusions-block">
-              <div class="inclusions-header">
-                <span class="material-symbols-outlined inc-badge-icon">verified</span>
-                <span class="inclusions-title">Included in your stay</span>
-              </div>
-              <div class="inclusions-chips-wrap">
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> AC</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Free Wi-Fi</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Smart TV</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Pool access</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Housekeeping</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Hot water</span>
-              </div>
-              <div class="room-breakfast-note">Breakfast available (optional): ₹200</div>
-              <div class="extras-group">
-                <span class="extras-label">Extras (pay extra):</span>
-                <div class="extras-chips-wrap">
-                  <span class="extra-chip"><span class="material-symbols-outlined plus-icon">restaurant</span> Breakfast (optional, ₹200)</span>
-                  <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Candlelight Dinner</span>
-                  <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Car / Toto / Auto pickup</span>
+            <ul class="room-features-list">
+              <li><span class="material-symbols-outlined">check_circle</span> Private Balcony with Pool, Garden & Sea Views</li>
+              <li><span class="material-symbols-outlined">check_circle</span> King Bed, AC & Smart TV</li>
+              <li><span class="material-symbols-outlined">check_circle</span> Modern Bathroom & High-Speed Wi-Fi</li>
+            </ul>
+            <!-- Collapsible Inclusions & Extras for Mobile -->
+            <button type="button" class="room-details-toggle-btn" onclick="toggleRoomDetails(this)" aria-expanded="false" aria-label="Toggle inclusions and extras for The Ocean Whisper Room">
+              <span>More details & inclusions</span>
+              <span class="material-symbols-outlined toggle-icon" style="font-size: 18px;">expand_more</span>
+            </button>
+            <div class="room-details-collapsible">
+              <div class="room-inclusions-block">
+                <div class="inclusions-header">
+                  <span class="material-symbols-outlined inc-badge-icon">verified</span>
+                  <span class="inclusions-title">Included in your stay</span>
                 </div>
+                <div class="inclusions-chips-wrap">
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> AC</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Free Wi-Fi</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Smart TV</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Pool access</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Housekeeping</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Hot water</span>
+                </div>
+                <div class="room-breakfast-note">Breakfast available (optional): ₹200 • Check-in: <span class="dyn-checkin-time">11:00 AM</span> | Check-out: <span class="dyn-checkout-time">9:30 AM</span></div>
+                <div class="extras-group">
+                  <span class="extras-label">Extras (pay extra):</span>
+                  <div class="extras-chips-wrap">
+                    <span class="extra-chip"><span class="material-symbols-outlined plus-icon">restaurant</span> Breakfast (optional, ₹200)</span>
+                    <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Candlelight Dinner</span>
+                    <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Car / Toto / Auto pickup</span>
+                  </div>
+                </div>
+              </div>
+              <div class="room-mobile-gallery-link">
+                <button type="button" class="btn btn-outline-gold btn-sm" onclick="window.openRoomGallery('ocean-whisper-room')">
+                  <span class="material-symbols-outlined" style="font-size: 16px;">photo_library</span> View Suite Photos
+                </button>
               </div>
             </div>
             <div class="room-card-actions">
@@ -2095,7 +2156,7 @@
         <!-- Room 2: The Pool Haven Room -->
         <div class="room-card" data-id="pool-haven-room" data-category="pool-view">
           <div class="room-img-wrapper">
-            <img src="/uploads/rooms/pool-haven/pool-haven-room-bedroom.webp" alt="The Pool Haven Room at Coastal View, Mandarmani: AC bedroom with balcony overlooking the swimming pool" class="room-img" style="object-fit: cover; object-position: center 40%;">
+            <img src="/uploads/rooms/pool-haven/pool-haven-room-bedroom.webp" alt="The Pool Haven Room at Coastal View, Mandarmani: AC bedroom with balcony overlooking the swimming pool" class="room-img" loading="lazy" decoding="async" style="object-fit: cover; object-position: center 40%;">
             <span class="room-tag-badge">Pool View</span>
           </div>
           <div class="room-body">
@@ -2110,11 +2171,6 @@
             <p class="room-desc">
               Comfortable AC room with a private balcony overlooking the swimming pool and garden. Features a plush king bed, Wi-Fi, smart TV, and modern bathroom.
             </p>
-            <ul class="room-features-list">
-              <li><span class="material-symbols-outlined">check_circle</span> Private Balcony Overlooking Swimming Pool & Garden</li>
-              <li><span class="material-symbols-outlined">check_circle</span> Plush King Bed, AC & High-Speed Wi-Fi</li>
-              <li><span class="material-symbols-outlined">check_circle</span> Smart TV & Modern Bathroom</li>
-            </ul>
             <div class="room-footer-pricing">
               <div class="pricing-main-block">
                 <span class="room-price-val">₹2,200</span>
@@ -2126,28 +2182,44 @@
               </div>
               <span class="room-avail-hint"></span>
             </div>
-            <!-- MakeMyTrip Style "Included in your stay" Block -->
-            <div class="room-inclusions-block">
-              <div class="inclusions-header">
-                <span class="material-symbols-outlined inc-badge-icon">verified</span>
-                <span class="inclusions-title">Included in your stay</span>
-              </div>
-              <div class="inclusions-chips-wrap">
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> AC</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Free Wi-Fi</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Smart TV</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Pool access</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Housekeeping</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Hot water</span>
-              </div>
-              <div class="room-breakfast-note">Breakfast available (optional): ₹200</div>
-              <div class="extras-group">
-                <span class="extras-label">Extras (pay extra):</span>
-                <div class="extras-chips-wrap">
-                  <span class="extra-chip"><span class="material-symbols-outlined plus-icon">restaurant</span> Breakfast (optional, ₹200)</span>
-                  <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Candlelight Dinner</span>
-                  <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Car / Toto / Auto pickup</span>
+            <ul class="room-features-list">
+              <li><span class="material-symbols-outlined">check_circle</span> Private Balcony Overlooking Swimming Pool & Garden</li>
+              <li><span class="material-symbols-outlined">check_circle</span> Plush King Bed, AC & High-Speed Wi-Fi</li>
+              <li><span class="material-symbols-outlined">check_circle</span> Smart TV & Modern Bathroom</li>
+            </ul>
+            <!-- Collapsible Inclusions & Extras for Mobile -->
+            <button type="button" class="room-details-toggle-btn" onclick="toggleRoomDetails(this)" aria-expanded="false" aria-label="Toggle inclusions and extras for The Pool Haven Room">
+              <span>More details & inclusions</span>
+              <span class="material-symbols-outlined toggle-icon" style="font-size: 18px;">expand_more</span>
+            </button>
+            <div class="room-details-collapsible">
+              <div class="room-inclusions-block">
+                <div class="inclusions-header">
+                  <span class="material-symbols-outlined inc-badge-icon">verified</span>
+                  <span class="inclusions-title">Included in your stay</span>
                 </div>
+                <div class="inclusions-chips-wrap">
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> AC</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Free Wi-Fi</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Smart TV</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Pool access</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Housekeeping</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Hot water</span>
+                </div>
+                <div class="room-breakfast-note">Breakfast available (optional): ₹200 • Check-in: <span class="dyn-checkin-time">11:00 AM</span> | Check-out: <span class="dyn-checkout-time">9:30 AM</span></div>
+                <div class="extras-group">
+                  <span class="extras-label">Extras (pay extra):</span>
+                  <div class="extras-chips-wrap">
+                    <span class="extra-chip"><span class="material-symbols-outlined plus-icon">restaurant</span> Breakfast (optional, ₹200)</span>
+                    <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Candlelight Dinner</span>
+                    <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Car / Toto / Auto pickup</span>
+                  </div>
+                </div>
+              </div>
+              <div class="room-mobile-gallery-link">
+                <button type="button" class="btn btn-outline-gold btn-sm" onclick="window.openRoomGallery('pool-haven-room')">
+                  <span class="material-symbols-outlined" style="font-size: 16px;">photo_library</span> View Suite Photos
+                </button>
               </div>
             </div>
             <div class="room-card-actions">
@@ -2164,7 +2236,7 @@
         <!-- Room 3: Cosy Deluxe Room -->
         <div class="room-card" data-id="cosy-deluxe-room" data-category="cosy-deluxe">
           <div class="room-img-wrapper">
-            <img src="/uploads/rooms/cosy-deluxe/cosy-deluxe-room-bedroom.webp" alt="Cosy Deluxe Room at Coastal View, Mandarmani: comfortable AC bedroom with smart TV, wardrobe, and ambient cove lighting" class="room-img" style="object-fit: cover; object-position: center 50%;">
+            <img src="/uploads/rooms/cosy-deluxe/cosy-deluxe-room-bedroom.webp" alt="Cosy Deluxe Room at Coastal View, Mandarmani: comfortable AC bedroom with smart TV, wardrobe, and ambient cove lighting" class="room-img" loading="lazy" decoding="async" style="object-fit: cover; object-position: center 50%;">
             <span class="room-tag-badge">Non-Sea Facing</span>
           </div>
           <div class="room-body">
@@ -2179,11 +2251,6 @@
             <p class="room-desc">
               A comfortable, quiet non-sea-facing room, ideal for budget-friendly stays. Features: AC, Wi-Fi, a smart TV, and a clean modern bathroom.
             </p>
-            <ul class="room-features-list">
-              <li><span class="material-symbols-outlined">check_circle</span> Quiet Garden & Courtyard Greenery Side</li>
-              <li><span class="material-symbols-outlined">check_circle</span> AC, High-Speed Wi-Fi & Smart TV</li>
-              <li><span class="material-symbols-outlined">check_circle</span> Clean Modern Bathroom & Comfy Bed</li>
-            </ul>
             <div class="room-footer-pricing">
               <div class="pricing-main-block">
                 <span class="room-price-val">₹1,800</span>
@@ -2195,28 +2262,44 @@
               </div>
               <span class="room-avail-hint"></span>
             </div>
-            <!-- MakeMyTrip Style "Included in your stay" Block -->
-            <div class="room-inclusions-block">
-              <div class="inclusions-header">
-                <span class="material-symbols-outlined inc-badge-icon">verified</span>
-                <span class="inclusions-title">Included in your stay</span>
-              </div>
-              <div class="inclusions-chips-wrap">
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> AC</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Free Wi-Fi</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Smart TV</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Pool access</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Housekeeping</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Hot water</span>
-              </div>
-              <div class="room-breakfast-note">Breakfast available (optional): ₹200</div>
-              <div class="extras-group">
-                <span class="extras-label">Extras (pay extra):</span>
-                <div class="extras-chips-wrap">
-                  <span class="extra-chip"><span class="material-symbols-outlined plus-icon">restaurant</span> Breakfast (optional, ₹200)</span>
-                  <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Candlelight Dinner</span>
-                  <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Car / Toto / Auto pickup</span>
+            <ul class="room-features-list">
+              <li><span class="material-symbols-outlined">check_circle</span> Quiet Garden & Courtyard Greenery Side</li>
+              <li><span class="material-symbols-outlined">check_circle</span> AC, High-Speed Wi-Fi & Smart TV</li>
+              <li><span class="material-symbols-outlined">check_circle</span> Clean Modern Bathroom & Comfy Bed</li>
+            </ul>
+            <!-- Collapsible Inclusions & Extras for Mobile -->
+            <button type="button" class="room-details-toggle-btn" onclick="toggleRoomDetails(this)" aria-expanded="false" aria-label="Toggle inclusions and extras for Cosy Deluxe Room">
+              <span>More details & inclusions</span>
+              <span class="material-symbols-outlined toggle-icon" style="font-size: 18px;">expand_more</span>
+            </button>
+            <div class="room-details-collapsible">
+              <div class="room-inclusions-block">
+                <div class="inclusions-header">
+                  <span class="material-symbols-outlined inc-badge-icon">verified</span>
+                  <span class="inclusions-title">Included in your stay</span>
                 </div>
+                <div class="inclusions-chips-wrap">
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> AC</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Free Wi-Fi</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Smart TV</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Pool access</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Housekeeping</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Hot water</span>
+                </div>
+                <div class="room-breakfast-note">Breakfast available (optional): ₹200 • Check-in: <span class="dyn-checkin-time">11:00 AM</span> | Check-out: <span class="dyn-checkout-time">9:30 AM</span></div>
+                <div class="extras-group">
+                  <span class="extras-label">Extras (pay extra):</span>
+                  <div class="extras-chips-wrap">
+                    <span class="extra-chip"><span class="material-symbols-outlined plus-icon">restaurant</span> Breakfast (optional, ₹200)</span>
+                    <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Candlelight Dinner</span>
+                    <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Car / Toto / Auto pickup</span>
+                  </div>
+                </div>
+              </div>
+              <div class="room-mobile-gallery-link">
+                <button type="button" class="btn btn-outline-gold btn-sm" onclick="window.openRoomGallery('cosy-deluxe-room')">
+                  <span class="material-symbols-outlined" style="font-size: 16px;">photo_library</span> View Suite Photos
+                </button>
               </div>
             </div>
             <div class="room-card-actions">
@@ -2233,7 +2316,7 @@
         <!-- Room 4: The Palm Grove Family Suite -->
         <div class="room-card" data-id="palm-grove-family-suite" data-category="family">
           <div class="room-img-wrapper">
-            <img src="/uploads/rooms/palm-grove/palm-grove-family-suite-bedroom.webp" alt="The Palm Grove Family Suite at Coastal View, Mandarmani: Spacious AC bedroom with ambient cove lighting, tea table, and balcony access" class="room-img" style="object-fit: cover; object-position: center 50%;">
+            <img src="/uploads/rooms/palm-grove/palm-grove-family-suite-bedroom.webp" alt="The Palm Grove Family Suite at Coastal View, Mandarmani: Spacious AC bedroom with ambient cove lighting, tea table, and balcony access" class="room-img" loading="lazy" decoding="async" style="object-fit: cover; object-position: center 50%;">
             <span class="room-tag-badge">Family Suite</span>
           </div>
           <div class="room-body">
@@ -2248,11 +2331,6 @@
             <p class="room-desc">
               A spacious suite with two beds (or a king bed plus extra bed), a sitting area, surrounded by palms and garden, for families and groups.
             </p>
-            <ul class="room-features-list">
-              <li><span class="material-symbols-outlined">check_circle</span> Surrounded by Tropical Palms & Garden</li>
-              <li><span class="material-symbols-outlined">check_circle</span> Two Beds & Dedicated Sitting Lounge</li>
-              <li><span class="material-symbols-outlined">check_circle</span> Dual Modern En-Suite Bathrooms</li>
-            </ul>
             <div class="room-footer-pricing">
               <div class="pricing-main-block">
                 <span class="room-price-val">₹2,700</span>
@@ -2264,28 +2342,44 @@
               </div>
               <span class="room-avail-hint"></span>
             </div>
-            <!-- MakeMyTrip Style "Included in your stay" Block -->
-            <div class="room-inclusions-block">
-              <div class="inclusions-header">
-                <span class="material-symbols-outlined inc-badge-icon">verified</span>
-                <span class="inclusions-title">Included in your stay</span>
-              </div>
-              <div class="inclusions-chips-wrap">
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> AC</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Free Wi-Fi</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Smart TV</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Pool access</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Housekeeping</span>
-                <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Hot water</span>
-              </div>
-              <div class="room-breakfast-note">Breakfast available (optional): ₹200</div>
-              <div class="extras-group">
-                <span class="extras-label">Extras (pay extra):</span>
-                <div class="extras-chips-wrap">
-                  <span class="extra-chip"><span class="material-symbols-outlined plus-icon">restaurant</span> Breakfast (optional, ₹200)</span>
-                  <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Candlelight Dinner</span>
-                  <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Car / Toto / Auto pickup</span>
+            <ul class="room-features-list">
+              <li><span class="material-symbols-outlined">check_circle</span> Surrounded by Tropical Palms & Garden</li>
+              <li><span class="material-symbols-outlined">check_circle</span> Two Beds & Dedicated Sitting Lounge</li>
+              <li><span class="material-symbols-outlined">check_circle</span> Dual Modern En-Suite Bathrooms</li>
+            </ul>
+            <!-- Collapsible Inclusions & Extras for Mobile -->
+            <button type="button" class="room-details-toggle-btn" onclick="toggleRoomDetails(this)" aria-expanded="false" aria-label="Toggle inclusions and extras for The Palm Grove Family Suite">
+              <span>More details & inclusions</span>
+              <span class="material-symbols-outlined toggle-icon" style="font-size: 18px;">expand_more</span>
+            </button>
+            <div class="room-details-collapsible">
+              <div class="room-inclusions-block">
+                <div class="inclusions-header">
+                  <span class="material-symbols-outlined inc-badge-icon">verified</span>
+                  <span class="inclusions-title">Included in your stay</span>
                 </div>
+                <div class="inclusions-chips-wrap">
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> AC</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Free Wi-Fi</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Smart TV</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Pool access</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Housekeeping</span>
+                  <span class="inc-chip"><span class="material-symbols-outlined check-icon">check_circle</span> Hot water</span>
+                </div>
+                <div class="room-breakfast-note">Breakfast available (optional): ₹200 • Check-in: <span class="dyn-checkin-time">11:00 AM</span> | Check-out: <span class="dyn-checkout-time">9:30 AM</span></div>
+                <div class="extras-group">
+                  <span class="extras-label">Extras (pay extra):</span>
+                  <div class="extras-chips-wrap">
+                    <span class="extra-chip"><span class="material-symbols-outlined plus-icon">restaurant</span> Breakfast (optional, ₹200)</span>
+                    <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Candlelight Dinner</span>
+                    <span class="extra-chip"><span class="material-symbols-outlined plus-icon">add_circle</span> Car / Toto / Auto pickup</span>
+                  </div>
+                </div>
+              </div>
+              <div class="room-mobile-gallery-link">
+                <button type="button" class="btn btn-outline-gold btn-sm" onclick="window.openRoomGallery('palm-grove-family-suite')">
+                  <span class="material-symbols-outlined" style="font-size: 16px;">photo_library</span> View Suite Photos
+                </button>
               </div>
             </div>
             <div class="room-card-actions">
@@ -2394,7 +2488,16 @@
     <section class="restaurant-section" id="restaurant">
     <span id="menu" style="position: absolute; pointer-events: none;"></span>
     <div class="container">
-      <!-- Menu Header (matching printed menu cover) -->
+      <!-- Clean Mobile Header (Visible on <= 768px, replaces heavy dark pill card) -->
+      <div class="restaurant-mobile-heading">
+        <div class="section-tag turquoise">Coastal Dining</div>
+        <h2 class="section-heading" style="color: #FFFFFF;">Restaurant Highlights</h2>
+        <p class="section-subtext">
+          Fresh local Bay of Bengal seafood, authentic Bengali recipes, and chef's tandoori specials.
+        </p>
+      </div>
+
+      <!-- Menu Header (matching printed menu cover, desktop) -->
       <div class="menu-brand-header">
         <div class="menu-script-tagline">Good Food, Good Mood ♡</div>
         <h2 class="menu-hotel-title">Coastal View</h2>
@@ -2426,7 +2529,7 @@
         <div class="menu-bottom-motto">Good Food Brings People Together ♡</div>
       </div>
 
-                                                                                                                                                                                          <!-- Category Chips Linking to Full Menu -->
+                                                                                                                                                                                                                                                                                    <!-- Category Chips Linking to Full Menu -->
       <div class="menu-category-chips-row">
         <a href="/menu#cat-breakfast" class="menu-cat-chip"><span class="material-symbols-outlined">wb_sunny</span> Breakfast</a>
         <a href="/menu#cat-vegetable-dal" class="menu-cat-chip"><span class="material-symbols-outlined">eco</span> Vegetable / Dal</a>
@@ -2906,6 +3009,9 @@
         </div>
       </div>
 
+      <!-- Mobile Gallery Carousel Indicator Dots -->
+      <div class="carousel-dots-bar" id="galleryCarouselDots" aria-label="Gallery carousel indicators"></div>
+
       <!-- More Photos Button -->
       <div class="gallery-cta-row" id="homeGalleryCtaRow">
         <a href="/gallery" class="btn btn-gold btn-lg" id="btnMorePhotos">
@@ -2934,7 +3040,7 @@
         <!-- Place 1: Mandarmani Beach -->
         <div class="place-card">
           <div class="place-img-box" style="cursor: pointer;" onclick="window.openDirectionsModal('Mandarmani Beach', '0 km (Direct Access)', 'https://maps.google.com/?q=Mandarmani+Beach')" title="Click to view directions">
-            <img src="assets/images/mandarmani-beach.jpg" data-media-slot="amenity:beach" alt="Mandarmani Beach coastline">
+            <img src="assets/images/mandarmani-beach.jpg" data-media-slot="amenity:beach" alt="Mandarmani Beach coastline" loading="lazy" decoding="async">
             <div class="place-distance-badge">
               <span class="material-symbols-outlined" style="font-size: 14px;">location_on</span> 0 km (Direct Beachfront)
             </div>
@@ -2953,7 +3059,7 @@
         <!-- Place 2: Tajpur Beach -->
         <div class="place-card">
           <div class="place-img-box" style="cursor: pointer;" onclick="window.openDirectionsModal('Tajpur Beach', '18 km (approx 35 mins)', 'https://maps.google.com/?q=Tajpur+Beach+West+Bengal')" title="Click to view directions">
-            <img src="assets/images/tajpur-beach.jpg" data-media-slot="places" alt="Tajpur Beach with red crabs">
+            <img src="assets/images/tajpur-beach.jpg" data-media-slot="places" alt="Tajpur Beach with red crabs" loading="lazy" decoding="async">
             <div class="place-distance-badge">
               <span class="material-symbols-outlined" style="font-size: 14px;">near_me</span> 18 km
             </div>
@@ -2972,7 +3078,7 @@
         <!-- Place 3: Shankarpur Beach -->
         <div class="place-card">
           <div class="place-img-box" style="cursor: pointer;" onclick="window.openDirectionsModal('Shankarpur Beach', '24 km (approx 45 mins)', 'https://maps.google.com/?q=Shankarpur+Beach+West+Bengal')" title="Click to view directions">
-            <img src="assets/images/mandarmani-beach.jpg" alt="Shankarpur Beach and Harbor">
+            <img src="assets/images/mandarmani-beach.jpg" alt="Shankarpur Beach and Harbor" loading="lazy" decoding="async">
             <div class="place-distance-badge">
               <span class="material-symbols-outlined" style="font-size: 14px;">near_me</span> 24 km
             </div>
@@ -2991,7 +3097,7 @@
         <!-- Place 4: Digha Beach & Marine Aquarium -->
         <div class="place-card">
           <div class="place-img-box" style="cursor: pointer;" onclick="window.openDirectionsModal('Digha Promenade', '30 km (approx 55 mins)', 'https://maps.google.com/?q=Digha+Sea+Beach')" title="Click to view directions">
-            <img src="assets/images/tajpur-beach.jpg" alt="Digha Sea Promenade">
+            <img src="assets/images/tajpur-beach.jpg" alt="Digha Sea Promenade" loading="lazy" decoding="async">
             <div class="place-distance-badge">
               <span class="material-symbols-outlined" style="font-size: 14px;">near_me</span> 30 km
             </div>
@@ -3010,7 +3116,7 @@
         <!-- Place 5: Bakkhali Coastal Excursion -->
         <div class="place-card">
           <div class="place-img-box" style="cursor: pointer;" onclick="window.openDirectionsModal('Bakkhali Coastal Tour', 'Full Day Tour (Ani\'s AC Vehicle)', 'https://bengal-tours-ani.preview.emergentagent.com/#enquire')" title="Click to view directions">
-            <img src="assets/images/hero-sunset-pool.jpg" alt="Bakkhali Coastal tour">
+            <img src="assets/images/hero-sunset-pool.jpg" alt="Bakkhali Coastal tour" loading="lazy" decoding="async">
             <div class="place-distance-badge">
               <span class="material-symbols-outlined" style="font-size: 14px;">explore</span> Scenic Day Tour
             </div>
@@ -3029,7 +3135,7 @@
         <!-- Place 6: Local Seafood Market / Mohana -->
         <div class="place-card">
           <div class="place-img-box" style="cursor: pointer;" onclick="window.openDirectionsModal('Mandarmani Mohana Fish Market', '4 km (approx 10 mins)', 'https://maps.google.com/?q=Mandarmani+Mohana+West+Bengal')" title="Click to view directions">
-            <img src="assets/images/seafood-market.jpg" alt="Mandarmani Mohana Local Seafood Market">
+            <img src="assets/images/seafood-market.jpg" alt="Mandarmani Mohana Local Seafood Market" loading="lazy" decoding="async">
             <div class="place-distance-badge">
               <span class="material-symbols-outlined" style="font-size: 14px;">near_me</span> 4 km
             </div>
@@ -3046,6 +3152,9 @@
         </div>
 
       </div>
+
+      <!-- Mobile Places Carousel Indicator Dots -->
+      <div class="carousel-dots-bar" id="placesCarouselDots" aria-label="Places carousel indicators"></div>
     </div>
   </section>
 
@@ -3177,7 +3286,7 @@
           </button>
           <div class="faq-answer">
             <p>
-              Our standard check-in time is 12:00 PM (noon) and check-out time is 11:00 AM. Early check-in or late check-out is subject to room availability upon request with our front desk.
+              Our standard check-in time is <span class="dyn-checkin-time">11:00 AM</span> and check-out time is <span class="dyn-checkout-time">9:30 AM</span>. Early check-in or late check-out is subject to room availability upon request with our front desk.
             </p>
           </div>
         </div>
@@ -3361,6 +3470,7 @@
        FLOATING CHATBOT WIDGET: ANI'S COASTAL CONCIERGE
        ========================================================================== -->
   <div class="concierge-launcher" id="conciergeLauncher" title="Chat with Ani's Coastal Concierge" aria-label="Open Ani's Coastal Concierge Chat" role="button" tabindex="0">
+    <button type="button" class="concierge-dismiss-pill" id="conciergeDismissBtn" aria-label="Dismiss chat for now" title="Dismiss for now">×</button>
     <span class="material-symbols-outlined" aria-hidden="true">support_agent</span>
     <span class="concierge-badge-online" title="Front desk online"></span>
   </div>
@@ -3457,14 +3567,14 @@
             </div>
             <div>
               <label for="guestPhoneInput" style="font-size: 0.78rem; font-weight: 700; color: var(--ocean-blue); text-transform: uppercase;">Phone / WhatsApp *</label>
-              <input type="tel" id="guestPhoneInput" class="callback-input" style="padding: 10px; margin-top: 4px; min-height: 48px; font-size: 16px;" placeholder="+91 98300 00000" required>
+              <input type="tel" id="guestPhoneInput" class="callback-input" style="padding: 10px; margin-top: 4px; min-height: 48px; font-size: 16px;" placeholder="+91 78120 27551" required>
               <div class="field-error" id="phoneFieldError" style="display:none; color:#EF4444; font-size:0.75rem; margin-top:3px; font-weight:600;"></div>
             </div>
           </div>
 
           <div style="margin-bottom: 14px;">
             <label for="guestEmailInput" style="font-size: 0.78rem; font-weight: 700; color: var(--ocean-blue); text-transform: uppercase;">Email Address (For Confirmation Voucher)</label>
-            <input type="email" id="guestEmailInput" class="callback-input" style="padding: 10px; margin-top: 4px; min-height: 48px; font-size: 16px;" placeholder="rahul@example.com">
+            <input type="email" id="guestEmailInput" class="callback-input" style="padding: 10px; margin-top: 4px; min-height: 48px; font-size: 16px;" placeholder="guest@coastalviewmandarmani.com">
             <div class="field-error" id="emailFieldError" style="display:none; color:#EF4444; font-size:0.75rem; margin-top:3px; font-weight:600;"></div>
           </div>
 
@@ -3611,10 +3721,6 @@
       </svg>
       <span class="m-bar-text">WhatsApp</span>
     </a>
-    <button type="button" class="m-bar-btn" id="mBarChatBtn" aria-label="Open Concierge Chatbot">
-      <span class="material-symbols-outlined">support_agent</span>
-      <span class="m-bar-text">Chat</span>
-    </button>
   </nav>
 </body>
 </html>

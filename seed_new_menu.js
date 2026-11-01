@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
+const { readDB, writeDB } = require('./db_store');
 
-const dbPath = path.join(__dirname, 'data', 'db.json');
-const db = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+const db = readDB();
 
 // 8 Official Categories matching prompt
 const menuCategories = [
@@ -1493,7 +1493,7 @@ db.settings = db.settings || {};
 db.settings.menuNote = "Fish & Chicken (per kg): ₹300/kg. Mutton: ₹350/kg. Outside food not allowed. Drinks & hookah available.";
 db.settings.menuPhone = "+91 7812027551";
 
-fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), 'utf8');
+writeDB(db);
 
 console.log('Seeded successfully!');
 console.log('Total categories:', menuCategories.length);

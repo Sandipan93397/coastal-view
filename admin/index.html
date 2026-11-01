@@ -100,6 +100,11 @@
         <div class="login-form-group" id="captchaInputGroup" style="display: none;">
           <label class="login-label" for="loginCaptchaAnswer">Security Verification Answer</label>
           <input type="number" id="loginCaptchaAnswer" class="login-input" placeholder="Type answer here (e.g. 15)" autocomplete="off">
+          <div style="margin-top: 6px; text-align: right; font-size: 0.78rem;">
+            <a href="/admin/forgot-password" style="color: var(--turquoise); text-decoration: none; font-weight: 600;">
+              Forgot Password?
+            </a>
+          </div>
         </div>
 
         <div id="loginErrorMsg" class="login-error-banner" style="display: none;"></div>
@@ -109,7 +114,7 @@
         </button>
 
         <div style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem;">
-          <a href="#" onclick="openForgotPasswordModal(event)" style="color: var(--turquoise); text-decoration: none; font-weight: 600;">
+          <a href="/admin/forgot-password" style="color: var(--turquoise); text-decoration: none; font-weight: 600;">
             Forgot Password?
           </a>
           <span class="login-lockout-text" style="color: #64748B;">Lockout after 5 failed tries</span>
@@ -172,12 +177,15 @@
 
         <!-- Secondary Action Links -->
         <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 16px; font-size: 0.8rem; text-align: center;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
             <button type="button" id="btnToggleRecoveryMode" onclick="toggleRecoveryCodeMode()" class="btn-link-action" style="color: var(--turquoise); font-weight: 600;">
               Use Recovery Code
             </button>
             <button type="button" id="btnSwitchToEmailCode" onclick="handleSwitchToEmailCode()" class="btn-link-action" style="color: var(--champagne-gold); font-weight: 600;">
               Send Code by Email Instead
+            </button>
+            <button type="button" id="btnSwitchToTotpCode" onclick="handleSwitchToTotpCode()" class="btn-link-action" style="display: none; color: var(--turquoise); font-weight: 600;">
+              Use Authenticator App Instead
             </button>
           </div>
 
@@ -188,6 +196,12 @@
             <button type="button" onclick="backToLoginStep1()" class="btn-link-action" style="color: #64748B;">
               ← Back to Sign In
             </button>
+          </div>
+
+          <div style="padding-top: 4px; border-top: 1px solid #E2E8F0; text-align: center;">
+            <a href="/admin/forgot-password" style="color: var(--turquoise); text-decoration: none; font-weight: 600; font-size: 0.78rem;">
+              Forgot Password?
+            </a>
           </div>
         </div>
       </form>
@@ -1302,8 +1316,10 @@
           <button class="btn-outline-gold" onclick="switchContentSection('places', this)">Nearby Places</button>
           <button class="btn-outline-gold" onclick="switchContentSection('faqs', this)">FAQ & Schema</button>
           <button class="btn-outline-gold" onclick="switchContentSection('testimonials', this)">Genuine Reviews</button>
+          <button class="btn-outline-gold" onclick="switchContentSection('reviewLink', this)">Google Review & QR</button>
           <button class="btn-outline-gold" onclick="switchContentSection('anisTours', this)">Ani's Tours Banner</button>
           <button class="btn-outline-gold" onclick="switchContentSection('amenities', this)">Luxury Amenities</button>
+          <button class="btn-outline-gold" onclick="switchContentSection('bookingPolicies', this)">Booking Timings & Policies</button>
         </div>
 
         <!-- Section 1: Hero -->
@@ -1488,6 +1504,51 @@
           </div>
         </div>
 
+        <!-- Section: Google Review Link & Invoice QR -->
+        <div class="glass-card content-sub-card" id="contentSec-reviewLink" style="display: none;">
+          <div class="glass-card-header">
+            <div>
+              <div class="glass-card-title">Google Review Link & Invoice QR Code</div>
+              <p style="font-size: 0.82rem; color: #64748B; margin-top: 4px;">
+                Configure the destination URL for the "Review us" QR code on customer invoices and the "Leave a review" button in confirmation emails.
+              </p>
+            </div>
+            <button class="btn-turquoise" onclick="saveReviewLinkContent()">Save Review Settings</button>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Google Review URL / Link</label>
+            <input type="url" id="cfgGoogleReviewUrl" class="form-control" placeholder="https://maps.app.goo.gl/NroV1rQ4ZkgKuqQg7" value="https://maps.app.goo.gl/NroV1rQ4ZkgKuqQg7" oninput="updateReviewQrPreview()">
+            <small style="color: #64748B; font-size: 0.74rem;">The server generates a sharp vector QR code from this link directly onto official invoices. Initial URL decoded from verified hotel location QR.</small>
+          </div>
+
+          <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 16px; margin-top: 14px;">
+            <div style="font-weight: 700; color: var(--ocean-blue); font-size: 0.88rem; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+              <span class="material-symbols-outlined" style="color: var(--turquoise);">qr_code_scanner</span>
+              Live Server-Generated Review QR Preview & Custom Override
+            </div>
+            <div style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+              <div style="width: 120px; height: 120px; background: #FFFFFF; border: 1.5px solid #E8C77B; border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 8px;">
+                <img id="reviewQrLivePreview" src="/api/invoices/review-qr-preview" alt="Review QR Code" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+              </div>
+              <div>
+                <div style="font-size: 0.82rem; font-weight: 600; color: #073B4C;">"Review us" 30mm Square Invoice QR</div>
+                <div style="font-size: 0.74rem; color: #475569; margin-top: 4px; max-width: 340px;">
+                  Automatic sharp QR generated on the server from the link above with clear white margin. Or optionally upload an exact custom QR image file below.
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 10px; align-items: center;">
+                  <label class="btn-outline-gold" style="font-size: 0.75rem; padding: 4px 12px; cursor: pointer;">
+                    <span class="material-symbols-outlined" style="font-size: 14px;">upload</span> Upload Custom QR Image
+                    <input type="file" id="reviewQrFileInput" accept="image/png,image/jpeg,image/webp" style="display: none;" onchange="handleReviewQrUpload(event)">
+                  </label>
+                  <button type="button" class="btn-icon-only" style="width: 28px; height: 28px;" title="Reset to auto-generated QR" onclick="resetReviewQrImage()">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">restart_alt</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Section 7: Ani's Tours Banner -->
         <div class="glass-card content-sub-card" id="contentSec-anisTours" style="display: none;">
           <div class="glass-card-header">
@@ -1523,6 +1584,47 @@
           </div>
           <div id="amenitiesCardsList" style="display: flex; flex-direction: column; gap: 12px; margin-top: 14px;">
             <!-- Rendered via renderAmenitiesList() -->
+          </div>
+        </div>
+
+        <!-- Section 9: Booking Timings & Guest Policies (Synced across Form, Rooms, FAQ, Invoice, Emails, Chatbot, Schema) -->
+        <div class="glass-card content-sub-card" id="contentSec-bookingPolicies" style="display: none;">
+          <div class="glass-card-header">
+            <div>
+              <div class="glass-card-title">Booking Timings & Guest Policies</div>
+              <p style="font-size: 0.82rem; color: #64748B; margin-top: 4px;">Single source of truth for check-in/out times, guest limits helper text, optional child complimentary rule, and extra bed note across the booking form, room details, FAQ, invoice, emails, chatbot, and schema.</p>
+            </div>
+            <button class="btn-turquoise" onclick="saveBookingPoliciesContent()">Save Timings & Policies</button>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">Check-In Time</label>
+              <input type="text" id="contentCheckInTime" class="form-control" value="11:00 AM" placeholder="e.g. 11:00 AM">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Check-Out Time</label>
+              <input type="text" id="contentCheckOutTime" class="form-control" value="9:30 AM" placeholder="e.g. 9:30 AM">
+            </div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">Guest Capacity Helper Text</label>
+              <input type="text" id="contentGuestCapacityHelper" class="form-control" value="Max 2 adults & 1 child per room" placeholder="e.g. Max 2 adults & 1 child per room">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Extra Bed Note (Hidden if empty)</label>
+              <input type="text" id="contentExtraBedNote" class="form-control" value="Need an extra bed? Please call front desk at +91 7812027551." placeholder="Leave empty to hide">
+            </div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">Child Free Age (Years, Optional — Leave blank to hide)</label>
+              <input type="number" id="contentChildFreeAge" class="form-control" min="1" max="18" placeholder="Leave blank unless child policy is active">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Child Policy Rule (Optional — Hidden if empty)</label>
+              <input type="text" id="contentChildPolicyRule" class="form-control" placeholder="e.g. stay complimentary without extra bed">
+            </div>
           </div>
         </div>
       </section>
@@ -1942,31 +2044,101 @@
         <div class="page-header-block">
           <div>
             <h1 class="page-title">Staff Accounts & Access Governance</h1>
-            <p class="page-subtitle">Manage administrative personnel, roles (Super Admin, Manager, Front Desk), and security credentials.</p>
+            <p class="page-subtitle">Manage administrative staff, role permissions, single-use email invitations, and security policies.</p>
           </div>
-          <div>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button class="btn-outline-gold" onclick="togglePermissionsMatrix()">
+              <span class="material-symbols-outlined">shield_person</span> <span id="toggleMatrixBtnText">View Permissions Matrix</span>
+            </button>
             <button class="btn-turquoise" onclick="openAddStaffModal()">
-              <span class="material-symbols-outlined">person_add</span> Add Staff Account
+              <span class="material-symbols-outlined">person_add</span> Add Staff
             </button>
           </div>
         </div>
 
-        <div class="table-responsive">
+        <!-- Collapsible Roles & Permissions Matrix -->
+        <div class="permissions-matrix-card" id="permissionsMatrixCard" style="display: none;">
+          <div class="permissions-matrix-header" onclick="togglePermissionsMatrix()">
+            <div class="permissions-matrix-title">
+              <span class="material-symbols-outlined" style="color: var(--champagne-gold);">verified_user</span>
+              <span>Role-Based Access Control (RBAC) System Matrix</span>
+            </div>
+            <button type="button" class="btn-icon-only" style="border: none; background: transparent;">
+              <span class="material-symbols-outlined">close</span>
+            </button>
+          </div>
+          <div style="padding: 16px; overflow-x: auto;">
+            <div id="permissionsMatrixContent">
+              <!-- Dynamically populated from /api/admin/roles-matrix -->
+              <div style="text-align: center; color: #64748B; padding: 20px;">Loading permissions matrix...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Staff Toolbar: Search, Role Filter, Status Filter -->
+        <div class="staff-toolbar">
+          <div class="staff-toolbar-left">
+            <div class="staff-search-wrap">
+              <span class="material-symbols-outlined staff-search-icon">search</span>
+              <input type="text" id="staffSearchInput" class="staff-search-input" placeholder="Search by name, email, or role..." oninput="handleStaffSearch(this.value)">
+            </div>
+            <select id="staffRoleFilter" class="staff-filter-select" onchange="handleStaffFilterChange()">
+              <option value="ALL">All Roles</option>
+              <option value="Super Admin">Super Admin</option>
+              <option value="Manager">Manager</option>
+              <option value="Front Desk">Front Desk</option>
+            </select>
+            <select id="staffStatusFilter" class="staff-filter-select" onchange="handleStaffFilterChange()">
+              <option value="ALL">All Statuses</option>
+              <option value="Active">Active</option>
+              <option value="Invited">Invited (Pending)</option>
+              <option value="Disabled">Disabled</option>
+              <option value="Locked">Locked</option>
+            </select>
+          </div>
+          <div class="staff-toolbar-right">
+            <button class="btn-outline-gold" style="padding: 7px 12px; font-size: 0.82rem;" onclick="renderUsersTab()" title="Refresh staff directory">
+              <span class="material-symbols-outlined" style="font-size: 16px;">refresh</span> Refresh
+            </button>
+          </div>
+        </div>
+
+        <!-- Staff Directory Table -->
+        <div class="table-responsive" style="background: #FFFFFF; border-radius: 12px; border: 1px solid #E2E8F0; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.02);">
           <table class="luxury-table" id="usersTable">
             <thead>
               <tr>
-                <th>Username</th>
-                <th>Full Name</th>
+                <th>Staff Member</th>
                 <th>Email Address</th>
-                <th>Operational Role</th>
-                <th>2FA Status</th>
-                <th>Actions</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Last Login</th>
+                <th>Authenticator</th>
+                <th style="text-align: right;">Actions</th>
               </tr>
             </thead>
             <tbody id="usersTableBody">
-              <!-- Rendered dynamically -->
+              <!-- Rendered dynamically via renderUsersTab() -->
             </tbody>
           </table>
+
+          <!-- Friendly Empty State -->
+          <div id="staffEmptyState" class="staff-empty-state" style="display: none;">
+            <div class="material-symbols-outlined staff-empty-icon">group_off</div>
+            <div class="staff-empty-title">No staff yet</div>
+            <div class="staff-empty-desc">Add your first staff member to give them secure access with custom role permissions.</div>
+            <button class="btn-turquoise" onclick="openAddStaffModal()">
+              <span class="material-symbols-outlined">person_add</span> Add Your First Staff Member
+            </button>
+          </div>
+        </div>
+
+        <!-- Staff Pagination Controls -->
+        <div class="staff-pagination-bar" id="staffPaginationBar" style="display: none;">
+          <div id="staffPaginationInfo">Showing 1 to 10 of 10 staff members</div>
+          <div class="staff-pagination-btns" id="staffPaginationBtns">
+            <!-- Rendered dynamically -->
+          </div>
         </div>
       </section>
 
@@ -2215,9 +2387,18 @@
                 <small style="color: #64748B; font-size: 0.74rem;">Configures Cloudflare Turnstile bot protection for the administrative login portal.</small>
               </div>
               <div class="form-group">
-                <label class="form-label">Children Complimentary Age Limit (Years)</label>
-                <input type="number" id="cfgChildAgeLimit" class="form-control" value="5" min="1" max="18" required>
-                <small style="color: #64748B; font-size: 0.74rem;">Children up to this age stay complimentary without an extra bed.</small>
+                <label class="form-label">Children Complimentary Age Limit (Years, Optional)</label>
+                <input type="number" id="cfgChildAgeLimit" class="form-control" value="" min="1" max="18" placeholder="Leave blank to hide">
+                <small style="color: #64748B; font-size: 0.74rem;">Hidden on the website unless both Child Free Age and Child Policy Rule are set.</small>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Child Policy Rule (Optional)</label>
+                <input type="text" id="cfgChildPolicyRule" class="form-control" value="" placeholder="e.g. stay complimentary without extra bed">
+                <small style="color: #64748B; font-size: 0.74rem;">Leave empty to hide the child policy note on the booking form.</small>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Extra Bed Note</label>
+                <input type="text" id="cfgExtraBedNote" class="form-control" value="Need an extra bed? Please call front desk at +91 7812027551." placeholder="Leave empty to hide">
               </div>
               <div class="form-group">
                 <label class="form-label">Extra Person / Bed Allowed</label>
@@ -2272,15 +2453,27 @@
             <!-- Grid: Numbering, GST & Tax -->
             <div class="form-grid-2" style="margin-bottom: 18px;">
               <div class="form-group">
-                <label class="form-label">Invoice Number Prefix</label>
-                <input type="text" id="cfgInvPrefix" class="form-control" placeholder="e.g. CV" value="CV" required>
-                <small style="color: #64748B; font-size: 0.74rem;">Default: "CV" (Generates CV-2026-0001, etc.)</small>
+                <label class="form-label">Booking ID Prefix</label>
+                <input type="text" id="cfgBookingPrefix" class="form-control" placeholder="e.g. CV" value="CV" required>
+                <small style="color: #64748B; font-size: 0.74rem;">Unique prefix for Booking IDs (e.g. CV-2026-000123).</small>
               </div>
 
               <div class="form-group">
-                <label class="form-label">Next Sequential Invoice Number</label>
-                <input type="number" id="cfgInvNextNumber" class="form-control" min="1" value="1015" required>
-                <small style="color: #64748B; font-size: 0.74rem;">Increments automatically with each booking.</small>
+                <label class="form-label">Booking & Invoice Year</label>
+                <input type="text" id="cfgBookingYear" class="form-control" placeholder="e.g. 2026" value="2026" required>
+                <small style="color: #64748B; font-size: 0.74rem;">Year embedded in Booking ID & Invoice No.</small>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Next Sequential Number</label>
+                <input type="number" id="cfgInvNextNumber" class="form-control" min="1" value="1001" required>
+                <small style="color: #64748B; font-size: 0.74rem;">Generates paired CV-2026-000123 and INV-2026-000123.</small>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Accepted Payment Methods (Printed on Invoice)</label>
+                <input type="text" id="cfgPaymentMethods" class="form-control" placeholder="e.g. UPI, NetBanking, Debit/Credit Cards & Cash">
+                <small style="color: #64748B; font-size: 0.74rem;">Leave empty to omit payment methods line from invoice.</small>
               </div>
 
               <div class="form-group">
@@ -2368,7 +2561,7 @@
               <div style="display: flex; flex-direction: column; gap: 6px;" id="invoiceTermsLinesContainer">
                 <input type="text" class="form-control inv-term-input" value="1. Advance Policy: The 20% advance is non-refundable upon cancellation.">
                 <input type="text" class="form-control inv-term-input" value="2. Remaining 80% balance is payable at check-in / check-out at the hotel desk.">
-                <input type="text" class="form-control inv-term-input" value="3. Check-In & Check-Out: Check-in from 12:00 PM; Check-out until 11:00 AM. Early check-in subject to availability.">
+                <input type="text" class="form-control inv-term-input" value="3. Check-In & Check-Out: Check-in from 11:00 AM; Check-out until 9:30 AM. Early check-in subject to availability.">
                 <input type="text" class="form-control inv-term-input" value="4. Guest Identification: Valid Government photo ID (Aadhaar, Passport, Voter ID, Driving License) mandatory for all adult guests.">
                 <input type="text" class="form-control inv-term-input" value="5. Hotel Rules: Outside food and beverages are strictly not allowed inside hotel premises.">
               </div>
@@ -2377,60 +2570,185 @@
           </form>
         </div>
 
-        <!-- Email System & Free SMTP Integration Box (Super Admin Only) -->
+        <!-- Settings > Email Section (Super Admin Only) -->
         <div class="glass-card" id="emailSettingsCard">
-          <div class="glass-card-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <div class="glass-card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
             <div>
-              <div class="glass-card-title">Email System & Free SMTP Integration</div>
-              <small style="color: #64748B; font-size: 0.78rem;">Free SMTP mail server status, daily send quotas, and live connection testing.</small>
+              <div class="glass-card-title" style="display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="color: var(--champagne-gold);">mail_lock</span>
+                Settings &gt; Email
+              </div>
+              <small style="color: #64748B; font-size: 0.78rem;">Configure sender Gmail, Google App Password, and SMTP relay. Hardware-encrypted at rest (Super Admin Only).</small>
             </div>
-            <div id="emailProviderStatusBadge" class="email-badge not_configured">
-              <span class="material-symbols-outlined" style="font-size: 14px;">cloud_off</span> Not Configured
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span id="emailSourceBadge" class="email-badge" style="background: rgba(7, 59, 76, 0.08); color: #073B4C; border: 1px solid #CBD5E1; font-size: 0.75rem; padding: 4px 10px; border-radius: 20px; font-weight: 600;">
+                Checking source...
+              </span>
+              <div id="emailProviderStatusBadge" class="email-badge not_configured">
+                <span class="material-symbols-outlined" style="font-size: 14px;">cloud_off</span> Email is not configured
+              </div>
             </div>
           </div>
 
-          <div style="padding: 16px 20px;">
-            <div class="form-grid-3" style="margin-bottom: 20px;">
-              <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px;">
-                <div style="font-size: 0.75rem; color: #64748B; font-weight: 600; text-transform: uppercase;">Configured Sender</div>
-                <div id="emailSenderAddressText" style="font-size: 0.95rem; font-weight: 700; color: #073B4C; margin-top: 4px; word-break: break-all;">
-                  Loading...
+          <div style="padding: 18px 20px;">
+            <!-- Status Card: Status, Last Success, Last Error, Today's Count -->
+            <div style="background: linear-gradient(135deg, #073B4C 0%, #0F5268 100%); border-radius: 14px; padding: 20px; color: #FFFFFF; margin-bottom: 24px; box-shadow: 0 8px 24px rgba(7, 59, 76, 0.15);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; border-bottom: 1px solid rgba(255,255,255,0.12); padding-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span class="material-symbols-outlined" id="emailStatusCardIcon" style="color: #FBBF24; font-size: 26px;">mark_email_unread</span>
+                  <div>
+                    <div style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; color: #E8C77B; font-weight: 700;">Live Email Service Status</div>
+                    <div id="emailStatusTitleText" style="font-size: 1.15rem; font-weight: 700; color: #FFFFFF;">Email is not configured</div>
+                  </div>
                 </div>
-                <div style="font-size: 0.70rem; color: #06B6B0; margin-top: 4px;">Verified domain sender</div>
+                <div style="font-size: 0.75rem; color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.1); padding: 5px 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.15);">
+                  🔒 AES-256-GCM Encrypted at Rest
+                </div>
               </div>
 
-              <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px;">
-                <div style="font-size: 0.75rem; color: #64748B; font-weight: 600; text-transform: uppercase;">SMTP Relay Server</div>
-                <div id="emailHostText" style="font-size: 0.95rem; font-weight: 700; color: #073B4C; margin-top: 4px;">
-                  Loading...
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                <div style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px 14px;">
+                  <div style="font-size: 0.70rem; color: #E8C77B; font-weight: 600; text-transform: uppercase;">Active Configuration</div>
+                  <div id="emailActiveSourceText" style="font-size: 0.95rem; font-weight: 600; margin-top: 4px; color: #FFFFFF;">Not Configured</div>
+                  <div id="emailSenderDisplayText" style="font-size: 0.75rem; color: rgba(255,255,255,0.7); margin-top: 2px; word-break: break-all;">No sender configured</div>
                 </div>
-                <div id="emailPortText" style="font-size: 0.70rem; color: #64748B; margin-top: 4px;">Port 587 (STARTTLS)</div>
-              </div>
 
-              <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px;">
-                <div style="font-size: 0.75rem; color: #64748B; font-weight: 600; text-transform: uppercase;">Today's Send Quota</div>
-                <div id="emailQuotaText" style="font-size: 0.95rem; font-weight: 700; color: #073B4C; margin-top: 4px;">
-                  0 / 300
+                <div style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px 14px;">
+                  <div style="font-size: 0.70rem; color: #E8C77B; font-weight: 600; text-transform: uppercase;">Last Successful Send</div>
+                  <div id="emailLastSuccessText" style="font-size: 0.95rem; font-weight: 600; margin-top: 4px; color: #FFFFFF;">None recorded yet</div>
+                  <div style="font-size: 0.75rem; color: rgba(255,255,255,0.7); margin-top: 2px;">Verified relay timestamp</div>
                 </div>
-                <div style="background: #E2E8F0; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 6px;">
-                  <div id="emailQuotaProgressBar" style="background: #06B6B0; width: 0%; height: 100%; transition: width 0.3s;"></div>
+
+                <div style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px 14px;">
+                  <div style="font-size: 0.70rem; color: #E8C77B; font-weight: 600; text-transform: uppercase;">Last Error</div>
+                  <div id="emailLastErrorText" style="font-size: 0.85rem; font-weight: 500; margin-top: 4px; color: #FCA5A5; word-break: break-word;">No errors reported</div>
+                  <div style="font-size: 0.72rem; color: rgba(255,255,255,0.6); margin-top: 2px;">Safe client message</div>
+                </div>
+
+                <div style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px 14px;">
+                  <div style="font-size: 0.70rem; color: #E8C77B; font-weight: 600; text-transform: uppercase;">Today's Send Count</div>
+                  <div id="emailSendCountText" style="font-size: 1.1rem; font-weight: 700; margin-top: 4px; color: #FFFFFF;">0 / 300</div>
+                  <div style="background: rgba(255,255,255,0.15); height: 5px; border-radius: 3px; overflow: hidden; margin-top: 6px;">
+                    <div id="emailSendProgressBar" style="background: #06B6B0; width: 0%; height: 100%; transition: width 0.3s;"></div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-              <button type="button" class="btn-turquoise" id="btnSendTestEmail" onclick="handleSendAdminTestEmail()">
-                <span class="material-symbols-outlined">send</span> Send Test Email to Super Admin
-              </button>
-              <button type="button" class="btn-outline-gold" onclick="openMailLogsModal()">
-                <span class="material-symbols-outlined">receipt_long</span> View Mail Audit Log
-              </button>
-              <span style="font-size: 0.74rem; color: #64748B;">
-                🔒 Provider keys (SMTP_PASS) are never shown in the browser and must be configured via server environment variables.
-              </span>
-            </div>
+            <!-- Email Settings Configuration Form -->
+            <form id="emailSettingsForm" onsubmit="event.preventDefault(); promptSaveEmailSettings();">
+              <div class="form-grid-2" style="margin-bottom: 18px;">
+                <!-- 1. Sender Gmail Address -->
+                <div class="form-group">
+                  <label class="form-label" for="cfgEmailSender">
+                    Sender Gmail Address <span style="color: var(--sunset-coral);">*</span>
+                  </label>
+                  <input type="email" id="cfgEmailSender" class="form-control" placeholder="coastalviewbyanis@gmail.com" required autocomplete="email">
+                  <small style="color: #64748B; font-size: 0.74rem;">The official Google / Gmail account used to dispatch all guest booking emails &amp; staff login codes.</small>
+                </div>
+
+                <!-- 2. Google App Password -->
+                <div class="form-group">
+                  <label class="form-label" for="cfgEmailPassword" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>Google App Password <span style="color: var(--sunset-coral);">*</span></span>
+                    <span id="savedPasswordStatusBadge" style="display: none; font-size: 0.74rem; color: #059669; font-weight: 600;">
+                      <span class="material-symbols-outlined" style="font-size: 13px; vertical-align: middle;">check_circle</span> ● ● ● ● saved
+                    </span>
+                  </label>
+                  <div class="password-input-wrap">
+                    <input type="password" id="cfgEmailPassword" class="form-control" placeholder="Enter Google App Password (e.g. 16 letters)" autocomplete="new-password">
+                    <button type="button" class="btn-password-toggle" onclick="toggleInputVisibility('cfgEmailPassword')">
+                      <span class="material-symbols-outlined" style="font-size: 18px;">visibility</span>
+                    </button>
+                  </div>
+                  <small id="savedPasswordDateDesc" style="color: #64748B; font-size: 0.74rem;">
+                    16-character Google App Password. Encrypted with AES-256-GCM. Never shown or sent back to browser.
+                  </small>
+                </div>
+
+                <!-- 3. Sender Display Name -->
+                <div class="form-group">
+                  <label class="form-label" for="cfgEmailSenderName">
+                    Sender Display Name
+                  </label>
+                  <input type="text" id="cfgEmailSenderName" class="form-control" placeholder="Coastal View" value="Coastal View">
+                  <small style="color: #64748B; font-size: 0.74rem;">Friendly name that appears in the guest's inbox (e.g. "Coastal View").</small>
+                </div>
+
+                <!-- 4. Admin Alert Email -->
+                <div class="form-group">
+                  <label class="form-label" for="cfgEmailAdminAlert">
+                    Admin Alert Email Address
+                  </label>
+                  <input type="email" id="cfgEmailAdminAlert" class="form-control" placeholder="coastalviewbyanis@gmail.com">
+                  <small style="color: #64748B; font-size: 0.74rem;">Receives new online booking notifications, security alerts, and system test messages.</small>
+                </div>
+              </div>
+
+              <!-- SMTP Server Advanced Parameters (Prefilled for Gmail 465 SSL, editable) -->
+              <div style="background: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: 12px; padding: 18px; margin-bottom: 22px;">
+                <div style="font-size: 0.85rem; font-weight: 700; color: #073B4C; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                  <span class="material-symbols-outlined" style="color: var(--turquoise); font-size: 18px;">dns</span>
+                  SMTP Relay Server Connection (Prefilled for Gmail)
+                </div>
+                <div class="form-grid-3">
+                  <div class="form-group" style="margin: 0;">
+                    <label class="form-label" for="cfgEmailHost">SMTP Host</label>
+                    <input type="text" id="cfgEmailHost" class="form-control" value="smtp.gmail.com" required>
+                  </div>
+                  <div class="form-group" style="margin: 0;">
+                    <label class="form-label" for="cfgEmailPort">SMTP Port</label>
+                    <input type="number" id="cfgEmailPort" class="form-control" value="465" min="1" max="65535" required>
+                  </div>
+                  <div class="form-group" style="margin: 0;">
+                    <label class="form-label">SSL / TLS Secure</label>
+                    <div style="display: flex; align-items: center; gap: 10px; margin-top: 8px;">
+                      <label class="switch" style="margin: 0;">
+                        <input type="checkbox" id="cfgEmailSecure" checked>
+                        <span class="slider"></span>
+                      </label>
+                      <span id="cfgEmailSecureLabel" style="font-size: 0.82rem; color: #475569;">SSL/TLS (Port 465)</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Help Box: How to create a Google App Password -->
+              <div style="background: #FAF6EE; border: 1.5px solid #E8C77B; border-radius: 12px; padding: 18px; margin-bottom: 24px;">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                  <span class="material-symbols-outlined" style="color: var(--champagne-gold); font-size: 22px;">help</span>
+                  <strong style="color: #073B4C; font-size: 0.92rem;">How to create an App Password</strong>
+                </div>
+                <ol style="margin: 0 0 0 18px; padding: 0; font-size: 0.80rem; color: #475569; line-height: 1.6;">
+                  <li>Turn on <strong>2-Step Verification</strong> in your Google Account.</li>
+                  <li>Go to <strong>Google Account</strong> &gt; <strong>Security</strong> &gt; <strong>App passwords</strong>.</li>
+                  <li>Type an app name (for example, <code>Coastal View Admin</code>), then click <strong>Create</strong>.</li>
+                  <li>Google will display a 16-character code (e.g. <code>Sandipan@9339</code>). Copy and paste it into the <strong>Google App Password</strong> field above.</li>
+                </ol>
+              </div>
+
+              <!-- Action Buttons -->
+              <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                <button type="button" class="btn-turquoise" id="btnSaveEmailSettings" onclick="promptSaveEmailSettings()">
+                  <span class="material-symbols-outlined">save</span> Save
+                </button>
+                <button type="button" class="btn-outline-gold" id="btnSendTestEmail" onclick="handleSendAdminTestEmail()">
+                  <span class="material-symbols-outlined">send</span> Send test email
+                </button>
+                <button type="button" class="btn-outline-gold" id="btnRemoveSavedPassword" style="display: none; color: var(--sunset-coral); border-color: var(--sunset-coral);" onclick="promptRemoveEmailPassword()">
+                  <span class="material-symbols-outlined">delete</span> Remove saved password
+                </button>
+                <button type="button" class="btn-outline-gold" onclick="openMailLogsModal()">
+                  <span class="material-symbols-outlined">receipt_long</span> View Mail Audit Log
+                </button>
+                <div id="emailIdleTimerNotice" style="margin-left: auto; font-size: 0.74rem; color: #64748B;">
+                  ⏱ Page security: Idle timeout in 5m
+                </div>
+              </div>
+            </form>
           </div>
         </div>
+
 
         <!-- Account Security & Two-Factor Authentication (2FA) Box -->
         <div class="glass-card" id="securitySettingsCard">
@@ -2867,7 +3185,7 @@
           </div>
           <div class="form-group">
             <label class="form-label">Guest Email</label>
-            <input type="email" id="manBookEmail" class="form-control" placeholder="guest@example.com">
+            <input type="email" id="manBookEmail" class="form-control" placeholder="guest@testdomain.in">
           </div>
           <div class="form-grid-2">
             <div class="form-group">
@@ -3120,43 +3438,89 @@
     </div>
   </div>
 
-  <!-- 8. Add Staff Account Modal (Super Admin Only) -->
-  <div class="modal-overlay" id="staffAccountModal">
-    <div class="modal-box" style="max-width: 480px;">
-      <div class="modal-header">
-        <div class="modal-title">Add Staff Member</div>
-        <button class="modal-close-btn" onclick="closeModal('staffAccountModal')">×</button>
+  <!-- 8. Add Staff Account Drawer (Super Admin Only) -->
+  <div class="drawer-overlay" id="staffAccountModal">
+    <div class="drawer-box">
+      <div class="drawer-header">
+        <div>
+          <div class="drawer-title">Add Staff Member</div>
+          <div style="font-size: 0.78rem; color: #64748B;">Send single-use secure onboarding invitation</div>
+        </div>
+        <button type="button" class="btn-icon-only" onclick="closeModal('staffAccountModal')" title="Close Drawer">
+          <span class="material-symbols-outlined">close</span>
+        </button>
       </div>
-      <div class="modal-body">
-        <form onsubmit="handleCreateStaffSubmit(event)">
+      <div class="drawer-body">
+        <!-- Error & Notice Banner -->
+        <div id="newStaffErrorBox" style="display: none; background: #FEF2F2; border: 1px solid #FCA5A5; color: #991B1B; padding: 10px 14px; border-radius: 8px; font-size: 0.84rem; margin-bottom: 16px;"></div>
+
+        <!-- Success & Copyable Link State (if SMTP fails) -->
+        <div id="newStaffSuccessBox" style="display: none; margin-bottom: 18px;"></div>
+
+        <form id="addStaffForm" onsubmit="handleCreateStaffSubmit(event)">
           <div class="form-group">
-            <label class="form-label">Full Name</label>
-            <input type="text" id="newStaffName" class="form-control" required placeholder="e.g. Subham Sen">
+            <label class="form-label" for="newStaffName">Full Name *</label>
+            <input type="text" id="newStaffName" class="form-control" required placeholder="e.g. Subham Sen" autocomplete="name">
           </div>
+
           <div class="form-group">
-            <label class="form-label">Username</label>
-            <input type="text" id="newStaffUsername" class="form-control" required placeholder="e.g. subham">
+            <label class="form-label" for="newStaffEmail">Staff Email Address *</label>
+            <input type="email" id="newStaffEmail" class="form-control" required placeholder="staff@coastalviewmandarmani.com" autocomplete="email">
+            <small style="color: #64748B; font-size: 0.74rem; display: block; margin-top: 4px;">An invitation link with single-use token will be sent to this address.</small>
           </div>
+
           <div class="form-group">
-            <label class="form-label">Staff Email</label>
-            <input type="email" id="newStaffEmail" class="form-control" required placeholder="subham@coastalviewmandarmani.com">
+            <label class="form-label" for="newStaffPhone">Phone Number <small style="color: #64748B;">(Optional)</small></label>
+            <input type="tel" id="newStaffPhone" class="form-control" placeholder="+91 98765 43210" autocomplete="tel">
           </div>
+
           <div class="form-group">
-            <label class="form-label">Role Assignment</label>
-            <select id="newStaffRole" class="form-control" required>
-              <option value="Manager">Manager (Rooms, sold-out, bookings, content, chat)</option>
-              <option value="Front Desk">Front Desk (View bookings & check-in/out, masked phones)</option>
-              <option value="Super Admin">Super Admin (Everything, users, audit log)</option>
+            <label class="form-label" for="newStaffRole">Operational Role *</label>
+            <select id="newStaffRole" class="form-control" required onchange="handleStaffRoleSelectionChange(this.value)">
+              <option value="Manager">Manager (Bookings, rooms & prices, availability, menu, photos, chatbot, invoices, reports)</option>
+              <option value="Front Desk">Front Desk (Today's bookings, check-in/out, room availability, invoices; masked phones)</option>
+              <option value="Super Admin">Super Admin (Full administrative authority, staff governance, policies, backups, audit)</option>
             </select>
           </div>
-          <div class="form-group">
-            <label class="form-label">Initial Password (min 8 chars)</label>
-            <input type="password" id="newStaffPassword" class="form-control" minlength="8" required>
+
+          <!-- Super Admin Confirmation Warning -->
+          <div id="superAdminRoleWarning" style="display: none; background: #FFFBEB; border: 1.5px solid #FCD34D; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+            <div style="display: flex; gap: 8px; align-items: flex-start;">
+              <span class="material-symbols-outlined" style="color: #D97706; font-size: 20px;">warning</span>
+              <div>
+                <div style="font-weight: 700; font-size: 0.84rem; color: #92400E;">Confirmation Required: Creating Super Admin</div>
+                <div style="font-size: 0.78rem; color: #78350F; margin-top: 4px; line-height: 1.45;">
+                  Granting Super Admin role allows this user to invite staff, change roles, modify hotel policies, download backups, and inspect audit logs.
+                </div>
+                <label style="display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 0.8rem; font-weight: 600; color: #92400E; cursor: pointer;">
+                  <input type="checkbox" id="confirmSuperAdminCreation" style="accent-color: var(--champagne-gold);">
+                  <span>I confirm granting full Super Admin authority</span>
+                </label>
+              </div>
+            </div>
           </div>
-          <button type="submit" class="btn-turquoise" style="width: 100%; justify-content: center;">
-            Create Staff Account
-          </button>
+
+          <div class="form-group" style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px;">
+            <label style="display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 0.84rem; color: #334155; cursor: pointer;">
+              <input type="checkbox" id="newStaffRequireMfa" checked style="width: 18px; height: 18px; accent-color: var(--turquoise);">
+              <span>Require Authenticator (TOTP 2FA) Setup</span>
+            </label>
+            <small style="color: #64748B; font-size: 0.75rem; display: block; margin-top: 4px; padding-left: 28px;">
+              Enforces Google/Microsoft Authenticator setup upon accepting invitation.
+            </small>
+          </div>
+
+          <div style="background: rgba(197, 160, 89, 0.08); border: 1px solid rgba(197, 160, 89, 0.25); border-radius: 8px; padding: 12px; font-size: 0.78rem; color: #8C6A28; line-height: 1.45;">
+            <span class="material-symbols-outlined" style="font-size: 16px; vertical-align: middle;">security</span>
+            <strong>Zero-Knowledge Security:</strong> The owner never types or views staff passwords. The staff member establishes their private credentials directly via the secure invitation link.
+          </div>
         </form>
+      </div>
+      <div class="drawer-footer">
+        <button type="button" class="btn-outline-gold" onclick="closeModal('staffAccountModal')">Cancel</button>
+        <button type="submit" form="addStaffForm" class="btn-turquoise" id="btnCreateStaffSubmit">
+          <span class="material-symbols-outlined">send</span> Send Staff Invitation
+        </button>
       </div>
     </div>
   </div>
@@ -3846,7 +4210,7 @@
        2. EDIT STAFF USER ROLE & ACCESS MODAL
        ========================================================================== -->
   <div class="modal-overlay" id="editStaffRoleModal">
-    <div class="modal-box" style="max-width: 480px;">
+    <div class="modal-box" style="max-width: 500px;">
       <div class="modal-header">
         <div class="modal-title" id="editStaffRoleModalTitle">Edit Staff Account</div>
         <button class="modal-close-btn" onclick="closeModal('editStaffRoleModal')">×</button>
@@ -3854,37 +4218,138 @@
       <div class="modal-body">
         <input type="hidden" id="editStaffUsername">
         <div class="form-group">
-          <label class="form-label">Full Name</label>
+          <label class="form-label" for="editStaffName">Full Name</label>
           <input type="text" id="editStaffName" class="form-control" required>
         </div>
         <div class="form-group">
-          <label class="form-label">Email Address</label>
+          <label class="form-label" for="editStaffPhone">Phone Number</label>
+          <input type="tel" id="editStaffPhone" class="form-control" placeholder="+91 98765 43210">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="editStaffEmail">Email Address</label>
           <input type="email" id="editStaffEmail" class="form-control" required>
+          <small style="color: #64748B; font-size: 0.74rem; display: block; margin-top: 4px;">
+            <span class="material-symbols-outlined" style="font-size: 13px; vertical-align: middle;">mark_email_unread</span>
+            Changing this email will send a confirmation link to the new address before taking effect.
+          </small>
         </div>
         <div class="form-group">
-          <label class="form-label">System Role *</label>
-          <select id="editStaffRoleSelect" class="form-control">
-            <option value="Front Desk">Front Desk (Reservations & Check-ins only)</option>
-            <option value="Manager">Manager (Full operations, Menu, Pricing, Rooms)</option>
-            <option value="Super Admin">Super Admin (System Owner, Audit & Security)</option>
+          <label class="form-label" for="editStaffRoleSelect">Operational Role *</label>
+          <select id="editStaffRoleSelect" class="form-control" onchange="handleEditRoleChange(this.value)">
+            <option value="Manager">Manager (Full hotel operations, pricing, bookings, rooms, chatbot, reports)</option>
+            <option value="Front Desk">Front Desk (Reservations, check-in/out, availability, masked phones)</option>
+            <option value="Super Admin">Super Admin (System Owner, User Governance, Policies, Backups, Audit)</option>
           </select>
+          <small style="color: #64748B; font-size: 0.74rem; display: block; margin-top: 4px;">
+            Role updates take effect immediately on their next request and sign out all their other active sessions.
+          </small>
         </div>
-        <div class="form-group" style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px;">
-          <label style="display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer;">
-            <input type="checkbox" id="editStaffActiveToggle" style="width: 18px; height: 18px; accent-color: var(--turquoise);">
-            <span id="editStaffActiveLabel">Account Enabled & Active</span>
+
+        <div id="editSuperAdminConfirmationBox" style="display: none; background: #FFFBEB; border: 1.5px solid #FCD34D; border-radius: 8px; padding: 12px; margin-bottom: 14px;">
+          <div style="font-weight: 700; font-size: 0.82rem; color: #92400E;">Promoting to Super Admin</div>
+          <div style="font-size: 0.76rem; color: #78350F; margin-top: 4px;">
+            Only a Super Admin can promote another user to Super Admin.
+          </div>
+          <label style="display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.78rem; font-weight: 600; color: #92400E; cursor: pointer;">
+            <input type="checkbox" id="confirmPromoteSuperAdmin" style="accent-color: var(--champagne-gold);">
+            <span>I confirm promoting this user to Super Admin</span>
           </label>
-          <small style="color: #64748B; font-size: 0.75rem; display: block; margin-top: 4px;">Disabled accounts are rejected immediately at sign-in.</small>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Change Password <small style="color: #64748B;">(Leave blank to keep current password)</small></label>
-          <input type="password" id="editStaffNewPassword" class="form-control" placeholder="Optional new password (min 12 chars)">
         </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn-outline-gold" onclick="closeModal('editStaffRoleModal')">Cancel</button>
         <button type="button" class="btn-turquoise" id="btnSaveStaffRole" onclick="executeSaveStaffRole()">
           <span class="material-symbols-outlined">save</span> Save Account Changes
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2B. RESET STAFF 2FA MODAL (SUPER ADMIN VERIFICATION REQUIRED) -->
+  <div class="modal-overlay" id="resetStaff2FAModal">
+    <div class="modal-box" style="max-width: 480px;">
+      <div class="modal-header">
+        <div class="modal-title">Reset Staff Authenticator (2FA)</div>
+        <button class="modal-close-btn" onclick="closeModal('resetStaff2FAModal')">×</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="reset2faTargetUsername">
+        <div style="background: #FFFBEB; border: 1px solid #FCD34D; border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 0.82rem; color: #92400E; line-height: 1.45;">
+          <span class="material-symbols-outlined" style="font-size: 16px; vertical-align: middle;">lock_reset</span>
+          This will clear the current authenticator key for <strong id="reset2faTargetName">staff</strong>. They will be required to re-configure their verification app on their next login. A security alert email will be sent to them.
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="reset2faAdminPassword">Super Admin Password *</label>
+          <input type="password" id="reset2faAdminPassword" class="form-control" required placeholder="Enter your Super Admin password" autocomplete="current-password">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="reset2faAdminTotp">Your Current 6-digit Authenticator Code *</label>
+          <input type="text" id="reset2faAdminTotp" class="form-control" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" placeholder="123456" required style="font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; letter-spacing: 3px; text-align: center;">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-outline-gold" onclick="closeModal('resetStaff2FAModal')">Cancel</button>
+        <button type="button" class="btn-turquoise" id="btnExecuteReset2FA" onclick="executeResetStaff2FA()">
+          <span class="material-symbols-outlined">verified_user</span> Confirm 2FA Reset
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2C. ACTIVE STAFF SESSIONS MODAL -->
+  <div class="modal-overlay" id="staffSessionsModal">
+    <div class="modal-box" style="max-width: 620px;">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title" id="staffSessionsModalTitle">Active Staff Sessions</div>
+          <div style="font-size: 0.78rem; color: #64748B;" id="staffSessionsSubtitle">Inspect login devices & locations</div>
+        </div>
+        <button class="modal-close-btn" onclick="closeModal('staffSessionsModal')">×</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="staffSessionsUsername">
+        <div id="staffSessionsList" style="max-height: 320px; overflow-y: auto;">
+          <!-- Dynamically loaded -->
+          <div style="text-align: center; padding: 20px; color: #64748B;">Loading sessions...</div>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between;">
+        <button type="button" class="btn-coral" id="btnSignoutAllDevices" onclick="executeSignoutStaffSessions()">
+          <span class="material-symbols-outlined">logout</span> Sign Out All Devices
+        </button>
+        <button type="button" class="btn-outline-gold" onclick="closeModal('staffSessionsModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2D. SOFT DELETE STAFF CONFIRMATION MODAL -->
+  <div class="modal-overlay" id="deleteStaffConfirmModal">
+    <div class="modal-box" style="max-width: 480px;">
+      <div class="modal-header">
+        <div class="modal-title" style="color: #DC2626;">Soft Delete Staff Account</div>
+        <button class="modal-close-btn" onclick="closeModal('deleteStaffConfirmModal')">×</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="deleteStaffTargetUsername">
+        <p style="font-size: 0.88rem; color: #334155; line-height: 1.5; margin-bottom: 14px;">
+          Are you sure you want to deactivate and remove staff account <strong id="deleteStaffTargetName">username</strong>?
+        </p>
+
+        <div style="background: #FEF2F2; border: 1.5px solid #FCA5A5; border-radius: 8px; padding: 12px; font-size: 0.82rem; color: #991B1B; line-height: 1.45;">
+          <strong>What happens:</strong>
+          <ul style="margin: 6px 0 0 16px; padding: 0;">
+            <li>All active sessions are terminated immediately.</li>
+            <li>Login will be permanently barred.</li>
+            <li>Historical bookings, guest check-in records, and audit logs will safely preserve this staff member's name for hotel accounting integrity.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-outline-gold" onclick="closeModal('deleteStaffConfirmModal')">Cancel</button>
+        <button type="button" class="btn-coral" id="btnExecuteDeleteStaff" onclick="executeConfirmDeleteStaff()">
+          <span class="material-symbols-outlined">delete</span> Confirm Soft Delete
         </button>
       </div>
     </div>
@@ -4569,6 +5034,59 @@
         <button type="button" class="btn-cancel" onclick="closeModal('recoveryCodesModal')">Close</button>
         <button type="button" class="btn-turquoise" id="btnExecuteRegenRecovery" onclick="executeRegenerateRecoveryCodes()">
           <span class="material-symbols-outlined">refresh</span> Confirm & Generate 8 Codes
+        </button>
+      </div>
+    </div>
+  <!-- ==========================================================================
+       SUPER ADMIN EMAIL SETTINGS RE-AUTHENTICATION MODAL
+       ========================================================================== -->
+  <div class="luxury-modal" id="modalEmailReauth" style="display: none;">
+    <div class="luxury-modal-content" style="max-width: 480px;">
+      <div class="luxury-modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="material-symbols-outlined" style="color: var(--champagne-gold); font-size: 22px;">security</span>
+          <h3 class="luxury-modal-title" id="emailReauthModalTitle">Super Admin Re-Authentication</h3>
+        </div>
+        <button class="btn-close-modal" onclick="closeModal('modalEmailReauth')">&times;</button>
+      </div>
+      <div class="luxury-modal-body">
+        <div style="background: rgba(6, 182, 176, 0.08); border-left: 4px solid #06B6B0; padding: 12px 14px; border-radius: 6px; font-size: 0.8rem; color: #073B4C; margin-bottom: 16px;">
+          🔒 Modifying email settings requires confirming your identity with your Super Admin password and Authenticator 2FA code.
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="emailReauthPassword">Current Super Admin Password <span style="color: var(--sunset-coral);">*</span></label>
+          <div class="password-input-wrap">
+            <input type="password" id="emailReauthPassword" class="form-control" placeholder="••••••••••••" autocomplete="current-password" required>
+            <button type="button" class="btn-password-toggle" onclick="toggleInputVisibility('emailReauthPassword')">
+              <span class="material-symbols-outlined" style="font-size: 18px;">visibility</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="emailReauth2FACode">Current Authenticator Code or Recovery Code <span style="color: var(--sunset-coral);">*</span></label>
+          <input type="text" id="emailReauth2FACode" class="form-control" placeholder="6-digit TOTP (e.g. 123456) or 8-char recovery code" maxlength="12" autocomplete="one-time-code" required>
+        </div>
+
+        <!-- Optional Save Anyway toggle if pre-save check failed -->
+        <div id="emailSaveAnywayBox" style="display: none; background: #FFF1F2; border: 1px solid #FECDD3; border-radius: 8px; padding: 12px; margin-top: 12px;">
+          <label class="checkbox-container" style="margin: 0; display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" id="emailSaveAnywayCheck">
+            <span class="checkmark"></span>
+            <span style="font-size: 0.80rem; color: #9F1239; font-weight: 600;">Save anyway (bypass SMTP verification failure)</span>
+          </label>
+          <div style="font-size: 0.72rem; color: #BE123C; margin-top: 4px;">
+            Warning: The server rejected this SMTP login. Saving anyway may prevent automated email delivery.
+          </div>
+        </div>
+
+        <div id="emailReauthErrorMsg" class="login-error-banner" style="display: none; margin-top: 14px;"></div>
+      </div>
+      <div class="luxury-modal-footer">
+        <button type="button" class="btn-cancel" onclick="closeModal('modalEmailReauth')">Cancel</button>
+        <button type="button" class="btn-turquoise" id="btnConfirmEmailReauth" onclick="executeEmailReauthAction()">
+          <span class="material-symbols-outlined">lock_open</span> Confirm &amp; Proceed
         </button>
       </div>
     </div>

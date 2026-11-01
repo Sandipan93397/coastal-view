@@ -190,6 +190,55 @@ class ChatbotEngine {
       };
     }
 
+    // Check if user entered a specific Booking ID (e.g. CV-2026-000123 or INV-2026-000123)
+    const bookingIdMatch = rawText.match(/\b([A-Za-z]{2,4}-\d{4}-\d{3,8}(?:-R\d+)?)\b/i);
+    if (bookingIdMatch) {
+      const queriedId = bookingIdMatch[1].toUpperCase();
+      const booking = (db?.bookings || []).find(b => 
+        (b.bookingId && b.bookingId.toUpperCase() === queriedId) ||
+        (b.invoiceNumber && b.invoiceNumber.toUpperCase() === queriedId)
+      );
+
+      if (booking) {
+        const isBn = detectedLang === 'bn';
+        const advPaid = booking.status === 'Confirmed' || booking.status === 'Checked-in' || booking.status === 'Completed';
+        const statusBadge = advPaid ? '✓ ADVANCE PAID' : '⏳ PAYMENT PENDING';
+        
+        let reply = '';
+        if (isBn) {
+          reply = `📋 **বুকিং রেকর্ড পাওয়া গেছে (${booking.bookingId}):**\n\n` +
+            `👤 **অতিথি:** ${booking.guestName}\n` +
+            `🏨 **রুম:** ${booking.roomName || 'রুম'} (${booking.roomsCount || 1} টি রুম)\n` +
+            `📅 **তারিখ:** ${booking.checkIn} থেকে ${booking.checkOut} (${booking.nights || 1} রাত)\n` +
+            `💰 **মোট মূল্য:** ₹${Number(booking.totalAmount || 0).toLocaleString('en-IN')}\n` +
+            `🔒 **অগ্রিম ২০%:** ₹${Number(booking.payNowAdvance || 0).toLocaleString('en-IN')} (${statusBadge})\n` +
+            `🏨 **বাকি ৮০% হোটেলে প্রদেয়:** ₹${Number(booking.payAtHotelBalance || 0).toLocaleString('en-IN')}\n\n` +
+            (booking.invoiceToken ? `📥 [ইনভয়েস PDF ডাউনলোড করুন](/api/invoices/public/download/${booking.invoiceToken})\n\n` : '') +
+            `যেকোনো পরিবর্তনের জন্য অনুগ্রহ করে ফ্রন্ট ডেস্কে যোগাযোগ করুন: [📞 ${deskPhone}](tel:${deskPhone})।`;
+        } else {
+          reply = `📋 **Booking Details for ${booking.bookingId}:**\n\n` +
+            `👤 **Guest Name:** ${booking.guestName}\n` +
+            `🏨 **Accommodation:** ${booking.roomName || 'Room'} (${booking.roomsCount || 1} room(s))\n` +
+            `📅 **Stay Dates:** ${booking.checkIn} to ${booking.checkOut} (${booking.nights || 1} night(s))\n` +
+            `💰 **Total Amount:** ₹${Number(booking.totalAmount || 0).toLocaleString('en-IN')}\n` +
+            `🔒 **20% Advance:** ₹${Number(booking.payNowAdvance || 0).toLocaleString('en-IN')} (${statusBadge})\n` +
+            `🏨 **80% Hotel Balance:** ₹${Number(booking.payAtHotelBalance || 0).toLocaleString('en-IN')}\n` +
+            `📄 **Invoice No:** ${booking.invoiceNumber || booking.bookingId}\n\n` +
+            (booking.invoiceToken ? `📥 [Download Official Invoice PDF](/api/invoices/public/download/${booking.invoiceToken}) · [View Online](/api/invoices/public/view/${booking.invoiceToken})\n\n` : '') +
+            `For any assistance, call our front desk directly at [📞 ${deskPhone}](tel:${deskPhone}).`;
+        }
+
+        return {
+          reply,
+          actionChips: ['Check availability', 'How to contact', 'Rooms & prices', 'Menu'],
+          topic: 'Booking Status Lookup',
+          intent: 'booking_status',
+          bookingId: booking.bookingId,
+          invoiceNumber: booking.invoiceNumber
+        };
+      }
+    }
+
     // Check Guided Booking State Machine:
     // If user has an active booking session OR clicked "Book a room" / intent === 'booking_start'
     const activeBookingSession = this.bookingStateMachine.getSession(sessionId);

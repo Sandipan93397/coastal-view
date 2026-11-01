@@ -296,7 +296,7 @@ if ($method === 'POST') {
           <tr style='color:#06B6B0;'><td style='padding:10px;'>80% Balance at Hotel</td><td style='padding:10px;text-align:right;'>₹" . number_format($payAtHotel) . "</td></tr>
         </table>
         <p style='font-size:12px;color:#FF6B5E;'>* {$booking['advancePolicyNote']}</p>
-        <p style='font-size:13px;'>UPI ID: <strong>" . ($db['settings']['paymentUPI'] ?? 'coastalview@upi') . "</strong><br>WhatsApp: <strong>" . ($db['settings']['whatsapp'] ?? '+91 98300 12345') . "</strong></p>
+        <p style='font-size:13px;'>" . (!empty($db['settings']['paymentUPI']) ? "UPI ID: <strong>" . htmlspecialchars($db['settings']['paymentUPI']) . "</strong><br>" : "") . "WhatsApp: <strong>" . ($db['settings']['whatsapp'] ?? '+91 7812027551') . "</strong></p>
       </div>
     </div>";
 

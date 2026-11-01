@@ -1,9 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
+const { readDB, writeDB } = require('./db_store');
 
-const dbPath = path.join(__dirname, 'data', 'db.json');
-const db = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+const db = readDB();
 
 // NOTE: In accordance with security hardening policies, user accounts are NOT
 // seeded with default passwords. The initial Super Admin account must be created
@@ -62,7 +62,7 @@ db.websiteContent = db.websiteContent || {
     quote: 'Welcome to Coastal View. We blend luxury coastal hospitality with authentic Bengal warmth.',
     bio: 'With deep local heritage in Mandarmani and years dedicated to bespoke travel experiences through Ani\'s Tour and Travels, Anirban Das designed Coastal View to be an idyllic seaside sanctuary with impeccable service and panoramic Bay of Bengal views.',
     photo: '/uploads/owner/anirban-das-owner.webp',
-    contactDirect: '+91 98300 12345'
+    contactDirect: '+91 7812027551'
   },
   candlelight: {
     beachsidePrice: 3500,
@@ -124,7 +124,7 @@ db.websiteContent = db.websiteContent || {
     {
       id: 'faq-1',
       question: 'What are the check-in and check-out timings at Coastal View?',
-      answer: 'Standard check-in time is 12:00 PM and check-out time is 11:00 AM. Early check-in or late check-out is subject to room availability.',
+      answer: 'Standard check-in time is 11:00 AM and check-out time is 9:30 AM. Early check-in or late check-out is subject to room availability.',
       category: 'General'
     },
     {
@@ -190,7 +190,7 @@ db.websiteContent = db.websiteContent || {
     },
     {
       id: 't-2',
-      name: 'Debashis Chatterjee',
+      name: 'Rajarshi Chatterjee',
       location: 'Howrah',
       stayDate: 'September 2026',
       rating: 5,
@@ -335,6 +335,6 @@ db.loginHistory = db.loginHistory || [];
 db.passwordResetTokens = db.passwordResetTokens || [];
 db.auditLog = db.auditLog || [];
 
-fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), 'utf8');
+writeDB(db);
 console.log('Database successfully initialized.');
 

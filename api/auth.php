@@ -5,11 +5,13 @@ $action = isset($_GET['action']) ? $_GET['action'] : '';
 $method = $_SERVER['REQUEST_METHOD'];
 $db = getDB();
 
+$isProduction = (getenv('NODE_ENV') === 'production' || getenv('APP_ENV') === 'production');
+
 if ($action === 'captcha-config' || ($method === 'GET' && $action === 'captcha')) {
     $siteKey = getenv('TURNSTILE_SITE_KEY') ?: (getenv('NEXT_PUBLIC_TURNSTILE_SITE_KEY') ?: '');
     $policy = getenv('CAPTCHA_POLICY') ?: ($db['settings']['captchaPolicy'] ?? 'smart');
-    if (!$siteKey) {
-        $siteKey = '1x00000000000000000000AA'; // official test site key
+    if (!$siteKey && !$isProduction) {
+        $siteKey = '1x00000000000000000000AA'; // official test site key (development only)
     }
     echo json_encode([
         'success' => true,
@@ -27,7 +29,7 @@ if ($action === 'login' || ($method === 'POST' && !$action)) {
     $password = trim($input['password'] ?? '');
     $captchaToken = trim($input['captchaToken'] ?? ($input['cf-turnstile-response'] ?? ''));
 
-    $secretKey = getenv('TURNSTILE_SECRET_KEY') ?: (getenv('CF_TURNSTILE_SECRET_KEY') ?: '1x0000000000000000000000000000000AA');
+    $secretKey = getenv('TURNSTILE_SECRET_KEY') ?: (getenv('CF_TURNSTILE_SECRET_KEY') ?: ($isProduction ? '' : '1x0000000000000000000000000000000AA'));
     $policy = getenv('CAPTCHA_POLICY') ?: ($db['settings']['captchaPolicy'] ?? 'smart');
     $isCaptchaRequired = ($policy === 'always');
 
@@ -35,6 +37,11 @@ if ($action === 'login' || ($method === 'POST' && !$action)) {
         if (empty($captchaToken)) {
             http_response_code(400);
             echo json_encode(['success' => false, 'requireCaptcha' => true, 'message' => 'Please complete the security check']);
+            exit;
+        }
+        if ($isProduction && (empty($secretKey) || strpos($captchaToken, 'XXXX.') === 0 || stripos($captchaToken, 'test') !== false || $captchaToken === '1x00000000000000000000AA')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'requireCaptcha' => true, 'resetCaptcha' => true, 'message' => 'Security check failed in production']);
             exit;
         }
 

@@ -47,3 +47,5 @@ services:
         value: "Coastal View Mandarmani"
       - key: SMTP_DAILY_LIMIT
         value: "300"
+      - key: DATA_DIR
+        value: /opt/render/project/src/data

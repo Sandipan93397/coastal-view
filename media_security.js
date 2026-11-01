@@ -11,10 +11,11 @@ const sharp = require('sharp');
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB limit
 // Persistent uploads folder. Set UPLOADS_DIR (e.g. a folder outside the deployed/build output on
 // Hostinger or a Render disk) so uploaded photos survive redeploys. Defaults to ./uploads.
+const { getDbPath } = require('./db_store');
 const UPLOADS_ROOT = process.env.UPLOADS_DIR
   ? path.resolve(process.env.UPLOADS_DIR)
   : path.join(__dirname, 'uploads');
-const DB_PATH = path.join(__dirname, 'data', 'db.json');
+const DB_PATH = getDbPath();
 try { fs.mkdirSync(UPLOADS_ROOT, { recursive: true }); } catch (e) { /* surfaced on first upload */ }
 
 // 30-second undo map: undoToken -> { slotId, roomId, photoId, previousUrl, expiresAt }

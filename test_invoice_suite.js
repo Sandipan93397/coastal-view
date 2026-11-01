@@ -1,3 +1,4 @@
+const testEnv = require('./test_db_helper');
 // Comprehensive End-to-End Test Suite for Booking Invoices (PDF)
 const http = require('http');
 const fs = require('fs');
@@ -59,6 +60,7 @@ async function loginAs(username, password) {
 }
 
 (async () => {
+  await testEnv.startIsolatedServer();
   console.log('===============================================================');
   console.log('   COASTAL VIEW HOTEL - AUTO-GENERATED PDF INVOICE TEST SUITE  ');
   console.log('===============================================================\n');
@@ -89,7 +91,7 @@ async function loginAs(username, password) {
     candlelightDinner: false,
     guestName: 'Arindam Mukherjee',
     guestPhone: '+91 98311 22334',
-    guestEmail: 'arindam@example.com'
+    guestEmail: 'arindam@testdomain.in'
   });
 
   assert(booking1Res.statusCode === 200 && booking1Res.data && booking1Res.data.success, 'Room-only booking created successfully');
@@ -100,7 +102,7 @@ async function loginAs(username, password) {
   assert(b1.payAtHotelBalance === b1.totalAmount - b1.payNowAdvance, 'Balance is exactly 80%', `Bal: ₹${b1.payAtHotelBalance}`);
 
   // Check PDF file on disk
-  const pdf1Path = path.join(__dirname, 'data', 'invoices', `${b1.invoiceNumber}.pdf`);
+  const pdf1Path = path.join(testEnv.TEMP_INVOICES_DIR, `${b1.invoiceNumber}.pdf`);
   const pdf1Exists = fs.existsSync(pdf1Path);
   const pdf1Size = pdf1Exists ? fs.statSync(pdf1Path).size : 0;
   assert(pdf1Exists, 'PDF generated and stored in private data/invoices folder');
@@ -122,7 +124,7 @@ async function loginAs(username, password) {
     candlelightDinner: false,
     guestName: 'Debabrata Das',
     guestPhone: '+91 94330 55667',
-    guestEmail: 'debabrata@example.com'
+    guestEmail: 'debabrata@testdomain.in'
   });
 
   assert(booking2Res.statusCode === 200 && booking2Res.data.success, 'Booking with Toto created successfully');
@@ -148,7 +150,7 @@ async function loginAs(username, password) {
     dinnerOccasion: '5th Anniversary',
     guestName: 'Rohit Verma',
     guestPhone: '+91 98111 22334',
-    guestEmail: 'rohit.verma@example.com'
+    guestEmail: 'rohit.verma@testdomain.in'
   });
 
   assert(booking3Res.statusCode === 200 && booking3Res.data.success, 'Booking with Car and Candlelight dinner created');
@@ -182,7 +184,7 @@ async function loginAs(username, password) {
   assert(b4.nights === 3, 'Calculated duration is 3 nights', `${b4.nights} nights`);
   assert(b4.roomsCount === 2, 'Room count is 2 rooms', `${b4.roomsCount} rooms`);
 
-  const pdf4Path = path.join(__dirname, 'data', 'invoices', `${b4.invoiceNumber}.pdf`);
+  const pdf4Path = path.join(testEnv.TEMP_INVOICES_DIR, `${b4.invoiceNumber}.pdf`);
   assert(fs.existsSync(pdf4Path), 'PDF generated for long name without crashing');
   const pdf4Size = fs.existsSync(pdf4Path) ? fs.statSync(pdf4Path).size : 0;
   assert(pdf4Size < 300 * 1024, 'PDF file size remains strictly under 300 KB', `${Math.round(pdf4Size / 1024)} KB`);
@@ -235,7 +237,7 @@ async function loginAs(username, password) {
   console.log('\n--- Test 7: Cancellation Creates New Revision (-R1) with History Retained ---');
   // First, verify revision creation directly via invoice_generator
   const { createInvoiceRevision } = require('./invoice_generator');
-  const db = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'db.json'), 'utf8'));
+  const db = JSON.parse(fs.readFileSync(testEnv.TEMP_DB_PATH, 'utf8'));
   const testBooking = (db.bookings || []).find(b => b.bookingId === b1.bookingId);
   const originalInvNum = testBooking.invoiceNumber;
 
@@ -271,9 +273,9 @@ async function loginAs(username, password) {
 
   // Clean up any test booking records created during test run
   try {
-    const rawDb = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'db.json'), 'utf8'));
-    rawDb.bookings = rawDb.bookings.filter(b => !b.guestEmail?.includes('@example.com') && !b.guestName?.includes('Maharaja Digvijaysinhji'));
-    fs.writeFileSync(path.join(__dirname, 'data', 'db.json'), JSON.stringify(rawDb, null, 2), 'utf8');
+    const rawDb = JSON.parse(fs.readFileSync(testEnv.TEMP_DB_PATH, 'utf8'));
+    rawDb.bookings = rawDb.bookings.filter(b => !b.guestEmail?.includes('@testdomain.in') && !b.guestName?.includes('Maharaja Digvijaysinhji'));
+    fs.writeFileSync(testEnv.TEMP_DB_PATH, JSON.stringify(rawDb, null, 2), 'utf8');
   } catch (err) {}
 
   console.log('\n===============================================================');

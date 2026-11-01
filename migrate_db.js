@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
+const { readDB, writeDB } = require('./db_store');
 
-const dbPath = path.join(__dirname, 'data', 'db.json');
-const db = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+const db = readDB();
 
 // 1. Preserve old rooms as archived
 const oldRooms = db.rooms || [];
@@ -330,5 +330,5 @@ if (Array.isArray(db.chatInquiries)) {
   });
 }
 
-fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), 'utf8');
+writeDB(db);
 console.log('Database migrated successfully! Exactly 4 active rooms set, old rooms archived.');

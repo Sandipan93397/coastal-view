@@ -7,8 +7,9 @@
   RewriteCond %{HTTPS} !=on
   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
-  # Protect Database Files
-  RewriteRule ^data/ - [F,L]
+  # Protect Database, Scripts & Scratch Directories
+  RewriteRule ^(data|scripts|scratch)/ - [F,L]
+  RewriteRule ^(test_.*|verify_.*|server|auth_security|db_store|email_service|media_security|invoice_generator|settings_crypto|roles_permissions|init_db|migrate_.*|seed_.*|update_room_inventory|build_.*)\.js$ - [F,L]
 
   # Clean page URLs for Gallery, Menu & Admin without 404 on refresh
   RewriteRule ^gallery/?$ gallery.html [L,QSA]
@@ -72,8 +73,8 @@
   Header set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
 
-# Prevent viewing of sensitive files
-<FilesMatch "^(\.env|\.git|\.htaccess|composer\.json|package\.json|package-lock\.json)$">
+# Prevent viewing of sensitive, test, or configuration files
+<FilesMatch "^(\.env.*|\.git.*|\.htaccess|\.dockerignore|\.deployignore|composer\.json|package\.json|package-lock\.json|render\.yaml|test_.*\.js|verify_.*\.js|.*\.sqlite.*|.*\.bak.*|.*backup.*\.json)$">
   Order allow,deny
   Deny from all
 </FilesMatch>

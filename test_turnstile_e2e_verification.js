@@ -1,3 +1,4 @@
+const testEnv = require('./test_db_helper');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
@@ -38,6 +39,7 @@ function makeRequest(options, body = null) {
 }
 
 async function runComprehensiveVerification() {
+  await testEnv.startIsolatedServer();
   console.log('================================================================');
   console.log('CLOUDFLARE TURNSTILE E2E VERIFICATION & COMPLIANCE TEST');
   console.log('================================================================\n');
@@ -90,7 +92,7 @@ async function runComprehensiveVerification() {
   // Failed attempt 1
   const fail1 = await makeRequest({ path: '/api/auth/login', method: 'POST' }, {
     username: testUser,
-    password: 'WrongPassword1!'
+    password: testEnv.TEST_PASSWORDS.wrong
   });
   assert(fail1.status === 401, 'Attempt 1 returns HTTP 401');
   assert(fail1.data.requireCaptcha === false, 'Attempt 1 requireCaptcha remains false');
@@ -98,7 +100,7 @@ async function runComprehensiveVerification() {
   // Failed attempt 2
   const fail2 = await makeRequest({ path: '/api/auth/login', method: 'POST' }, {
     username: testUser,
-    password: 'WrongPassword2!'
+    password: testEnv.TEST_PASSWORDS.wrong
   });
   assert(fail2.status === 401, 'Attempt 2 returns HTTP 401');
   assert(fail2.data.requireCaptcha === true, 'Attempt 2 requireCaptcha becomes TRUE');
@@ -107,7 +109,7 @@ async function runComprehensiveVerification() {
   // Attempt 3 without token -> blocked with "Please complete the security check"
   const fail3NoToken = await makeRequest({ path: '/api/auth/login', method: 'POST' }, {
     username: testUser,
-    password: 'WrongPassword3!'
+    password: testEnv.TEST_PASSWORDS.wrong
   });
   assert(fail3NoToken.status === 400, 'Attempt 3 without token returns HTTP 400');
   assert(fail3NoToken.data.message === 'Please complete the security check', 'Accurate message: "Please complete the security check"');
@@ -115,7 +117,7 @@ async function runComprehensiveVerification() {
   // Attempt 3 with valid test token -> Turnstile check passes!
   const withTestToken = await makeRequest({ path: '/api/auth/login', method: 'POST' }, {
     username: testUser,
-    password: 'WrongPassword3!',
+    password: testEnv.TEST_PASSWORDS.wrong,
     captchaToken: 'XXXX.test-turnstile-token'
   });
   assert(withTestToken.status === 401, 'With test token on localhost: Turnstile check passes, credentials checked (401)');

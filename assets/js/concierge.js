@@ -164,6 +164,41 @@
 
     if (!launcher || !modal) return;
 
+    // Check if dismissed for session
+    if (sessionStorage.getItem('coastal_chat_dismissed') === 'true') {
+      launcher.classList.add('is-dismissed');
+    }
+
+    const dismissBtn = document.getElementById('conciergeDismissBtn');
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        launcher.classList.add('is-dismissed');
+        sessionStorage.setItem('coastal_chat_dismissed', 'true');
+      });
+    }
+
+    // Auto-hide floating chat button when guest is typing in any form input
+    document.addEventListener('focusin', (e) => {
+      if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
+        if (!e.target.closest('#conciergeChatModal')) {
+          launcher.classList.add('chat-hidden-typing');
+        }
+      }
+    });
+
+    document.addEventListener('focusout', (e) => {
+      if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
+        setTimeout(() => {
+          const active = document.activeElement;
+          if (!active || !['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)) {
+            launcher.classList.remove('chat-hidden-typing');
+          }
+        }, 60);
+      }
+    });
+
     // Restore saved language
     const savedLang = localStorage.getItem(STORAGE_KEY_LANG);
     if (savedLang && ['en', 'bn', 'hi'].includes(savedLang)) {
@@ -174,7 +209,8 @@
     }
 
     // Toggle Chat Modal
-    const toggleModal = () => {
+    const toggleModal = (e) => {
+      if (e && e.target && e.target.closest('#conciergeDismissBtn')) return;
       const isOpen = modal.classList.toggle('open');
       sessionStorage.setItem(STORAGE_KEY_OPEN, isOpen ? 'true' : 'false');
       if (isOpen) {
@@ -193,7 +229,7 @@
     launcher.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
-        toggleModal();
+        toggleModal(e);
       }
     });
 

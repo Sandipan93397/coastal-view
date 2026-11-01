@@ -1,3 +1,4 @@
+const testEnv = require('./test_db_helper');
 const http = require('http');
 const fs = require('fs');
 
@@ -35,6 +36,7 @@ function request(method, path, data = null, token = null) {
 }
 
 async function runTests() {
+  await testEnv.startIsolatedServer();
   console.log('=== STARTING 4 ROOMS VERIFICATION TESTS ===\n');
 
   // TEST 1: GET /api/rooms
@@ -57,7 +59,7 @@ async function runTests() {
 
   // TEST 2: Check database safety & archived rooms
   console.log('\n--- TEST 2: Database integrity & archived rooms check ---');
-  const db = JSON.parse(fs.readFileSync('data/db.json', 'utf8'));
+  const db = JSON.parse(fs.readFileSync(testEnv.TEMP_DB_PATH, 'utf8'));
   console.log(`Active rooms in db: ${db.rooms.length}`);
   console.log(`Archived rooms in db: ${(db.archivedRooms || []).length}`);
   (db.archivedRooms || []).forEach(r => console.log(`  Archived: ${r.name} (${r.id})`));
@@ -96,7 +98,7 @@ async function runTests() {
 
   // TEST 4: Admin Panel Room Management
   console.log('\n--- TEST 4: Admin Panel Room Management operations ---');
-  const loginRes = await request('POST', '/api/auth/login', { username: 'admin', password: 'CoastalAdmin@2026' });
+  const loginRes = await request('POST', '/api/auth/login', { username: 'admin', password: testEnv.TEST_PASSWORDS.admin });
   const token = loginRes.data.token;
   console.log(`Admin login successful: ${loginRes.data.success}, token acquired.`);
 

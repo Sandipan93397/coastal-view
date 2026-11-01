@@ -1,7 +1,9 @@
+const testEnv = require('./test_db_helper');
 const fs = require('fs');
 const path = require('path');
 
 async function runTests() {
+  await testEnv.startIsolatedServer();
   console.log('========================================');
   console.log('RUNNING OWNER PHOTO SYSTEM VERIFICATION');
   console.log('========================================\n');
@@ -52,7 +54,7 @@ async function runTests() {
   }
 
   // 3. Database structure
-  const db = JSON.parse(fs.readFileSync('c:/mandarmaniproject/data/db.json', 'utf8'));
+  const db = JSON.parse(fs.readFileSync(testEnv.TEMP_DB_PATH, 'utf8'));
   assert(db.mediaSlots && db.mediaSlots.owner, 'db.mediaSlots.owner exists');
   assert(db.mediaSlots.owner.url === '/uploads/owner/anirban-das-owner.webp', 'db.mediaSlots.owner.url is /uploads/owner/anirban-das-owner.webp');
   assert(db.mediaSlots.owner.prevUrl === 'assets/images/anirban-das-owner.jpg', 'db.mediaSlots.owner.prevUrl preserves original image path');

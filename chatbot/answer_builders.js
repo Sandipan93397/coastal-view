@@ -423,18 +423,18 @@ function buildPaymentPolicyReply(db, lang = 'en') {
  * Build response for checkin_time
  */
 function buildCheckinTimeReply(db, lang = 'en') {
-  const inTime = db.settings?.checkInTime || '12:00 PM';
-  const outTime = db.settings?.checkOutTime || '11:00 AM';
+  const inTime = db.settings?.checkInTime || '11:00 AM';
+  const outTime = db.settings?.checkOutTime || '9:30 AM';
 
   let text = '';
   if (lang === 'bn') {
     text = `⏰ **চেক-ইন এবং চেক-আউট সময়সূচি:**\n\n` +
-      `• **চেক-ইন সময়:** দুপুর ${inTime}\n` +
+      `• **চেক-ইন সময়:** সকাল ${inTime}\n` +
       `• **চেক-আউট সময়:** সকাল ${outTime}\n\n` +
       `আগে চেক-ইন বা দেরিতে চেক-আউটের অনুরোধ রুমের প্রাপ্যতার ওপর নির্ভর করে বিবেচিত হবে।`;
   } else if (lang === 'hi') {
     text = `⏰ **चेक-इन और चेक-आउट का समय:**\n\n` +
-      `• **चेक-इन का समय:** दोपहर ${inTime}\n` +
+      `• **चेक-इन का समय:** सुबह ${inTime}\n` +
       `• **चेक-आउट का समय:** सुबह ${outTime}\n\n` +
       `जल्दी चेक-इन या देर से चेक-आउट की सुविधा कमरों की उपलब्धता पर निर्भर है।`;
   } else {
@@ -617,11 +617,19 @@ function buildVehiclePricingReply(db, queryText = '', lang = 'en') {
     const capStr = matchedVehicle.capacity ? ` (Capacity: up to ${matchedVehicle.capacity} passengers)` : '';
     const svcs = matchedVehicle.services || {};
     
+    const fmtSvcPrice = (cell, isTour = false) => {
+      if (!cell || cell.enabled === false || cell.price === null || cell.price === undefined || cell.price === '') return 'Ask us';
+      const num = Number(cell.price);
+      if (isNaN(num) || num < 0) return 'Ask us';
+      if (num === 0) return 'Free';
+      return formatINR(num) + (isTour ? '/day' : '');
+    };
+
     const lines = [
-      `• **Pickup:** ${svcs.pickup?.price && svcs.pickup?.enabled ? formatINR(svcs.pickup.price) : 'Ask us'}`,
-      `• **Drop:** ${svcs.drop?.price && svcs.drop?.enabled ? formatINR(svcs.drop.price) : 'Ask us'}`,
-      `• **Pickup + Drop:** ${svcs.pickup_drop?.price && svcs.pickup_drop?.enabled ? formatINR(svcs.pickup_drop.price) : 'Ask us'}`,
-      `• **Tour (per day):** ${svcs.tour?.price && svcs.tour?.enabled ? formatINR(svcs.tour.price) + '/day' : 'Ask us'}`
+      `• **Pickup:** ${fmtSvcPrice(svcs.pickup)}`,
+      `• **Drop:** ${fmtSvcPrice(svcs.drop)}`,
+      `• **Pickup + Drop:** ${fmtSvcPrice(svcs.pickup_drop)}`,
+      `• **Tour (per day):** ${fmtSvcPrice(svcs.tour, true)}`
     ];
 
     let text = `🚗 **Official Fleet Tariffs for ${vName}${capStr}:**\n\n` +
@@ -635,12 +643,20 @@ function buildVehiclePricingReply(db, queryText = '', lang = 'en') {
   }
 
   // General transport query (matrix overview)
+  const fmtSvcPrice = (cell, isTour = false) => {
+    if (!cell || cell.enabled === false || cell.price === null || cell.price === undefined || cell.price === '') return 'Ask us';
+    const num = Number(cell.price);
+    if (isNaN(num) || num < 0) return 'Ask us';
+    if (num === 0) return 'Free';
+    return formatINR(num) + (isTour ? '/day' : '');
+  };
+
   const matrixLines = vehicles.map(v => {
     const s = v.services || {};
-    const pPick = s.pickup?.price && s.pickup?.enabled ? formatINR(s.pickup.price) : 'Ask us';
-    const pDrop = s.drop?.price && s.drop?.enabled ? formatINR(s.drop.price) : 'Ask us';
-    const pBoth = s.pickup_drop?.price && s.pickup_drop?.enabled ? formatINR(s.pickup_drop.price) : 'Ask us';
-    const pTour = s.tour?.price && s.tour?.enabled ? formatINR(s.tour.price) + '/day' : 'Ask us';
+    const pPick = fmtSvcPrice(s.pickup);
+    const pDrop = fmtSvcPrice(s.drop);
+    const pBoth = fmtSvcPrice(s.pickup_drop);
+    const pTour = fmtSvcPrice(s.tour, true);
     return `• **${v.name}** (Capacity: ${v.capacity || 4} passengers):\n  Pickup: ${pPick} | Drop: ${pDrop} | Pickup+Drop: ${pBoth} | Tour: ${pTour}`;
   });
 
@@ -855,22 +871,32 @@ function buildAmenitiesReply(db, lang = 'en') {
  * Build response for policies
  */
 function buildPoliciesReply(db, lang = 'en') {
+  const childAge = db?.settings?.childComplimentaryAgeLimit;
+  const childRule = (db?.settings?.childPolicyRule || '').trim();
+  const hasChildPolicy = childAge !== null && childAge !== undefined && childAge !== '' && Number(childAge) > 0 && childRule.length > 0;
+  const inTime = db?.settings?.checkInTime || '11:00 AM';
+  const outTime = db?.settings?.checkOutTime || '9:30 AM';
+
   let text = '';
   if (lang === 'bn') {
+    const childLineBn = hasChildPolicy ? `• **শিশু পলিসি:** ${childAge} বছর বয়স পর্যন্ত শিশুদের ${childRule}\n` : '';
     text = `📜 **রিসোর্টের গুরুত্বপূর্ণ নীতিমালা ও সাধারণ নিয়মাবলী:**\n\n` +
+      `• **চেক-ইন / চেক-আউট:** চেক-ইন ${inTime}, চেক-আউট ${outTime}।\n` +
       `• **বাইরের খাবার:** রেস্তোরাঁ ও সুইমিং পুলের সাধারণ এলাকায় বাইরের খাবার অনুমতি নেই। রুমে খাওয়া যেতে পারে।\n` +
       `• **আইডি প্রুফ:** চেক-ইনের সময় সমস্ত প্রাপ্তবয়স্ক অতিথির বৈধ সরকারি আইডি (আধার, ভোটার, ড্রাইভিং লাইসেন্স বা পাসপোর্ট) প্রদর্শন বাধ্যতামূলক।\n` +
       `• **কপলস:** ১৮+ প্রাপ্তবয়স্ক সকল দম্পতিদের স্বাগত জানানো হয়।\n` +
       `• **পোষা প্রাণী (Pets):** আগে থেকে জানালে ছোট পোষা প্রাণী অনুমোদিত (পরিচ্ছন্নতার নিয়ম মেনে)।\n` +
-      `• **শিশু পলিসি:** ${db?.settings?.childComplimentaryAgeLimit || 5} বছর বয়স পর্যন্ত শিশুদের অতিরিক্ত বিছানা ছাড়া থাকা বিনামূল্যে।\n` +
+      childLineBn +
       `• **রুম ধারণক্ষমতা:** Each room accommodates up to 2 adults and 1 child.`;
   } else {
+    const childLineEn = hasChildPolicy ? `• **Children:** Children up to ${childAge} years ${childRule.replace(/\.$/, '')}.\n` : '';
     text = `📜 **Important Resort Policies & Guidelines:**\n\n` +
+      `• **Timings:** Check-in from ${inTime}, Check-out until ${outTime}.\n` +
       `• **Outside Food:** Outside food is not permitted in the restaurant, pool deck, or lawn areas. In-room dining is readily available.\n` +
       `• **Government ID:** Valid government photo ID (Aadhaar, Passport, Voter ID, Driving License) is required for each adult guest at check-in (PAN card is not accepted).\n` +
       `• **Couples:** We welcome all adult guests (18+) with valid government photo IDs.\n` +
       `• **Pets:** Pet-friendly on prior notice for well-behaved domestic pets.\n` +
-      `• **Children:** Children up to ${db?.settings?.childComplimentaryAgeLimit || 5} years stay complimentary without extra bed.\n` +
+      childLineEn +
       `• **Room Capacity:** Each room accommodates up to 2 adults and 1 child.`;
   }
 
@@ -987,37 +1013,45 @@ function buildUnknownReply(db, lang = 'en') {
  * Build response for room occupancy / capacity inquiry
  */
 function buildRoomCapacityReply(db, lang = 'en') {
-  const childLimit = db?.settings?.childComplimentaryAgeLimit || 5;
+  const childAge = db?.settings?.childComplimentaryAgeLimit;
+  const childRule = (db?.settings?.childPolicyRule || '').trim();
+  const hasChildPolicy = childAge !== null && childAge !== undefined && childAge !== '' && Number(childAge) > 0 && childRule.length > 0;
   const deskPhone = db?.settings?.phone || '7812027551';
+  const extraBedNote = (db?.settings?.extraBedNote !== undefined)
+    ? db.settings.extraBedNote
+    : `Need an extra bed? Please call front desk at +91 ${deskPhone}.`;
   let text = '';
 
   if (lang === 'bn') {
+    const childLineBn = hasChildPolicy ? `• **শিশু পলিসি:** ${childAge} বছর পর্যন্ত শিশুদের ${childRule}\n` : '';
     text = `👥 **রুম ধারণক্ষমতার নিয়ম (Room Occupancy):**\n\n` +
       `Each room accommodates up to 2 adults and 1 child.\n\n` +
       `• **Cosy Deluxe Room:** Max 2 Adults + 1 Child\n` +
       `• **The Ocean Whisper Room (Sea View):** Max 2 Adults + 1 Child\n` +
       `• **The Pool Haven Room (Pool View):** Max 2 Adults + 1 Child\n` +
       `• **The Palm Grove Family Suite:** Max 4 Adults + 2 Children\n\n` +
-      `• **শিশু পলিসি:** ${childLimit} বছর পর্যন্ত শিশুদের অতিরিক্ত বিছানা ছাড়া থাকা সম্পূর্ণ ফ্রি।\n` +
-      `• অতিরিক্ত বেড বা বেশি অতিথির জন্য দয়া করে ফ্রন্ট ডেস্কে ফোন করুন: +91 ${deskPhone} অথবা বুকিং করার সময় আরেকটি রুম যোগ করুন।`;
+      childLineBn +
+      (extraBedNote ? `• ${extraBedNote}` : '');
   } else if (lang === 'hi') {
+    const childLineHi = hasChildPolicy ? `• **बच्चे की नीति:** ${childAge} वर्ष तक के बच्चे (${childRule})\n` : '';
     text = `👥 **कमरे की क्षमता (Room Occupancy):**\n\n` +
       `Each room accommodates up to 2 adults and 1 child.\n\n` +
       `• **Cosy Deluxe Room:** Max 2 Adults + 1 Child\n` +
       `• **The Ocean Whisper Room (Sea View):** Max 2 Adults + 1 Child\n` +
       `• **The Pool Haven Room (Pool View):** Max 2 Adults + 1 Child\n` +
       `• **The Palm Grove Family Suite:** Max 4 Adults + 2 Children\n\n` +
-      `• **बच्चे की नीति:** ${childLimit} वर्ष तक के बच्चे बिना अतिरिक्त बिस्तर के मुफ्त ठहर सकते हैं।\n` +
-      `• अतिरिक्त बिस्तर के लिए कृपया फ्रंट डेस्क (+91 ${deskPhone}) पर कॉल करें या दूसरा कमरा जोड़ें।`;
+      childLineHi +
+      (extraBedNote ? `• ${extraBedNote}` : '');
   } else {
+    const childLineEn = hasChildPolicy ? `• **Children Policy:** Children up to ${childAge} years ${childRule.replace(/\.$/, '')}.\n` : '';
     text = `👥 **Room Occupancy & Guest Capacity Rules:**\n\n` +
       `Each room accommodates up to 2 adults and 1 child.\n\n` +
       `• **Cosy Deluxe Room:** Max 2 Adults + 1 Child\n` +
       `• **The Ocean Whisper Room (Sea View):** Max 2 Adults + 1 Child\n` +
       `• **The Pool Haven Room (Pool View):** Max 2 Adults + 1 Child\n` +
       `• **The Palm Grove Family Suite:** Max 4 Adults + 2 Children\n\n` +
-      `• **Children Policy:** Children up to ${childLimit} years stay complimentary without extra bed.\n` +
-      `• **Need an extra bed?** Please call our front desk directly at +91 ${deskPhone} or add another room in your booking.`;
+      childLineEn +
+      (extraBedNote ? `• ${extraBedNote}` : '');
   }
 
   return {

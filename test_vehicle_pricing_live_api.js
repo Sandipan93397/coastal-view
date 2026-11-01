@@ -1,3 +1,4 @@
+const testEnv = require('./test_db_helper');
 const assert = require('assert');
 const fs = require('fs');
 const http = require('http');
@@ -36,6 +37,7 @@ function apiCall(method, path, data = null, customHeaders = {}) {
 }
 
 async function runLiveApiTests() {
+  await testEnv.startIsolatedServer();
   console.log('========================================================================');
   console.log('STARTING LIVE SERVER & VEHICLE MATRIX VERIFICATION');
   console.log('========================================================================\n');
@@ -89,7 +91,7 @@ async function runLiveApiTests() {
     test('Toto Pickup price is immediately updated to ₹800 in API', totoAfter.services.pickup.price === 800 && totoAfter.services.pickup.enabled === true);
 
     // Check Audit Log
-    const db = JSON.parse(fs.readFileSync('data/db.json', 'utf8'));
+    const db = JSON.parse(fs.readFileSync(testEnv.TEMP_DB_PATH, 'utf8'));
     const lastAudit = db.auditLog && db.auditLog[0];
     test('Audit log entry created for price change', lastAudit && lastAudit.action.includes('Vehicle') && lastAudit.details.includes('Toto') && lastAudit.details.includes('800'));
 

@@ -1,3 +1,4 @@
+const testEnv = require('./test_db_helper');
 // Integration test script for Coastal View Hotel APIs
 const http = require('http');
 
@@ -60,6 +61,7 @@ function get(path, token = null) {
 }
 
 async function runTests() {
+  await testEnv.startIsolatedServer();
   console.log('--- TEST 1: Vehicle listing ---');
   const vRes = await get('/api/vehicles');
   console.log('Vehicles response:', vRes.data);
@@ -69,7 +71,7 @@ async function runTests() {
   console.log('Chat response:', chatRes.data.reply);
 
   console.log('\n--- TEST 3: Admin Login ---');
-  const loginRes = await post('/api/auth/login', { username: 'admin', password: 'CoastalAdmin@2026' });
+  const loginRes = await post('/api/auth/login', { username: 'admin', password: testEnv.TEST_PASSWORDS.admin });
   console.log('Login success:', loginRes.data.success, 'Token length:', loginRes.data.token?.length, 'Role:', loginRes.data.user?.role);
   const token = loginRes.data.token;
 
@@ -77,7 +79,7 @@ async function runTests() {
   const newMgr = await post('/api/admin/users', {
     username: 'mgr_subir',
     name: 'Subir Mondal',
-    password: 'ManagerSubir@2026',
+    password: testEnv.TEST_PASSWORDS.manager,
     role: 'Manager'
   }, token);
   console.log('Manager creation result:', newMgr.data.success, 'Users count:', newMgr.data.users?.length);
@@ -123,7 +125,7 @@ async function runTests() {
     guestsCount: 2,
     guestName: 'Rohit Sen',
     guestPhone: '9830198301',
-    guestEmail: 'rohit.sen@example.com',
+    guestEmail: 'rohit.sen@testdomain.in',
     needCar: true,
     vehicleType: 'Toto (E-Rickshaw)',
     carCount: 1,

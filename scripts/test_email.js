@@ -13,16 +13,7 @@ const {
   templateTestEmail,
   getISTTimestamp
 } = require('../email_service');
-
-const DB_PATH = path.join(__dirname, '..', 'data', 'db.json');
-
-function readDB() {
-  try {
-    return JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
-  } catch (e) {
-    return {};
-  }
-}
+const { readDB } = require('../db_store');
 
 async function main() {
   console.log('\n============================================================');
@@ -41,12 +32,14 @@ async function main() {
   if (!config.isConfigured) {
     console.error('❌ CONFIGURATION ERROR: SMTP credentials are not fully set in .env.');
     console.error('Please configure the following in your .env file:');
-    console.error('  SMTP_HOST=smtp-relay.brevo.com (or your provider)');
-    console.error('  SMTP_PORT=587');
-    console.error('  SMTP_USER=your_smtp_login');
-    console.error('  SMTP_PASS=your_smtp_key_or_password');
-    console.error('  MAIL_FROM=verified_sender@yourdomain.com');
-    console.error('  MAIL_FROM_NAME="Coastal View Mandarmani"\n');
+    console.error('  SMTP_HOST=smtp.gmail.com');
+    console.error('  SMTP_PORT=465 (or 587)');
+    console.error('  SMTP_SECURE=true (or false for 587)');
+    console.error('  SMTP_USER=your_account@gmail.com');
+    console.error('  SMTP_PASS=your_google_app_password (16 chars, no spaces)');
+    console.error('  MAIL_FROM=your_account@gmail.com');
+    console.error('  MAIL_FROM_NAME="Coastal View · Managed By Ani\'s"');
+    console.error('  ADMIN_EMAIL=your_account@gmail.com\n');
     process.exit(1);
   }
 

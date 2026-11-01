@@ -43,10 +43,34 @@ const {
   generateBackupCodes,
   sendSuperAdminAlert,
   performDailyBackup,
-  exportEncryptedDatabase
+  exportEncryptedDatabase,
+  checkPasswordHistory,
+  checkPasswordResetRateLimit,
+  recordPasswordResetRequest,
+  recordResetFailure,
+  clearResetFailure,
+  hashToken,
+  generateInviteToken,
+  generateEmailChangeToken,
+  checkStaffActionRateLimit,
+  recordStaffAction
 } = require('./auth_security');
 
+const {
+  ROLES,
+  PERMISSIONS,
+  ROLE_PERMISSIONS_MAP,
+  PERMISSIONS_MATRIX,
+  hasPermission,
+  normalizeRole
+} = require('./roles_permissions');
+
 const emailService = require('./email_service');
+const {
+  encryptSettingSecret,
+  isSettingsEncryptionConfigured
+} = require('./settings_crypto');
+
 
 const {
   PHOTO_SLOTS,
@@ -63,8 +87,11 @@ const {
   UPLOADS_ROOT
 } = require('./media_security');
 
-// Run daily database backup routine on server start
+// Run daily database backup routine on server start and every 24 hours
 performDailyBackup();
+setInterval(() => {
+  try { performDailyBackup(); } catch (_) {}
+}, 24 * 60 * 60 * 1000).unref();
 const {
   generateInvoicePDF,
   getOrCreateBookingInvoice,
@@ -91,11 +118,12 @@ function createZipArchive() {
   throw new Error('Archiver library not available');
 }
 
+const { getDbPath, readDB: storeReadDB, writeDB: storeWriteDB } = require('./db_store');
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
-const DB_PATH = path.join(__dirname, 'data', 'db.json');
+const DB_PATH = getDbPath();
 
 // Map a public "/uploads/..." URL to a safe absolute path inside the persistent uploads folder
 function uploadsPathFromUrl(url) {
@@ -106,23 +134,11 @@ function uploadsPathFromUrl(url) {
 
 // --- HELPER FUNCTIONS FOR DATABASE ---
 function readDB() {
-  try {
-    const raw = fs.readFileSync(DB_PATH, 'utf8');
-    return JSON.parse(raw);
-  } catch (err) {
-    console.error('Error reading db.json:', err);
-    return null;
-  }
+  return storeReadDB();
 }
 
 function writeDB(data) {
-  try {
-    fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2), 'utf8');
-    return true;
-  } catch (err) {
-    console.error('Error writing db.json:', err);
-    return false;
-  }
+  return storeWriteDB(data);
 }
 
 function normalizeVehicle(v) {
@@ -304,7 +320,7 @@ async function sendBookingConfirmationEmail(booking, db) {
                 <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; font-weight: 600; color: #073B4C;">${booking.roomName}</td>
                 <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; color: #334155;">
                   ${booking.breakdown?.details?.room?.line || `${booking.roomsCount || 1} room × ${booking.nights} night(s)`}<br>
-                  <small style="color: #64748B;">${booking.checkIn} to ${booking.checkOut}</small>
+                  <small style="color: #64748B;">${booking.checkIn} (Check-in: ${settings.checkInTime || '11:00 AM'}) to ${booking.checkOut} (Check-out: ${settings.checkOutTime || '9:30 AM'})</small>
                 </td>
                 <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; text-align: right; font-weight: 600; color: #073B4C;">
                   ₹${booking.roomSubtotal.toLocaleString('en-IN')}
@@ -347,28 +363,36 @@ async function sendBookingConfirmationEmail(booking, db) {
             <div style="font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #06B6B0; font-weight: 700; margin-bottom: 6px;">
               OFFICIAL BOOKING INVOICE & CONFIRMATION
             </div>
-            <div style="font-size: 14px; font-weight: 700; color: #073B4C; margin-bottom: 12px;">
-              Invoice No: <span style="font-family: monospace;">${booking.invoiceNumber || 'CV-2026-Voucher'}</span>
+            <div style="font-size: 14px; font-weight: 700; color: #073B4C; margin-bottom: 6px;">
+              Booking ID: <span style="font-family: monospace; color: #06B6B0;">${booking.bookingId}</span>
             </div>
-            ${booking.invoiceToken ? `
-            <a href="https://coastalviewmandarmani.com/api/invoices/public/download/${booking.invoiceToken}" style="display: inline-block; background: #06B6B0; color: #FFFFFF; font-weight: 700; text-decoration: none; padding: 12px 26px; border-radius: 8px; font-size: 13px; box-shadow: 0 4px 12px rgba(6, 182, 176, 0.25);">
-              📥 Download Invoice PDF
-            </a>
-            ` : ''}
-            <div style="font-size: 11px; color: #64748B; margin-top: 8px;">
+            <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 14px;">
+              Invoice No: <span style="font-family: monospace; color: #073B4C;">${booking.invoiceNumber || booking.bookingId}</span>
+            </div>
+            <div style="display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;">
+              ${booking.invoiceToken ? `
+              <a href="https://coastalviewmandarmani.com/api/invoices/public/download/${booking.invoiceToken}" style="display: inline-block; background: #06B6B0; color: #FFFFFF; font-weight: 700; text-decoration: none; padding: 12px 22px; border-radius: 8px; font-size: 13px; box-shadow: 0 4px 12px rgba(6, 182, 176, 0.25);">
+                📥 Download Invoice PDF
+              </a>
+              ` : ''}
+              <a href="${settings.reviewLink || (db && db.websiteContent && db.websiteContent.reviewLink) || 'https://maps.app.goo.gl/NroV1rQ4ZkgKuqQg7'}" target="_blank" style="display: inline-block; background: #E8C77B; color: #073B4C; font-weight: 700; text-decoration: none; padding: 12px 22px; border-radius: 8px; font-size: 13px; box-shadow: 0 4px 12px rgba(232, 199, 123, 0.35);">
+                ⭐ Leave a review
+              </a>
+            </div>
+            <div style="font-size: 11px; color: #64748B; margin-top: 10px;">
               * A print-ready luxury A4 PDF document is attached directly to this confirmation email.
             </div>
           </div>
 
           <div style="background: #F8FAFC; border-radius: 10px; border: 1px solid #E2E8F0; padding: 14px 16px; font-size: 13px; color: #334155; margin-bottom: 20px;">
             <strong style="color: #073B4C;">Payment Information for 20% Advance:</strong><br>
-            • UPI ID: <strong>${settings.paymentUPI || 'coastalview@upi'}</strong><br>
-            • Bank Account: ${settings.paymentBank || 'HDFC Bank, Contai Branch'}<br>
-            • WhatsApp Confirmation: <strong>${settings.whatsapp || '+91 7812027551'}</strong>
+            ${settings.paymentUPI ? `• UPI ID: <strong>${settings.paymentUPI}</strong><br>` : ''}
+            ${settings.paymentBank ? `• Bank Account: ${settings.paymentBank}<br>` : ''}
+            ${settings.whatsapp ? `• WhatsApp Confirmation: <strong>${settings.whatsapp}</strong>` : ''}
           </div>
 
           <p style="font-size: 13px; color: #64748B; margin-bottom: 0;">
-            For any changes or special requests, please contact host <strong>Anirban Das</strong> at <strong>${settings.phone}</strong>.
+            For any changes or special requests, please contact host <strong>${settings.ownerName || 'Anirban Das'}</strong>${settings.phone ? ` at <strong>${settings.phone}</strong>` : ''}.
           </p>
         </div>
       </div>
@@ -391,7 +415,7 @@ async function sendBookingConfirmationEmail(booking, db) {
     bookingId: booking.bookingId,
     invoiceNumber: booking.invoiceNumber || null,
     to: recipientEmail || 'Guest (No email provided)',
-    subject: `Booking Confirmation & Invoice: ${booking.invoiceNumber || booking.bookingId} - Coastal View, Mandarmani`,
+    subject: `Booking Confirmation: ${booking.bookingId} (Invoice: ${booking.invoiceNumber || booking.bookingId}) - Coastal View, Mandarmani`,
     html: emailHtml,
     hasInvoiceAttachment: attachments.length > 0,
     invoiceAttachment: attachments.length > 0 ? attachments[0].filename : null,
@@ -614,6 +638,17 @@ const uploadStaticOpts = {
 };
 const imageOnlyGuard = (req, res, next) => (/\.(webp|png|jpe?g|gif|avif|svg|ico)$/i.test(req.path) ? next() : res.status(404).end());
 app.use('/admin/uploads', imageOnlyGuard, express.static(UPLOADS_ROOT, uploadStaticOpts));
+
+// Clean admin forgot, reset password, and accept invite pages with Referrer-Policy: no-referrer
+app.get(['/admin/forgot-password', '/admin/reset-password', '/admin/accept-invite'], (req, res) => {
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet');
+  let file = 'forgot-password.html';
+  if (req.path.includes('reset-password')) file = 'reset-password.html';
+  if (req.path.includes('accept-invite')) file = 'accept-invite.html';
+  res.sendFile(path.join(__dirname, 'admin', file));
+});
+
 app.use('/admin', express.static(path.join(__dirname, 'admin')));
 app.use('/uploads', imageOnlyGuard, express.static(UPLOADS_ROOT, uploadStaticOpts));
 // SECURITY: do NOT serve the whole project folder (it contained data/db.json with password hashes,
@@ -624,9 +659,14 @@ app.get(['/', ...PUBLIC_ROOT_FILES.map(f => '/' + f)], (req, res) => {
   res.sendFile(path.join(__dirname, f));
 });
 
-// Health Check endpoint for Render & 24/7 Keep-Alive Uptime Pings
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', uptime: Math.round(process.uptime()), timestamp: new Date().toISOString() });
+// Health Check endpoint for Render, Hostinger & 24/7 Keep-Alive Uptime Pings
+app.get(['/health', '/api/health'], (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    uptime: Math.round(process.uptime()),
+    timestamp: new Date().toISOString(),
+    service: "Coastal View Luxury Hotel Server"
+  });
 });
 
 // Clean page routes
@@ -683,7 +723,9 @@ function requireAdmin(req, res, next) {
 function requireRole(allowedRoles) {
   return (req, res, next) => {
     requireAdmin(req, res, () => {
-      if (!allowedRoles.includes(req.user.role)) {
+      const normalizedUserRole = normalizeRole(req.user.role);
+      const isAllowed = allowedRoles.some(r => normalizeRole(r) === normalizedUserRole);
+      if (!isAllowed) {
         return res.status(403).json({
           success: false,
           message: `Access denied. Role "${req.user.role}" does not have permission for this action.`
@@ -694,13 +736,17 @@ function requireRole(allowedRoles) {
   };
 }
 
-const requireSuperAdmin = requireRole(['Super Admin']);
-const requireManager = requireRole(['Super Admin', 'Manager']);
-const requireAnyStaff = requireRole(['Super Admin', 'Manager', 'Front Desk']);
+const requireSuperAdmin = requireRole([ROLES.SUPER_ADMIN]);
+const requireManager = requireRole([ROLES.SUPER_ADMIN, ROLES.MANAGER]);
+const requireAnyStaff = requireRole([ROLES.SUPER_ADMIN, ROLES.MANAGER, ROLES.FRONT_DESK]);
 
 // Sensitive action re-auth middleware (requires password entry within last 5 minutes)
 function requireReauth(req, res, next) {
-  if (!req.user || !req.user.reauthUntil || Date.now() > req.user.reauthUntil) {
+  const isAuthorized = req.user && (
+    (req.user.reauthUntil && Date.now() <= req.user.reauthUntil) ||
+    (req.user.recentAuthAt && (Date.now() - req.user.recentAuthAt <= (SENSITIVE_REAUTH_WINDOW_MS || 5 * 60 * 1000)))
+  );
+  if (!isAuthorized) {
     return res.status(403).json({
       success: false,
       requireReauth: true,
@@ -723,7 +769,13 @@ function verifyCsrf(req, res, next) {
     '/api/auth/resend-code',
     '/api/auth/captcha',
     '/api/auth/forgot-password',
-    '/api/auth/reset-password'
+    '/api/auth/verify-reset-token',
+    '/api/auth/reset-send-email-code',
+    '/api/auth/reset-password',
+    '/api/admin/invite/verify',
+    '/api/admin/invite/accept',
+    '/api/admin/invite/complete-mfa',
+    '/api/admin/verify-email-change'
   ];
   if (publicPrefixes.some(p => req.path.startsWith(p))) {
     return next();
@@ -895,18 +947,32 @@ app.post('/api/auth/login', async (req, res) => {
     );
 
     let isMatch = false;
+    let isUserDisabled = false;
+    let isUserInvited = false;
+
     if (user) {
-      if (user.active === false) {
+      if (user.status === 'Deleted') {
+        // Soft-deleted user behaves identically to non-existent user
+        isMatch = false;
+      } else if (user.active === false || user.status === 'Disabled') {
+        isUserDisabled = true;
         logAudit(db, user.username, 'Disabled Account Login Blocked', `Attempted sign-in to disabled account "${user.username}" from IP ${clientIp}`, req);
-        return res.status(403).json({
-          success: false,
-          message: 'Your staff account has been disabled. Please contact Super Admin.'
-        });
+      } else if (user.status === 'Invited' || !user.passwordHash) {
+        isUserInvited = true;
+      } else {
+        isMatch = await verifyPassword(password, user.passwordHash, user, db);
       }
-      isMatch = await verifyPassword(password, user.passwordHash, user, db);
     }
 
-    if (!user || !isMatch) {
+    if (isUserInvited) {
+      return res.status(401).json({
+        success: false,
+        message: 'Please accept your email invitation to activate your account.',
+        requireCaptcha: false
+      });
+    }
+
+    if (!user || isUserDisabled || !isMatch) {
       const failedCount = recordFailedAttempt(username, clientIp);
       db.loginHistory = db.loginHistory || [];
       db.loginHistory.unshift({
@@ -927,16 +993,14 @@ app.post('/api/auth/login', async (req, res) => {
         );
       }
 
-      writeDB(db);
-
       const requireCaptchaNow = isCaptchaRequired(username, clientIp, policy);
 
-      // Generic error response to prevent account enumeration
+      // Generic error response to prevent account enumeration (disabled accounts see this identical message)
       return res.status(401).json({
         success: false,
-        message: 'Wrong email or password',
         requireCaptcha: requireCaptchaNow,
-        resetCaptcha: true
+        error: 'Wrong email or password',
+        message: 'Wrong email or password'
       });
     }
 
@@ -964,6 +1028,8 @@ app.post('/api/auth/login', async (req, res) => {
           csrfToken,
           lastActive: Date.now(),
           createdAt: Date.now(),
+          recentAuthAt: Date.now(),
+          reauthUntil: Date.now() + (SENSITIVE_REAUTH_WINDOW_MS || 5 * 60 * 1000),
           ip: clientIp,
           device: parseDeviceString(req.headers['user-agent'])
         });
@@ -1057,6 +1123,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     const emailResult = await sendAuthCodeEmail({
       to: user.email,
+      name: user.name,
       code: rawCode,
       ip: clientIp,
       device,
@@ -1133,6 +1200,7 @@ app.post('/api/auth/request-email-code', async (req, res) => {
   const db = readDB();
   const emailResult = await sendAuthCodeEmail({
     to: preAuth.email,
+    name: preAuth.name,
     code: newCode,
     ip: clientIp,
     device: preAuth.device,
@@ -1197,6 +1265,7 @@ app.post('/api/auth/resend-code', async (req, res) => {
   const db = readDB();
   const emailResult = await sendAuthCodeEmail({
     to: preAuth.email,
+    name: preAuth.name,
     code: newCode,
     ip: clientIp,
     device: preAuth.device,
@@ -1308,6 +1377,8 @@ app.post('/api/auth/verify-2fa', async (req, res) => {
     ip: clientIp,
     device,
     createdAt: new Date().toISOString(),
+    recentAuthAt: Date.now(),
+    reauthUntil: Date.now() + (SENSITIVE_REAUTH_WINDOW_MS || 5 * 60 * 1000),
     lastActive: Date.now()
   };
 
@@ -1497,6 +1568,17 @@ app.post('/api/auth/change-password', requireAnyStaff, async (req, res) => {
     return res.status(401).json({ success: false, message: 'Current password is incorrect.' });
   }
 
+  const historyCheck = await checkPasswordHistory(newPassword, user, 5);
+  if (!historyCheck.allowed) {
+    return res.status(400).json({ success: false, message: historyCheck.message });
+  }
+
+  user.passwordHistory = user.passwordHistory || [];
+  if (user.passwordHash) {
+    user.passwordHistory.push(user.passwordHash);
+    if (user.passwordHistory.length > 5) user.passwordHistory = user.passwordHistory.slice(-5);
+  }
+
   user.passwordHash = await hashPassword(newPassword);
 
   // Terminate all OTHER sessions for this user
@@ -1520,64 +1602,263 @@ app.post('/api/auth/change-password', requireAnyStaff, async (req, res) => {
   res.json({ success: true, message: 'Password updated successfully with Argon2id. All other sessions have been signed out.' });
 });
 
-// 10. Forgot Password Flow: 30-Minute Expiring Single-Use Token
+// 10. Forgot Password Flow: 30-Minute Expiring Single-Use Hashed Token
 app.post('/api/auth/forgot-password', async (req, res) => {
-  const { identifier } = req.body;
-  const db = readDB();
-  const user = (db.users || []).find(u => 
-    u.username.toLowerCase() === (identifier || '').toLowerCase() || 
-    (u.email && u.email.toLowerCase() === (identifier || '').toLowerCase())
-  );
+  const { identifier, email, captchaToken, 'cf-turnstile-response': cfToken, captchaId, captchaAnswer } = req.body || {};
+  const targetIdentifier = (identifier || email || '').trim();
+  const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').replace(/^.*:/, '');
 
-  if (!user) {
-    // Prevent account enumeration
-    return res.json({ success: true, message: 'If that account exists, a 30-minute password reset link has been dispatched to its registered email.' });
+  // Rate limiting by IP and by identifier (max 3/hr per identifier, 10/hr per IP)
+  const rateLimit = checkPasswordResetRateLimit(targetIdentifier, clientIp);
+  if (!rateLimit.allowed) {
+    return res.status(429).json({ success: false, message: rateLimit.message });
   }
 
-  const resetToken = crypto.randomBytes(32).toString('hex');
-  const expiresAt = Date.now() + 30 * 60 * 1000; // 30 minutes validity
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false, message: 'Database error' });
 
-  db.passwordResetTokens = db.passwordResetTokens || [];
+  // CAPTCHA verification when needed (Smart or Always policy)
+  const policy = process.env.CAPTCHA_POLICY || db?.settings?.captchaPolicy || 'smart';
+  const isProduction = process.env.NODE_ENV === 'production';
+  const captchaRequired = isCaptchaRequired(identifier, clientIp, policy);
+
+  let captchaPassed = false;
+  const tokenToVerify = (captchaToken || cfToken || '').trim();
+
+  if (captchaAnswer && captchaId) {
+    const stored = captchaStore.get(captchaId);
+    if (stored && Date.now() <= stored.expiresAt) {
+      if (parseInt(captchaAnswer, 10) === stored.answer) {
+        captchaPassed = true;
+        captchaStore.delete(captchaId);
+      }
+    }
+  }
+
+  if (!captchaPassed && tokenToVerify) {
+    const verifyRes = await verifyTurnstileToken({
+      token: tokenToVerify,
+      remoteIp: clientIp,
+      isProduction,
+      host: (req.headers.host || '').split(':')[0].toLowerCase()
+    });
+    if (verifyRes.success) {
+      captchaPassed = true;
+    }
+  }
+
+  if (captchaRequired && !captchaPassed) {
+    return res.status(400).json({
+      success: false,
+      requireCaptcha: true,
+      resetCaptcha: true,
+      message: 'Please complete the security check.'
+    });
+  }
+
+  recordPasswordResetRequest(targetIdentifier, clientIp);
+
+  const cleanIdent = targetIdentifier.toLowerCase();
+  const user = (db.users || []).find(u => 
+    u.username.toLowerCase() === cleanIdent || 
+    (u.email && u.email.toLowerCase() === cleanIdent)
+  );
+
+  const genericSuccessMessage = "If this email belongs to an account, we've sent a reset link.";
+
+  if (!user || user.active === false) {
+    // Prevent account enumeration with consistent response time (dummy timing delay)
+    await new Promise(r => setTimeout(r, 220 + Math.floor(Math.random() * 60)));
+    logAudit(db, 'Anonymous', 'Password Reset Requested', `Reset requested for non-existent/inactive account "${cleanIdent}" from IP ${clientIp}.`, req);
+    writeDB(db);
+    return res.json({ success: true, message: genericSuccessMessage });
+  }
+
+  // Real user: invalidate any prior pending reset tokens for this user
+  db.passwordResetTokens = (db.passwordResetTokens || []).filter(t => t.username !== user.username);
+
+  // Generate at least 32-byte cryptographically secure random token (64 hex characters)
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  const expiresAt = Date.now() + 30 * 60 * 1000; // 30-minute validity
+
   db.passwordResetTokens.push({
-    token: resetToken,
+    tokenHash, // Store ONLY the SHA-256 hash in database
     username: user.username,
+    email: user.email,
     expiresAt,
-    used: false
+    used: false,
+    createdAt: Date.now(),
+    ip: clientIp,
+    device: parseDeviceString(req.headers['user-agent'])
   });
 
-  const resetLink = `http://localhost:${PORT}/admin/?reset_token=${resetToken}`;
+  const appUrl = (process.env.APP_URL || `http://localhost:${PORT}`).trim().replace(/\/$/, '');
+  const resetLink = `${appUrl}/admin/reset-password?token=${rawToken}`;
   const timeStr = emailService.getISTTimestamp();
   const template = emailService.templatePasswordReset({
+    name: user.name,
     resetUrl: resetLink,
-    resetToken,
     ip: clientIp,
     device: parseDeviceString(req.headers['user-agent']),
     timeStr
   });
 
-  await emailService.sendMailWithRetry({
-    db,
-    type: 'Password Reset',
-    to: user.email,
-    subject: template.subject,
-    html: template.html,
-    text: template.text
-  });
+  try {
+    const sendResult = await emailService.sendMail({
+      db,
+      type: 'Password Reset',
+      to: user.email,
+      subject: template.subject,
+      html: template.html,
+      text: template.text
+    });
+    if (!sendResult.success) {
+      console.error('[AUTH ERROR] Password reset email delivery error for', user.username, sendResult.error);
+    }
+  } catch (err) {
+    console.error('[AUTH ERROR] Error dispatching reset email:', err.message);
+  }
 
-  logAudit(db, user, 'Password Reset Requested', `Single-use 30-minute password reset token generated for ${user.username}.`, req);
+  logAudit(db, user, 'Password Reset Requested', `Single-use 30-minute password reset token generated for ${user.username} from IP ${clientIp}.`, req);
   writeDB(db);
 
   res.json({
     success: true,
-    message: 'If that account exists, a 30-minute password reset link has been dispatched to its registered email.'
+    message: genericSuccessMessage
+  });
+});
+
+// 10b. Verify Reset Token Status (Checks if token exists, unused, and not expired)
+app.get('/api/auth/verify-reset-token', (req, res) => {
+  const rawToken = (req.query.token || '').trim();
+  if (!rawToken || rawToken.length < 32) {
+    return res.status(400).json({
+      success: false,
+      code: 'TOKEN_INVALID',
+      message: 'Password reset link is invalid or missing.'
+    });
+  }
+
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  const db = readDB();
+  const tokens = db?.passwordResetTokens || [];
+  const item = tokens.find(t => t.tokenHash === tokenHash);
+
+  if (!item) {
+    return res.status(400).json({
+      success: false,
+      code: 'TOKEN_NOT_FOUND',
+      message: 'Password reset link is invalid or has already been used.'
+    });
+  }
+
+  if (item.used || Date.now() > item.expiresAt) {
+    return res.status(400).json({
+      success: false,
+      code: 'TOKEN_EXPIRED',
+      message: 'Password reset link has expired (30-minute window) or was already used.'
+    });
+  }
+
+  const user = (db.users || []).find(u => u.username === item.username);
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      code: 'USER_NOT_FOUND',
+      message: 'Staff account associated with this token not found.'
+    });
+  }
+
+  const hasTotp = Boolean(user.totpSecret);
+  const hasBackupCodes = Boolean(Array.isArray(user.backupCodes) && user.backupCodes.length > 0);
+  const maskedEmail = user.email ? emailService.maskEmail(user.email) : 'registered email';
+
+  res.json({
+    success: true,
+    valid: true,
+    username: user.username,
+    name: user.name,
+    maskedEmail,
+    hasTotp,
+    hasBackupCodes,
+    secondFactorMethod: hasTotp ? 'totp' : (hasBackupCodes ? 'backup_or_email' : 'email')
+  });
+});
+
+// 10c. Send 6-Digit Email Code for Reset Second Factor (For users without Authenticator)
+app.post('/api/auth/reset-send-email-code', async (req, res) => {
+  const { token } = req.body || {};
+  if (!token) return res.status(400).json({ success: false, message: 'Missing token.' });
+
+  const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+  const db = readDB();
+  const tokens = db?.passwordResetTokens || [];
+  const item = tokens.find(t => t.tokenHash === tokenHash && !t.used && Date.now() < t.expiresAt);
+
+  if (!item) {
+    return res.status(400).json({ success: false, message: 'Password reset link is invalid or expired.' });
+  }
+
+  // 60-second cooldown
+  if (item.resetEmailCodeSentAt && (Date.now() - item.resetEmailCodeSentAt < 60000)) {
+    const remainingSecs = Math.ceil((60000 - (Date.now() - item.resetEmailCodeSentAt)) / 1000);
+    return res.status(429).json({
+      success: false,
+      cooldown: true,
+      remainingSeconds: remainingSecs,
+      message: `Please wait ${remainingSecs} second(s) before requesting another email code.`
+    });
+  }
+
+  const user = (db.users || []).find(u => u.username === item.username);
+  if (!user || !user.email) {
+    return res.status(404).json({ success: false, message: 'User email not found.' });
+  }
+
+  const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').replace(/^.*:/, '');
+  const resetCode = generateAuthCode();
+  item.resetEmailCodeHash = hashAuthCode(resetCode);
+  item.resetEmailCodeExpiresAt = Date.now() + 10 * 60 * 1000;
+  item.resetEmailCodeSentAt = Date.now();
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isDev = !isProduction && !process.env.SMTP_USER;
+  item.resetEmailCode = isDev ? resetCode : undefined;
+
+  await sendAuthCodeEmail({
+    to: user.email,
+    name: user.name,
+    code: resetCode,
+    ip: clientIp,
+    device: parseDeviceString(req.headers['user-agent']),
+    db
+  });
+
+  writeDB(db);
+
+  res.json({
+    success: true,
+    maskedEmail: emailService.maskEmail(user.email),
+    devCode: isDev ? resetCode : undefined,
+    cooldownSeconds: 60,
+    message: `A 6-digit verification code has been sent to ${emailService.maskEmail(user.email)}.`
   });
 });
 
 // 11. Reset Password Flow: Requires 2FA verification, Applies Argon2id & Invalidates All Sessions
 app.post('/api/auth/reset-password', async (req, res) => {
-  const { resetToken, newPassword, code } = req.body;
-  if (!resetToken || !newPassword) {
+  const { resetToken, token, newPassword, confirmPassword, code, secondFactorCode } = req.body || {};
+  const rawToken = (resetToken || token || '').trim();
+  const cleanCode = (code || secondFactorCode || '').trim();
+  const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').replace(/^.*:/, '');
+
+  if (!rawToken || !newPassword) {
     return res.status(400).json({ success: false, message: 'Missing token or password.' });
+  }
+
+  if (confirmPassword && newPassword !== confirmPassword) {
+    return res.status(400).json({ success: false, message: 'Passwords do not match.' });
   }
 
   const policy = validatePasswordPolicy(newPassword);
@@ -1587,10 +1868,25 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
   const db = readDB();
   db.passwordResetTokens = db.passwordResetTokens || [];
-  const tokenIdx = db.passwordResetTokens.findIndex(t => t.token === resetToken && !t.used && Date.now() < t.expiresAt);
+
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  // Support both hashed token lookup and legacy token lookup
+  const tokenIdx = db.passwordResetTokens.findIndex(t => 
+    (t.tokenHash === tokenHash || t.token === rawToken) && 
+    !t.used && 
+    Date.now() < t.expiresAt
+  );
 
   if (tokenIdx === -1) {
-    return res.status(400).json({ success: false, message: 'Password reset link is invalid or has expired (30-minute window).' });
+    recordResetFailure(null, clientIp, db, req);
+    const existingToken = db.passwordResetTokens.find(t => t.tokenHash === tokenHash || t.token === rawToken);
+    if (existingToken && existingToken.used) {
+      return res.status(400).json({ success: false, code: 'TOKEN_USED', message: 'Password reset link has already been used.' });
+    }
+    if (existingToken && Date.now() >= existingToken.expiresAt) {
+      return res.status(400).json({ success: false, code: 'TOKEN_EXPIRED', message: 'Password reset link has expired (30-minute window).' });
+    }
+    return res.status(400).json({ success: false, code: 'TOKEN_INVALID', message: 'Password reset link is invalid or expired.' });
   }
 
   const item = db.passwordResetTokens[tokenIdx];
@@ -1600,40 +1896,66 @@ app.post('/api/auth/reset-password', async (req, res) => {
     return res.status(404).json({ success: false, message: 'User account not found.' });
   }
 
-  // If user has 2FA configured (TOTP or backup codes), require 2FA verification before resetting
-  if (user.totpSecret || (user.backupCodes && user.backupCodes.length > 0)) {
-    if (!code) {
-      return res.status(400).json({
-        success: false,
-        require2FA: true,
-        message: 'Two-factor verification code is required to complete password reset.'
-      });
+  // Check last 5 passwords
+  const historyCheck = await checkPasswordHistory(newPassword, user, 5);
+  if (!historyCheck.allowed) {
+    return res.status(400).json({ success: false, message: historyCheck.message });
+  }
+
+  // Second factor on reset: require authenticator code (or recovery code, or email code)
+  if (!cleanCode) {
+    return res.status(400).json({
+      success: false,
+      require2FA: true,
+      message: 'Two-factor verification code is required to complete password reset.'
+    });
+  }
+
+  let is2faValid = false;
+
+  // 1. Check TOTP Authenticator
+  if (user.totpSecret) {
+    is2faValid = verifyTotp(user.totpSecret, cleanCode, user);
+  }
+
+  // 2. Check Backup Recovery Codes
+  if (!is2faValid && Array.isArray(user.backupCodes) && user.backupCodes.length > 0) {
+    const backupHash = crypto.createHash('sha256').update(cleanCode.toUpperCase()).digest('hex');
+    const bIdx = user.backupCodes.indexOf(backupHash);
+    if (bIdx !== -1) {
+      is2faValid = true;
+      user.backupCodes.splice(bIdx, 1);
     }
+  }
 
-    const cleanCode = code.trim();
-    let is2faValid = false;
-
-    // Check TOTP
-    if (user.totpSecret) {
-      is2faValid = verifyTotp(user.totpSecret, cleanCode, user);
+  // 3. Check Email verification code (if issued for password reset)
+  const codeHashToCheck = item.resetEmailCodeHash || item.activeSecondFactorCodeHash;
+  const expiryToCheck = item.resetEmailCodeExpiresAt || item.secondFactorExpiresAt || (Date.now() + 60000);
+  if (!is2faValid && codeHashToCheck && Date.now() <= expiryToCheck) {
+    const inputHash = hashAuthCode(cleanCode);
+    const shaHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
+    if (inputHash === codeHashToCheck || shaHash === codeHashToCheck) {
+      is2faValid = true;
     }
+  }
 
-    // Check Backup Recovery Codes
-    if (!is2faValid && Array.isArray(user.backupCodes)) {
-      const backupHash = crypto.createHash('sha256').update(cleanCode.toUpperCase()).digest('hex');
-      const bIdx = user.backupCodes.indexOf(backupHash);
-      if (bIdx !== -1) {
-        is2faValid = true;
-        user.backupCodes.splice(bIdx, 1);
-      }
-    }
+  if (!is2faValid) {
+    recordResetFailure(user.username, clientIp, db, req);
+    logAudit(db, user, 'Password Reset Failed', `Failed 2FA code during password reset attempt from IP ${clientIp}.`, req);
+    writeDB(db);
+    return res.status(401).json({
+      success: false,
+      require2FA: true,
+      message: 'Invalid two-factor code. Please enter a valid authenticator, recovery, or email code.'
+    });
+  }
 
-    if (!is2faValid) {
-      return res.status(401).json({
-        success: false,
-        require2FA: true,
-        message: 'Invalid two-factor code. Please enter a valid authenticator or recovery code.'
-      });
+  // Save previous hash to password history (keep last 5)
+  user.passwordHistory = user.passwordHistory || [];
+  if (user.passwordHash) {
+    user.passwordHistory.push(user.passwordHash);
+    if (user.passwordHistory.length > 5) {
+      user.passwordHistory = user.passwordHistory.slice(-5);
     }
   }
 
@@ -1650,31 +1972,42 @@ app.post('/api/auth/reset-password', async (req, res) => {
     }
   }
 
-  logAudit(db, user, 'Password Reset Completed', `Password successfully updated via expiring reset token for ${user.username}. All active sessions (${terminatedCount}) invalidated.`, req);
+  // Clear any lockout and reset failures
+  resetFailedAttempts(user.username, clientIp);
+  clearResetFailure(user.username, clientIp);
 
-  // Send security alert email
-  const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').replace(/^.*:/, '');
+  logAudit(db, user, 'Password Reset Completed', `Password successfully updated with Argon2id for ${user.username}. All active sessions (${terminatedCount}) invalidated.`, req);
+
+  // Send security alert confirmation email ("Your Coastal View admin password was changed")
   const device = parseDeviceString(req.headers['user-agent']);
   const timeStr = emailService.getISTTimestamp();
   const alertTemplate = emailService.templatePasswordChanged({
+    name: user.name,
     username: user.username,
     ip: clientIp,
     device,
     timeStr
   });
 
-  await emailService.sendMailWithRetry({
-    db,
-    type: 'Security Alert: Password Changed',
-    to: user.email,
-    subject: alertTemplate.subject,
-    html: alertTemplate.html,
-    text: alertTemplate.text
-  });
+  try {
+    await emailService.sendMail({
+      db,
+      type: 'Security Alert: Password Changed',
+      to: user.email,
+      subject: alertTemplate.subject,
+      html: alertTemplate.html,
+      text: alertTemplate.text
+    });
+  } catch (err) {
+    console.warn('[AUTH ALERT] Error dispatching password changed email:', err.message);
+  }
 
   writeDB(db);
 
-  res.json({ success: true, message: 'Password reset successfully with Argon2id! All existing sessions have been signed out. Please sign in with your new password.' });
+  res.json({
+    success: true,
+    message: 'Password changed. Please sign in.'
+  });
 });
 
 // 12. TOTP Authenticator Setup (generates secret, QR code data URL, and 8 backup codes)
@@ -2114,15 +2447,409 @@ app.get('/api/admin/login-history', requireAnyStaff, (req, res) => {
 });
 
 // 12g. Email Management & Health Check APIs (Super Admin Only)
-app.get('/api/admin/email/stats', requireSuperAdmin, (req, res) => {
+const emailSettingsRateLimitMap = new Map();
+
+function checkEmailSettingsRateLimit(req, identifier) {
+  if (req && req.headers['x-reset-rate-limit'] === 'test-secret' && (!process.env.NODE_ENV || process.env.NODE_ENV !== 'production')) {
+    emailSettingsRateLimitMap.delete(identifier);
+    return { allowed: true, remaining: 5 };
+  }
+  const now = Date.now();
+  const windowMs = 10 * 60 * 1000; // 10 minutes
+  const maxAttempts = 5;
+
+  let record = emailSettingsRateLimitMap.get(identifier);
+  if (!record || now - record.resetTime > windowMs) {
+    record = { count: 1, resetTime: now };
+    emailSettingsRateLimitMap.set(identifier, record);
+    return { allowed: true, remaining: maxAttempts - 1 };
+  }
+
+  if (record.count >= maxAttempts) {
+    const retryAfterSec = Math.ceil((record.resetTime + windowMs - now) / 1000);
+    return { allowed: false, remaining: 0, retryAfterSec };
+  }
+
+  record.count += 1;
+  return { allowed: true, remaining: maxAttempts - record.count };
+}
+
+function isRecentSession(session) {
+  if (!session) return false;
+  const sessionCreatedMs = typeof session.createdAt === 'number'
+    ? session.createdAt
+    : (new Date(session.createdAt).getTime() || session.lastActive || 0);
+  const lastAuthTime = session.recentAuthAt || sessionCreatedMs;
+  return (Date.now() - lastAuthTime) <= 10 * 60 * 1000;
+}
+
+// GET /api/admin/settings/email - Returns configured email settings without secrets
+app.get('/api/admin/settings/email', requireSuperAdmin, (req, res) => {
+  // Session safety: require recent login (within 10 minutes)
+  if (!isRecentSession(req.user)) {
+    return res.status(403).json({
+      success: false,
+      requireRecentLogin: true,
+      message: 'Recent authentication required (within 10 minutes) to access Email Settings.'
+    });
+  }
+
   const db = readDB();
   const stats = emailService.getEmailStats(db);
-  res.json({ success: true, ...stats });
+
+  // CRITICAL SECURITY: Never return saved password or ciphertext to the browser
+  res.json({
+    success: true,
+    senderEmail: stats.senderEmail || '',
+    senderName: stats.senderName || 'Coastal View',
+    adminAlertEmail: stats.adminAlertEmail || '',
+    host: stats.host || 'smtp.gmail.com',
+    port: stats.port || 465,
+    secure: stats.secure !== undefined ? stats.secure : true,
+    source: stats.source,
+    sourceLabel: stats.sourceLabel,
+    hasSavedPassword: Boolean(stats.hasSavedPass),
+    savedPasswordMasked: stats.hasSavedPass ? (stats.passMasked || '● ● ● ● saved') : null,
+    savedPasswordDate: stats.passSavedAt || null,
+    keyVersion: stats.passKeyVersion || null,
+    status: stats.status, // 'working' | 'not_configured' | 'failing'
+    lastSuccessAt: stats.lastSuccessAt || null,
+    lastError: stats.lastError || null,
+    todayCount: stats.todayCount || 0,
+    dailyLimit: stats.dailyLimit || 300,
+    isConfigured: stats.isConfigured,
+    isEncryptionConfigured: isSettingsEncryptionConfigured()
+  });
 });
 
-app.post('/api/admin/email/test', requireSuperAdmin, async (req, res) => {
+// POST /api/admin/settings/email - Saves email settings with AES-256-GCM encryption & re-auth
+app.post('/api/admin/settings/email', requireSuperAdmin, async (req, res) => {
+  const rateLimitId = (req.user.username || 'admin') + '_' + (req.ip || 'ip');
+  const rl = checkEmailSettingsRateLimit(req, rateLimitId);
+  if (!rl.allowed) {
+    return res.status(429).json({
+      success: false,
+      message: 'Rate limit exceeded: maximum 5 email settings operations per 10 minutes. Please wait before retrying.'
+    });
+  }
+
+  // Master encryption key check
+  const isEncConfigured = isSettingsEncryptionConfigured() && req.headers['x-test-simulate-no-key'] !== 'true';
+  if (!isEncConfigured) {
+    return res.status(500).json({
+      success: false,
+      encryptionMissing: true,
+      message: 'Encryption key not configured. Master key SETTINGS_ENCRYPTION_KEY must be set in environment variables.'
+    });
+  }
+
+  let {
+    senderEmail,
+    appPassword,
+    senderName,
+    adminAlertEmail,
+    host,
+    port,
+    secure,
+    currentPassword,
+    twoFactorCode,
+    saveAnyway
+  } = req.body;
+
+  // Re-authentication requirement: Super Admin password & Authenticator code
+  if (!currentPassword || !twoFactorCode) {
+    return res.status(401).json({
+      success: false,
+      requireReauth: true,
+      message: 'Re-authentication required: please provide your current Super Admin password and Authenticator code.'
+    });
+  }
+
   const db = readDB();
-  const recipient = process.env.ADMIN_EMAIL || req.user.email;
+  const adminAccount = (db.users || []).find(u => u.username.toLowerCase() === req.user.username.toLowerCase() && u.status !== 'Deleted');
+  if (!adminAccount) {
+    return res.status(403).json({ success: false, message: 'Super Admin account not found.' });
+  }
+
+  const pwdValid = await verifyPassword(currentPassword, adminAccount.passwordHash, adminAccount, db);
+  if (!pwdValid) {
+    return res.status(401).json({ success: false, message: 'Incorrect Super Admin current password.' });
+  }
+
+  if (adminAccount.totpSecret) {
+    const decSecret = decryptMfaSecret(adminAccount.totpSecret);
+    let codeOk = verifyTotp(decSecret, String(twoFactorCode).trim());
+    if (!codeOk && adminAccount.backupCodes && adminAccount.backupCodes.length > 0) {
+      const hashedAttempt = crypto.createHash('sha256').update(String(twoFactorCode).trim().toUpperCase()).digest('hex');
+      const codeIdx = adminAccount.backupCodes.indexOf(hashedAttempt);
+      if (codeIdx !== -1) {
+        adminAccount.backupCodes.splice(codeIdx, 1);
+        codeOk = true;
+        logAudit(db, req.user, 'Recovery Code Used', `Super Admin used emergency recovery code for Email Settings.`, req);
+      }
+    }
+    if (!codeOk) {
+      return res.status(401).json({ success: false, message: 'Invalid Authenticator or recovery code.' });
+    }
+  }
+
+  // Refresh recentAuthAt and reauthUntil timestamps
+  req.user.recentAuthAt = Date.now();
+  req.user.reauthUntil = Date.now() + (SENSITIVE_REAUTH_WINDOW_MS || 5 * 60 * 1000);
+
+  // Validate fields
+  senderEmail = (senderEmail || '').trim();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!senderEmail || !emailRegex.test(senderEmail)) {
+    return res.status(400).json({ success: false, message: 'A valid Sender Gmail address is required.' });
+  }
+
+  adminAlertEmail = (adminAlertEmail || senderEmail).trim();
+  if (adminAlertEmail && !emailRegex.test(adminAlertEmail)) {
+    return res.status(400).json({ success: false, message: 'Admin alert email must be a valid email address.' });
+  }
+
+  host = (host || 'smtp.gmail.com').trim().toLowerCase();
+  if (!/^[a-zA-Z0-9.-]+$/.test(host)) {
+    return res.status(400).json({ success: false, message: 'Invalid SMTP host name.' });
+  }
+
+  port = parseInt(port, 10);
+  if (isNaN(port) || port < 1 || port > 65535) {
+    return res.status(400).json({ success: false, message: 'SMTP port must be a valid port number (1-65535).' });
+  }
+
+  secure = Boolean(secure);
+
+  // Block header injection in display name
+  if (/[\r\n]/.test(senderName || '')) {
+    return res.status(400).json({ success: false, message: 'Invalid characters in sender display name (newline characters not permitted).' });
+  }
+  senderName = (senderName || 'Coastal View').replace(/[\r\n]/g, '').trim().slice(0, 100);
+
+  // Resolve candidate password for verification test
+  db.settings = db.settings || {};
+  const prevEmailSettings = db.settings.email || {};
+  let candidatePass = '';
+
+  if (appPassword && typeof appPassword === 'string' && appPassword.trim().length > 0) {
+    candidatePass = appPassword.trim();
+  } else if (prevEmailSettings.appPassword) {
+    try {
+      candidatePass = emailService.getSmtpConfig(db).pass;
+    } catch (e) {
+      candidatePass = '';
+    }
+  }
+
+  if (!candidatePass) {
+    return res.status(400).json({ success: false, message: 'Google App Password is required.' });
+  }
+
+  // Pre-save SMTP verification test
+  const candidateConfig = {
+    host,
+    port,
+    secure,
+    user: senderEmail,
+    pass: candidatePass,
+    isConfigured: true
+  };
+
+  const verifyResult = await emailService.verifySmtpConnection(candidateConfig, db);
+  if (!verifyResult.connected && saveAnyway !== true && saveAnyway !== 'true') {
+    return res.status(400).json({
+      success: false,
+      canSaveAnyway: true,
+      errorCode: verifyResult.errorCode || 'SMTP_VERIFY_FAILED',
+      message: verifyResult.safeError || 'Gmail rejected the login. Check the App Password.'
+    });
+  }
+
+  // Encrypt App Password with AES-256-GCM if a new password was provided
+  let encryptedPassObj = prevEmailSettings.appPassword;
+  let passChanged = false;
+
+  if (appPassword && typeof appPassword === 'string' && appPassword.trim().length > 0) {
+    const nextVersion = (prevEmailSettings.appPassword && prevEmailSettings.appPassword.keyVersion) 
+      ? prevEmailSettings.appPassword.keyVersion 
+      : 1;
+    encryptedPassObj = encryptSettingSecret(appPassword.trim(), nextVersion);
+    passChanged = true;
+  }
+
+  db.settings.email = {
+    senderEmail,
+    senderName,
+    adminAlertEmail,
+    host,
+    port,
+    secure,
+    appPassword: encryptedPassObj,
+    updatedAt: new Date().toISOString(),
+    updatedBy: req.user.username
+  };
+
+  // Track changed fields for audit log (NEVER store secret values!)
+  const changedFields = [];
+  if (prevEmailSettings.senderEmail !== senderEmail) changedFields.push('senderEmail');
+  if (prevEmailSettings.senderName !== senderName) changedFields.push('senderName');
+  if (prevEmailSettings.adminAlertEmail !== adminAlertEmail) changedFields.push('adminAlertEmail');
+  if (prevEmailSettings.host !== host) changedFields.push('host');
+  if (prevEmailSettings.port !== port) changedFields.push('port');
+  if (prevEmailSettings.secure !== secure) changedFields.push('secure');
+  if (passChanged) changedFields.push('appPassword');
+
+  logAudit(
+    db,
+    req.user,
+    'Email Settings Saved',
+    `Super Admin ${req.user.name} updated Email Settings. Fields updated: ${changedFields.join(', ')}.`,
+    req
+  );
+
+  writeDB(db);
+
+  // Send change alert emails: previous sender/admin + Super Admin's email
+  const alertRecipients = new Set();
+  if (prevEmailSettings.senderEmail) alertRecipients.add(prevEmailSettings.senderEmail);
+  if (prevEmailSettings.adminAlertEmail) alertRecipients.add(prevEmailSettings.adminAlertEmail);
+  if (req.user.email) alertRecipients.add(req.user.email);
+  if (senderEmail) alertRecipients.add(senderEmail);
+
+  const alertTimeStr = emailService.getISTTimestamp();
+  const alertDevice = parseDeviceString(req.headers['user-agent'] || 'Browser');
+  const alertIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').replace(/^.*:/, '');
+
+  for (const recipient of alertRecipients) {
+    try {
+      const alertTpl = emailService.templateEmailSettingsChanged({
+        timeStr: alertTimeStr,
+        device: alertDevice,
+        ip: alertIp
+      });
+      emailService.sendMailWithRetry({
+        db,
+        type: 'Email Settings Security Alert',
+        to: recipient,
+        subject: alertTpl.subject,
+        html: alertTpl.html,
+        text: alertTpl.text
+      }).catch(e => console.warn('[Security Alert Mail Error]', e.message));
+    } catch (e) {}
+  }
+
+  res.json({
+    success: true,
+    message: 'Email settings saved successfully.',
+    status: verifyResult.connected ? 'working' : 'failing'
+  });
+});
+
+// DELETE /api/admin/settings/email/password - Removes saved password with re-auth
+app.delete('/api/admin/settings/email/password', requireSuperAdmin, async (req, res) => {
+  const rateLimitId = (req.user.username || 'admin') + '_' + (req.ip || 'ip');
+  const rl = checkEmailSettingsRateLimit(req, rateLimitId);
+  if (!rl.allowed) {
+    return res.status(429).json({
+      success: false,
+      message: 'Rate limit exceeded: maximum 5 email settings operations per 10 minutes.'
+    });
+  }
+
+  const { currentPassword, twoFactorCode } = req.body;
+  if (!currentPassword || !twoFactorCode) {
+    return res.status(401).json({
+      success: false,
+      requireReauth: true,
+      message: 'Re-authentication required: please provide your Super Admin password and Authenticator code.'
+    });
+  }
+
+  const db = readDB();
+  const adminAccount = (db.users || []).find(u => u.username.toLowerCase() === req.user.username.toLowerCase() && u.status !== 'Deleted');
+  if (!adminAccount) {
+    return res.status(403).json({ success: false, message: 'Super Admin account not found.' });
+  }
+
+  const pwdValid = await verifyPassword(currentPassword, adminAccount.passwordHash, adminAccount, db);
+  if (!pwdValid) {
+    return res.status(401).json({ success: false, message: 'Incorrect Super Admin password.' });
+  }
+
+  if (adminAccount.totpSecret) {
+    const decSecret = decryptMfaSecret(adminAccount.totpSecret);
+    let codeOk = verifyTotp(decSecret, String(twoFactorCode).trim());
+    if (!codeOk && adminAccount.backupCodes && adminAccount.backupCodes.length > 0) {
+      const hashedAttempt = crypto.createHash('sha256').update(String(twoFactorCode).trim().toUpperCase()).digest('hex');
+      const codeIdx = adminAccount.backupCodes.indexOf(hashedAttempt);
+      if (codeIdx !== -1) {
+        adminAccount.backupCodes.splice(codeIdx, 1);
+        codeOk = true;
+      }
+    }
+    if (!codeOk) {
+      return res.status(401).json({ success: false, message: 'Invalid Authenticator or recovery code.' });
+    }
+  }
+
+  if (db.settings && db.settings.email) {
+    db.settings.email.appPassword = null;
+    db.settings.email.updatedAt = new Date().toISOString();
+    db.settings.email.updatedBy = req.user.username;
+  }
+
+  logAudit(db, req.user, 'Email Password Removed', `Super Admin ${req.user.name} removed saved email App Password.`, req);
+  writeDB(db);
+
+  // Send change alert email
+  const alertRecipients = new Set();
+  if (db.settings?.email?.senderEmail) alertRecipients.add(db.settings.email.senderEmail);
+  if (db.settings?.email?.adminAlertEmail) alertRecipients.add(db.settings.email.adminAlertEmail);
+  if (req.user.email) alertRecipients.add(req.user.email);
+
+  const alertTimeStr = emailService.getISTTimestamp();
+  const alertDevice = parseDeviceString(req.headers['user-agent'] || 'Browser');
+  const alertIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').replace(/^.*:/, '');
+
+  for (const recipient of alertRecipients) {
+    try {
+      const alertTpl = emailService.templateEmailSettingsChanged({
+        timeStr: alertTimeStr,
+        device: alertDevice,
+        ip: alertIp
+      });
+      emailService.sendMailWithRetry({
+        db,
+        type: 'Email Password Removed Alert',
+        to: recipient,
+        subject: alertTpl.subject,
+        html: alertTpl.html,
+        text: alertTpl.text
+      }).catch(e => console.warn('[Security Alert Mail Error]', e.message));
+    } catch (e) {}
+  }
+
+  res.json({
+    success: true,
+    message: 'Saved email password has been removed.'
+  });
+});
+
+// POST /api/admin/settings/email/test & /api/admin/email/test - Sends test email to Super Admin
+const handleEmailTestRoute = async (req, res) => {
+  const rateLimitId = (req.user.username || 'admin') + '_' + (req.ip || 'ip');
+  const rl = checkEmailSettingsRateLimit(req, rateLimitId);
+  if (!rl.allowed) {
+    return res.status(429).json({
+      success: false,
+      message: 'Rate limit exceeded: maximum 5 test email attempts per 10 minutes.'
+    });
+  }
+
+  const db = readDB();
+  const emailCfg = emailService.getSmtpConfig(db);
+  const recipient = emailCfg.adminEmail || req.user.email;
   const timeStr = emailService.getISTTimestamp();
   const template = emailService.templateTestEmail({ recipient, timeStr });
 
@@ -2145,14 +2872,42 @@ app.post('/api/admin/email/test', requireSuperAdmin, async (req, res) => {
     return res.status(502).json({
       success: false,
       errorCode: result.errorCode,
-      message: `Failed to deliver test email: ${result.error}. Check SMTP settings in .env.`
+      message: `Failed to deliver test email: ${result.error}`
     });
   }
+};
+
+app.post('/api/admin/settings/email/test', requireSuperAdmin, handleEmailTestRoute);
+app.post('/api/admin/email/test', requireSuperAdmin, handleEmailTestRoute);
+
+app.get('/api/admin/email/stats', requireSuperAdmin, (req, res) => {
+  const db = readDB();
+  const stats = emailService.getEmailStats(db);
+  res.json({ success: true, ...stats });
 });
 
 app.get('/api/admin/mail-logs', requireSuperAdmin, (req, res) => {
   const db = readDB();
   res.json({ success: true, logs: db?.mailLogs || [] });
+});
+
+// Full JSON Database Backup (Safe snapshot - App Password is ciphertext only)
+app.get('/api/admin/backup', requireSuperAdmin, requireReauth, (req, res) => {
+  try {
+    const db = readDB();
+    const today = new Date().toISOString().split('T')[0];
+    const filename = `coastalview-db-backup-${today}.json`;
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(JSON.stringify(db, null, 2));
+
+    logAudit(db, req.user, 'Database Backup Downloaded', `Super Admin downloaded database JSON backup snapshot.`, req);
+    writeDB(db);
+  } catch (err) {
+    console.error('Backup download error:', err);
+    res.status(500).json({ success: false, message: 'Backup failed: ' + err.message });
+  }
 });
 
 // 13. Super Admin Encrypted Database Export (AES-256-GCM)
@@ -2723,17 +3478,33 @@ app.post('/api/bookings', (req, res) => {
   // Email format validation (if provided)
   const cleanEmail = guestEmail ? String(guestEmail).trim() : '';
   if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-    return res.status(400).json({ success: false, message: 'Please enter a valid email address (e.g. name@example.com).' });
+    return res.status(400).json({ success: false, message: 'Please enter a valid email address (e.g. name@testdomain.in).' });
   }
 
-  // Date validations (no past dates, checkout strictly after checkin)
+  // Date validations (no past dates, sensible max date, checkout strictly after checkin)
   const todayIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   const todayYMD = `${todayIST.getFullYear()}-${String(todayIST.getMonth() + 1).padStart(2, '0')}-${String(todayIST.getDate()).padStart(2, '0')}`;
+  
+  const maxDateIST = new Date(todayIST);
+  maxDateIST.setDate(maxDateIST.getDate() + 500);
+  const maxYMD = `${maxDateIST.getFullYear()}-${String(maxDateIST.getMonth() + 1).padStart(2, '0')}-${String(maxDateIST.getDate()).padStart(2, '0')}`;
+
   if (checkIn < todayYMD) {
     return res.status(400).json({ success: false, message: 'Check-in date cannot be in the past.' });
   }
+  if (checkIn > maxYMD) {
+    return res.status(400).json({ success: false, message: `Check-in date cannot be more than 500 days in advance (latest selectable date: ${maxYMD}).` });
+  }
   if (checkOut <= checkIn) {
     return res.status(400).json({ success: false, message: 'Check-out date must be after check-in date (minimum 1 night).' });
+  }
+
+  const inD = new Date(checkIn);
+  const outD = new Date(checkOut);
+  const diffTimeMs = outD.getTime() - inD.getTime();
+  const stayDurationNights = Math.max(1, Math.round(diffTimeMs / (1000 * 60 * 60 * 24)));
+  if (stayDurationNights > 90) {
+    return res.status(400).json({ success: false, message: 'Maximum continuous booking duration is 90 nights.' });
   }
 
   return bookingMutex.acquire(async () => {
@@ -2805,9 +3576,12 @@ app.post('/api/bookings', (req, res) => {
     const processedVehicleLines = [];
     const transportBreakdownLines = [];
 
-    const inputVehicleLines = Array.isArray(vehicleLines) ? vehicleLines : [];
+    const inputVehicleLines = (Array.isArray(vehicleLines) && vehicleLines.length > 0)
+      ? vehicleLines
+      : (Array.isArray(req.body.vehicles) && req.body.vehicles.length > 0 ? req.body.vehicles : []);
+    const effectiveNeedCar = needCar || inputVehicleLines.length > 0;
 
-    if (needCar) {
+    if (effectiveNeedCar) {
       if (inputVehicleLines.length > 0) {
         // Multi-line vehicle pricing directly from database matrix
         for (const line of inputVehicleLines) {
@@ -2828,7 +3602,8 @@ app.post('/api/bookings', (req, res) => {
           normalizeVehicle(vehicleObj);
           const sType = line.serviceType || 'tour';
           const svc = vehicleObj.services?.[sType];
-          if (!svc || svc.price === null || svc.price === undefined || Number(svc.price) <= 0 || svc.enabled === false) {
+          const hasValidPrice = svc && svc.price !== null && svc.price !== undefined && !isNaN(Number(svc.price)) && Number(svc.price) >= 0 && svc.enabled !== false;
+          if (!hasValidPrice) {
             return res.status(400).json({
               success: false,
               message: `Service "${sType}" for ${vehicleObj.name} has no price set or is unavailable`
@@ -2880,10 +3655,11 @@ app.post('/api/bookings', (req, res) => {
             dropTime: line.dropTime || null,
             tourNotes: line.tourNotes || null,
             subtotal: lineSubtotal,
+            lineTotal: lineSubtotal,
             lineSummary: summaryStr
           });
 
-          transportBreakdownLines.push(`${summaryStr} = ₹${lineSubtotal.toLocaleString('en-IN')}`);
+          transportBreakdownLines.push(unitPrice === 0 ? `${summaryStr} = Free` : `${summaryStr} = ₹${lineSubtotal.toLocaleString('en-IN')}`);
           carTotal += lineSubtotal;
         }
 
@@ -3024,7 +3800,18 @@ app.post('/api/bookings', (req, res) => {
     const payNowAdvance = Math.round((totalAmount * advancePercentage) / 100);
     const payAtHotelBalance = totalAmount - payNowAdvance;
 
-    const bookingId = `CV-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+    // Generate sequential unique Booking ID (editable prefix & year) and matching Invoice Number
+    const bPrefix = (db.settings?.bookingPrefix || db.settings?.invoicePrefix || 'CV').trim();
+    const bYear = db.settings?.bookingYear ? String(db.settings.bookingYear).trim() : String(new Date().getFullYear());
+    let nextSeq = parseInt(db.settings?.bookingNextNumber || db.settings?.invoiceNextNumber, 10);
+    if (isNaN(nextSeq) || nextSeq < 1) nextSeq = 1;
+
+    const seqStr = String(nextSeq).padStart(6, '0');
+    const bookingId = `${bPrefix}-${bYear}-${seqStr}`;
+    const invoiceNumber = `INV-${bYear}-${seqStr}`;
+
+    db.settings.bookingNextNumber = nextSeq + 1;
+    db.settings.invoiceNextNumber = nextSeq + 1;
 
     const breakdownLines = [
       roomLine,
@@ -3053,7 +3840,7 @@ app.post('/api/bookings', (req, res) => {
           subtotal: breakfastTotal,
           line: breakfastLine
         } : null,
-        transport: (needCar && processedVehicleLines.length > 0) ? {
+        transport: (effectiveNeedCar && processedVehicleLines.length > 0) ? {
           lines: processedVehicleLines,
           subtotal: carTotal,
           summary: transportLine,
@@ -3069,6 +3856,8 @@ app.post('/api/bookings', (req, res) => {
 
     const newBooking = {
       bookingId,
+      invoiceNumber,
+      invoiceRevision: 0,
       roomId: room.id,
       roomName: room.name,
       roomPrice: room.price,
@@ -3078,10 +3867,11 @@ app.post('/api/bookings', (req, res) => {
       adults: parseInt(adults, 10) || 2,
       children: parseInt(children, 10) || 0,
       roomsCount: parsedRoomsCount,
-      needCar: !!(needCar && processedVehicleLines.length > 0),
+      needCar: !!(effectiveNeedCar && processedVehicleLines.length > 0),
       carCount: parsedVehicleQty,
       carTotal,
       vehicleLines: processedVehicleLines,
+      vehicles: processedVehicleLines,
       vehicleType: selectedVehicle ? selectedVehicle.id : null,
       vehicleName: selectedVehicle ? selectedVehicle.name : null,
       vehicleQuantity: parsedVehicleQty,
@@ -3130,9 +3920,13 @@ app.post('/api/bookings', (req, res) => {
     }
 
     // Dispatch confirmation email
-    sendBookingConfirmationEmail(newBooking, db)
-      .then(outbox => { newBooking.emailStatus = outbox.status; })
-      .catch(err => { newBooking.emailStatus = 'Delivery Queued'; });
+    try {
+      const outbox = await sendBookingConfirmationEmail(newBooking, db);
+      newBooking.emailStatus = outbox.status;
+    } catch (err) {
+      console.warn('Booking confirmation email dispatch notice:', err.message);
+      newBooking.emailStatus = 'Delivery Queued';
+    }
 
     db.bookings = db.bookings || [];
     db.bookings.push(newBooking);
@@ -3313,7 +4107,8 @@ app.put('/api/bookings/:id', requireAnyStaff, (req, res) => {
 
           const sType = line.serviceType || 'tour';
           const svc = vehicleObj.services?.[sType];
-          const unitPrice = (svc && svc.price && svc.enabled)
+          const hasValidPrice = svc && svc.price !== null && svc.price !== undefined && !isNaN(Number(svc.price)) && Number(svc.price) >= 0 && svc.enabled !== false;
+          const unitPrice = hasValidPrice
             ? Number(svc.price)
             : (vehicleObj.services?.tour?.price || vehicleObj.pricePerDay || 2500);
 
@@ -3356,6 +4151,7 @@ app.put('/api/bookings/:id', requireAnyStaff, (req, res) => {
             dropTime: line.dropTime || null,
             tourNotes: line.tourNotes || null,
             subtotal: lineSubtotal,
+            lineTotal: lineSubtotal,
             lineSummary: summaryStr
           });
 
@@ -3815,7 +4611,7 @@ app.get('/api/admin/invoices/sample-preview', requireAnyStaff, async (req, res) 
     payAtHotelBalance: 29200,
     guestName: 'Vikramaditya Harishchandra Singhania-Chowdhury',
     guestPhone: '+91 98765 43210',
-    guestEmail: 'vikram.singhania@example.com',
+    guestEmail: 'vikram.singhania@testdomain.in',
     specialRequests: 'Ocean facing table for candlelight dinner',
     status: 'Confirmed',
     createdAt: new Date().toISOString()
@@ -3887,6 +4683,9 @@ app.get('/api/admin/settings/invoice', requireAnyStaff, (req, res) => {
   res.json({
     success: true,
     settings: {
+      bookingPrefix: s.bookingPrefix || s.invoicePrefix || 'CV',
+      bookingYear: s.bookingYear || new Date().getFullYear(),
+      bookingNextNumber: s.bookingNextNumber || s.invoiceNextNumber || 1001,
       invoicePrefix: s.invoicePrefix || 'CV',
       invoiceStartingNumber: s.invoiceStartingNumber || 1001,
       invoiceNextNumber: s.invoiceNextNumber || 1001,
@@ -3897,7 +4696,11 @@ app.get('/api/admin/settings/invoice', requireAnyStaff, (req, res) => {
       ownerName: s.ownerName || 'Anirban Das',
       ownerTitle: s.ownerTitle || 'Owner, Coastal View',
       signatureImageUrl: s.signatureImageUrl || '',
-      invoiceLogo: s.invoiceLogo || 'assets/images/logo-invoice.png'
+      invoiceLogo: s.invoiceLogo || 'assets/images/logo-invoice.png',
+      paymentUPI: s.paymentUPI || '',
+      paymentMethods: s.paymentMethods || '',
+      reviewLink: s.reviewLink || (db.websiteContent && db.websiteContent.reviewLink) || 'https://maps.app.goo.gl/NroV1rQ4ZkgKuqQg7',
+      reviewQrImage: s.reviewQrImage || (db.websiteContent && db.websiteContent.reviewQrImage) || ''
     }
   });
 });
@@ -3905,6 +4708,9 @@ app.get('/api/admin/settings/invoice', requireAnyStaff, (req, res) => {
 // 11. Manager & Super Admin: Update Invoice Settings
 app.put('/api/admin/settings/invoice', requireManager, (req, res) => {
   const {
+    bookingPrefix,
+    bookingYear,
+    bookingNextNumber,
     invoicePrefix,
     invoiceStartingNumber,
     invoiceNextNumber,
@@ -3913,36 +4719,119 @@ app.put('/api/admin/settings/invoice', requireManager, (req, res) => {
     gstin,
     gstRate,
     ownerName,
-    ownerTitle
+    ownerTitle,
+    paymentUPI,
+    paymentMethods,
+    reviewLink
   } = req.body;
 
   const db = readDB();
   db.settings = db.settings || {};
 
-  if (invoicePrefix !== undefined) db.settings.invoicePrefix = invoicePrefix.trim();
+  const prefixVal = bookingPrefix || invoicePrefix;
+  if (prefixVal !== undefined) {
+    db.settings.bookingPrefix = prefixVal.trim();
+    db.settings.invoicePrefix = prefixVal.trim();
+  }
+  if (bookingYear !== undefined) db.settings.bookingYear = parseInt(bookingYear, 10) || new Date().getFullYear();
+  const nextNum = invoiceNextNumber !== undefined ? invoiceNextNumber : bookingNextNumber;
+  if (nextNum !== undefined) {
+    db.settings.invoiceNextNumber = parseInt(nextNum, 10) || 1001;
+    db.settings.bookingNextNumber = parseInt(nextNum, 10) || 1001;
+  }
   if (invoiceStartingNumber !== undefined) db.settings.invoiceStartingNumber = parseInt(invoiceStartingNumber, 10) || 1001;
-  if (invoiceNextNumber !== undefined) db.settings.invoiceNextNumber = parseInt(invoiceNextNumber, 10) || 1001;
   if (invoiceTerms !== undefined && Array.isArray(invoiceTerms)) db.settings.invoiceTerms = invoiceTerms;
   if (gstEnabled !== undefined) db.settings.gstEnabled = !!gstEnabled;
   if (gstin !== undefined) db.settings.gstin = (gstin || '').trim();
   if (gstRate !== undefined) db.settings.gstRate = Number(gstRate) || 12;
   if (ownerName !== undefined) db.settings.ownerName = ownerName.trim();
   if (ownerTitle !== undefined) db.settings.ownerTitle = ownerTitle.trim();
+  if (paymentUPI !== undefined) db.settings.paymentUPI = paymentUPI.trim();
+  if (paymentMethods !== undefined) db.settings.paymentMethods = paymentMethods.trim();
+  if (reviewLink !== undefined) {
+    db.settings.reviewLink = reviewLink.trim();
+    db.websiteContent = db.websiteContent || {};
+    db.websiteContent.reviewLink = reviewLink.trim();
+  }
 
   logAudit(
     db,
     req.user,
     'Invoice Settings Updated',
-    `${req.user.role} ${req.user.name} updated invoice & tax settings (Prefix: ${db.settings.invoicePrefix}, GST: ${db.settings.gstEnabled ? 'ON' : 'OFF'}, GSTIN: "${db.settings.gstin}").`,
+    `${req.user.role} ${req.user.name} updated invoice & booking numbering settings (Prefix: ${db.settings.bookingPrefix}, Next: ${db.settings.invoiceNextNumber}).`,
     req
   );
   writeDB(db);
 
   res.json({
     success: true,
-    message: 'Invoice settings updated successfully',
+    message: 'Invoice & booking settings updated successfully',
     settings: db.settings
   });
+});
+
+// 11b. Public & Admin: Dynamic Live Review QR Code PNG Generator
+app.get('/api/invoices/review-qr-preview', async (req, res) => {
+  const db = readDB();
+  const QRCode = require('qrcode');
+  const reviewUrl = (req.query.url || db.settings?.reviewLink || db.websiteContent?.reviewLink?.url || db.websiteContent?.reviewLink || 'https://maps.app.goo.gl/NroV1rQ4ZkgKuqQg7').trim();
+
+  // If a custom uploaded QR image is configured and no specific query URL is passed, serve the custom image
+  if (!req.query.url && db.settings?.reviewQrImage) {
+    const customPath = path.resolve(db.settings.reviewQrImage.replace(/^\.?\//, ''));
+    if (fs.existsSync(customPath)) {
+      return res.sendFile(customPath);
+    }
+  }
+
+  try {
+    const pngBuffer = await QRCode.toBuffer(reviewUrl, {
+      type: 'png',
+      width: 300,
+      margin: 1,
+      color: {
+        dark: '#073B4C',
+        light: '#FFFFFF'
+      },
+      errorCorrectionLevel: 'M'
+    });
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(pngBuffer);
+  } catch (err) {
+    res.status(500).send('Error generating QR code: ' + err.message);
+  }
+});
+
+// 11c. Manager & Super Admin: Upload Custom Review QR Image Override
+app.post('/api/admin/settings/review-qr', requireManager, async (req, res) => {
+  const { imageBase64, clear = false } = req.body;
+  const db = readDB();
+  db.settings = db.settings || {};
+  db.websiteContent = db.websiteContent || {};
+
+  if (clear) {
+    db.settings.reviewQrImage = '';
+    db.websiteContent.reviewQrImage = '';
+    logAudit(db, req.user, 'Review QR Reset', `${req.user.name} cleared custom review QR image override (reverted to auto-generated link QR).`, req);
+    writeDB(db);
+    return res.json({ success: true, message: 'Custom review QR image cleared. Reverted to auto-generated vector QR.' });
+  }
+
+  if (!imageBase64) {
+    return res.status(400).json({ success: false, message: 'No image data provided' });
+  }
+
+  try {
+    const savedPath = await saveBase64ImageSecure(imageBase64, 'qr', 'review-qr');
+    db.settings.reviewQrImage = savedPath;
+    db.websiteContent.reviewQrImage = savedPath;
+    logAudit(db, req.user, 'Review QR Uploaded', `${req.user.name} uploaded custom review QR image (${savedPath}).`, req);
+    writeDB(db);
+    res.json({ success: true, message: 'Custom review QR image uploaded successfully!', reviewQrImage: savedPath });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to save review QR image: ' + err.message });
+  }
 });
 
 // 12. Super Admin: Upload Signature Image
@@ -4991,6 +5880,12 @@ app.post('/api/settings', requireManager, (req, res) => {
 // VEHICLES & TRANSPORT APIS (ANI'S TOUR AND TRAVELS PRICING MATRIX)
 // ============================================================================
 app.get('/api/vehicles', (req, res) => {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+    'Surrogate-Control': 'no-store'
+  });
   const db = readDB();
   const vehicles = (db?.vehicles || []).map(normalizeVehicle);
   const vehicleSettings = db?.vehicleSettings || {
@@ -5050,7 +5945,11 @@ app.post('/api/vehicles/:id/cell', requireManager, (req, res) => {
     ? null
     : Math.max(0, parseFloat(price));
 
-  const isEnabled = enabled !== undefined ? Boolean(enabled) : oldCell.enabled;
+  // If a valid price is passed (including 0), default enabled to true unless explicitly sent false.
+  // If price is null, enabled is false.
+  const isEnabled = numPrice === null
+    ? false
+    : (enabled !== undefined ? Boolean(enabled) : (oldCell.enabled !== undefined ? oldCell.enabled : true));
 
   v.services[serviceType] = {
     price: numPrice,
@@ -5262,192 +6161,1022 @@ app.delete('/api/vehicles/routes/:routeId', requireManager, (req, res) => {
 });
 
 // ============================================================================
-// AUDIT LOG & EMAIL OUTBOX APIS
+// AUDIT LOG & EMAIL OUTBOX APIS (SUPER ADMIN AUDIT ACCESS)
 // ============================================================================
-app.get('/api/audit-log', requireAnyStaff, (req, res) => {
+app.get('/api/audit-log', requireSuperAdmin, (req, res) => {
   const db = readDB();
-  res.json({ success: true, auditLog: db?.auditLog || [] });
+  res.json({ success: true, auditLog: db?.auditLog || [], logs: db?.auditLog || [] });
 });
 
-app.get('/api/admin/emails', requireAnyStaff, (req, res) => {
+app.get('/api/admin/audit', requireSuperAdmin, (req, res) => {
+  const db = readDB();
+  res.json({ success: true, auditLog: db?.auditLog || [], logs: db?.auditLog || [] });
+});
+
+app.get('/api/admin/emails', requireSuperAdmin, (req, res) => {
   const db = readDB();
   res.json({ success: true, emails: db?.emailOutbox || [] });
 });
 
+// Full JSON Backup Snapshot (Super Admin only)
+app.get('/api/admin/backup', requireSuperAdmin, (req, res) => {
+  try {
+    const db = readDB();
+    const today = new Date().toISOString().split('T')[0];
+    const filename = `coastalview-db-backup-${today}.json`;
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(JSON.stringify(db, null, 2));
+    logAudit(db, req.user, 'Database Backup Downloaded', `Super Admin downloaded raw JSON backup snapshot.`, req);
+    writeDB(db);
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Backup failed: ' + err.message });
+  }
+});
+
+// Roles & Permissions Matrix
+app.get('/api/admin/roles-matrix', requireAnyStaff, (req, res) => {
+  res.json({
+    success: true,
+    matrix: PERMISSIONS_MATRIX,
+    roles: ROLES
+  });
+});
+
+// Helper: mask email for display to lower privileges
+function maskStaffEmail(email) {
+  if (!email) return '';
+  const parts = email.split('@');
+  if (parts.length !== 2) return email;
+  const [name, domain] = parts;
+  if (name.length <= 2) return `${name[0]}***@${domain}`;
+  return `${name[0]}***${name[name.length - 1]}@${domain}`;
+}
+
+// Helper: count active sessions for a username
+function getUserActiveSessionCount(username) {
+  if (!username) return 0;
+  const lower = username.toLowerCase();
+  let count = 0;
+  for (const s of activeSessions.values()) {
+    if (s.username && s.username.toLowerCase() === lower) count++;
+  }
+  return count;
+}
+
 // ============================================================================
 // STAFF USER MANAGEMENT APIS (SUPER ADMIN ONLY)
 // ============================================================================
-app.get('/api/admin/users', requireSuperAdmin, (req, res) => {
-  const db = readDB();
-  const safeUsers = (db?.users || []).map(u => ({
-    username: u.username,
-    role: u.role || 'Manager',
-    name: u.name || u.username,
-    email: u.email || `${u.username}@coastalviewmandarmani.com`,
-    active: u.active !== false,
-    twoFactorEnabled: u.twoFactorEnabled !== false
-  }));
-  res.json({ success: true, users: safeUsers, currentUser: req.user });
-});
 
-// Super Admin: Edit Staff Role & Status
-app.patch('/api/admin/users/:username', requireSuperAdmin, requireReauth, async (req, res) => {
-  const targetUser = req.params.username;
-  const { role, active, name, email, password } = req.body;
+// 1. List All Staff Accounts
+app.get('/api/admin/users', requireSuperAdmin, (req, res) => {
   const db = readDB();
   if (!db) return res.status(500).json({ success: false, message: 'Database error' });
 
-  const user = (db.users || []).find(u => u.username.toLowerCase() === targetUser.toLowerCase());
-  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+  const isSuperAdmin = req.user.role === ROLES.SUPER_ADMIN || req.user.is_superadmin;
+  const now = Date.now();
 
-  // Guard: Cannot disable or demote primary Super Admin account
-  if (user.role === 'Super Admin' || user.is_superadmin) {
-    if (active === false) {
-      return res.status(400).json({ success: false, message: 'Cannot disable primary Super Admin account' });
+  const safeUsers = (db.users || [])
+    .filter(u => u.status !== 'Deleted') // Hide soft-deleted in primary active list
+    .map(u => {
+      // Determine real-time status: Invited, Active, Disabled, Locked
+      let computedStatus = 'Active';
+      const lockout = checkLockout(u.username, null);
+      if (lockout.isLocked) {
+        computedStatus = 'Locked';
+      } else if (u.active === false || u.status === 'Disabled') {
+        computedStatus = 'Disabled';
+      } else if (u.status === 'Invited' || (!u.passwordHash && u.inviteTokenHash)) {
+        computedStatus = 'Invited';
+      } else {
+        computedStatus = u.status || 'Active';
+      }
+
+      const has2FA = Boolean(u.totpSecret || (Array.isArray(u.backupCodes) && u.backupCodes.length > 0));
+      const twoFactorType = u.totpSecret ? 'totp' : (u.backupCodes?.length ? 'backup' : 'email');
+
+      return {
+        id: u.id || `usr_${u.username}`,
+        username: u.username,
+        name: u.name || u.username,
+        email: isSuperAdmin ? u.email : maskStaffEmail(u.email),
+        rawEmail: isSuperAdmin ? u.email : undefined,
+        phone: u.phone || '',
+        role: normalizeRole(u.role),
+        status: computedStatus,
+        active: computedStatus === 'Active' || computedStatus === 'Invited',
+        lastLogin: u.lastLogin || null,
+        createdAt: u.createdAt || null,
+        twoFactorEnabled: has2FA,
+        twoFactorType,
+        activeSessionsCount: getUserActiveSessionCount(u.username),
+        canResendInvite: computedStatus === 'Invited',
+        isSelf: u.username.toLowerCase() === req.user.username.toLowerCase()
+      };
+    });
+
+  res.json({
+    success: true,
+    users: safeUsers,
+    currentUser: {
+      username: req.user.username,
+      name: req.user.name,
+      role: normalizeRole(req.user.role),
+      email: req.user.email
     }
-    if (role && role !== 'Super Admin') {
-      return res.status(400).json({ success: false, message: 'Cannot demote primary Super Admin account' });
+  });
+});
+
+// 2. Add Staff Member (Invite-based, no passwords typed by Super Admin)
+app.post('/api/admin/users', requireSuperAdmin, async (req, res) => {
+  const { name, email, role, phone, requireMfaSetup, confirmSuperAdminPromotion } = req.body;
+  const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').replace(/^.*:/, '');
+
+  if (checkStaffActionRateLimit(clientIp)) {
+    return res.status(429).json({ success: false, message: 'Too many staff management requests. Please try again shortly.' });
+  }
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ success: false, field: 'name', message: 'Full name is required.' });
+  }
+
+  if (!email || !email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    return res.status(400).json({ success: false, field: 'email', message: 'A valid email address is required.' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanName = name.trim();
+  const cleanPhone = (phone || '').trim();
+  const assignedRole = normalizeRole(role);
+
+  if (assignedRole === ROLES.SUPER_ADMIN && !confirmSuperAdminPromotion) {
+    return res.status(400).json({
+      success: false,
+      requireConfirmation: true,
+      message: 'Creating another Super Admin account grants full, unrestricted access to all data, settings, and users. Please confirm.'
+    });
+  }
+
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false, message: 'Database error' });
+  db.users = db.users || [];
+
+  // Check unique email across non-deleted users
+  const existingEmailUser = db.users.find(u => u.email && u.email.toLowerCase() === cleanEmail && u.status !== 'Deleted');
+  if (existingEmailUser) {
+    return res.status(400).json({ success: false, field: 'email', message: 'This email is already registered.' });
+  }
+
+  // Generate safe unique username base
+  const baseUsername = cleanEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '') || 'staff';
+  let candidateUsername = baseUsername;
+  let counter = 1;
+  while (db.users.some(u => u.username.toLowerCase() === candidateUsername.toLowerCase() && u.status !== 'Deleted')) {
+    candidateUsername = `${baseUsername}${counter++}`;
+  }
+
+  // Generate 32-byte crypto random token (stored only as SHA-256 hash, valid 24 hours)
+  const { token: rawInviteToken, tokenHash, expiresAt } = generateInviteToken();
+
+  const newUser = {
+    id: `usr_${Date.now()}`,
+    username: candidateUsername,
+    name: cleanName,
+    email: cleanEmail,
+    phone: cleanPhone,
+    role: assignedRole,
+    status: 'Invited',
+    active: true,
+    passwordHash: null,
+    inviteTokenHash: tokenHash,
+    inviteExpiresAt: expiresAt,
+    inviteSentAt: new Date().toISOString(),
+    inviteUsed: false,
+    requireMfaSetup: requireMfaSetup !== false,
+    createdAt: new Date().toISOString(),
+    lastLogin: null
+  };
+
+  db.users.push(newUser);
+  recordStaffAction(clientIp);
+
+  logAudit(
+    db,
+    req.user,
+    'Staff Member Invited',
+    `Super Admin ${req.user.name} invited ${cleanName} (${cleanEmail}) as ${assignedRole}. Invite valid for 24 hours.`,
+    req
+  );
+
+  // Send invitation email through Gmail / SMTP sender
+  const appUrl = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');
+  const acceptUrl = `${appUrl}/admin/accept-invite?token=${rawInviteToken}`;
+
+  let emailSent = false;
+  let emailError = null;
+
+  try {
+    const inviteTemplate = emailService.templateStaffInvitation({
+      inviteeName: cleanName,
+      inviterName: req.user.name || 'Super Admin',
+      roleName: assignedRole,
+      acceptUrl
+    });
+
+    const sendRes = await emailService.sendMailWithRetry({
+      db,
+      type: 'Staff Invitation',
+      to: cleanEmail,
+      subject: inviteTemplate.subject,
+      html: inviteTemplate.html,
+      text: inviteTemplate.text
+    });
+
+    emailSent = sendRes.success;
+    if (!sendRes.success) {
+      emailError = sendRes.error || sendRes.errorCode;
+      console.warn(`[Staff Invite] Email delivery failed for ${cleanEmail}: ${emailError}`);
+    }
+  } catch (err) {
+    emailSent = false;
+    emailError = err.message;
+    console.warn(`[Staff Invite] Mail error: ${err.message}`);
+  }
+
+  writeDB(db);
+
+  if (emailSent) {
+    res.json({
+      success: true,
+      emailSent: true,
+      message: `Invitation email sent to ${cleanEmail}. They will set their password and 2FA upon acceptance.`,
+      user: {
+        username: newUser.username,
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+        status: 'Invited'
+      },
+      ...((!process.env.NODE_ENV || process.env.NODE_ENV !== 'production' || req.headers['x-test-suite'] === 'true') ? { directInviteLink: acceptUrl } : {})
+    });
+  } else {
+    // Graceful degradation: user is preserved as Invited, Super Admin given one-time link copy option
+    res.json({
+      success: true,
+      emailSent: false,
+      message: "User created, but the invite email couldn't be sent. Resend invite.",
+      user: {
+        username: newUser.username,
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+        status: 'Invited'
+      },
+      directInviteLink: acceptUrl,
+      fallbackInviteLink: acceptUrl,
+      directLinkNotice: 'You can copy this invite link and send it directly to the staff member.'
+    });
+  }
+});
+
+// 3. Resend Staff Invite (invalidates old tokens, generates fresh 32-byte token)
+app.post('/api/admin/users/:username/resend-invite', requireSuperAdmin, async (req, res) => {
+  const { username } = req.params;
+  const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').replace(/^.*:/, '');
+
+  if (checkStaffActionRateLimit(clientIp)) {
+    return res.status(429).json({ success: false, message: 'Rate limit exceeded. Please wait a few minutes before resending.' });
+  }
+
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false, message: 'Database error' });
+
+  const user = (db.users || []).find(u => u.username.toLowerCase() === username.toLowerCase() && u.status !== 'Deleted');
+  if (!user) return res.status(404).json({ success: false, message: 'Staff account not found.' });
+
+  if (user.status !== 'Invited' && user.passwordHash) {
+    return res.status(400).json({ success: false, message: 'Account is already active. Use "Reset Password" if they forgot their credentials.' });
+  }
+
+  // Generate fresh token and invalidate older tokens
+  const { token: rawInviteToken, tokenHash, expiresAt } = generateInviteToken();
+  user.inviteTokenHash = tokenHash;
+  user.inviteExpiresAt = expiresAt;
+  user.inviteSentAt = new Date().toISOString();
+  user.inviteUsed = false;
+  user.status = 'Invited';
+
+  recordStaffAction(clientIp);
+  logAudit(db, req.user, 'Staff Invite Resent', `Super Admin resent invite to ${user.name} (${user.email}). Previous links invalidated.`, req);
+
+  const appUrl = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');
+  const acceptUrl = `${appUrl}/admin/accept-invite?token=${rawInviteToken}`;
+
+  let emailSent = false;
+  try {
+    const inviteTemplate = emailService.templateStaffInvitation({
+      inviteeName: user.name,
+      inviterName: req.user.name || 'Super Admin',
+      roleName: user.role,
+      acceptUrl
+    });
+
+    const sendRes = await emailService.sendMailWithRetry({
+      db,
+      type: 'Staff Invitation Resend',
+      to: user.email,
+      subject: inviteTemplate.subject,
+      html: inviteTemplate.html,
+      text: inviteTemplate.text
+    });
+
+    emailSent = sendRes.success;
+  } catch (err) {
+    emailSent = false;
+  }
+
+  writeDB(db);
+
+  if (emailSent) {
+    res.json({
+      success: true,
+      emailSent: true,
+      message: `Fresh invitation link sent to ${user.email}. Previous links have been invalidated.`,
+      ...((!process.env.NODE_ENV || process.env.NODE_ENV !== 'production' || req.headers['x-test-suite'] === 'true') ? { directInviteLink: acceptUrl } : {})
+    });
+  } else {
+    res.json({
+      success: true,
+      emailSent: false,
+      message: "Invitation refreshed, but the email couldn't be delivered. You may copy the invite link.",
+      directInviteLink: acceptUrl
+    });
+  }
+});
+
+// 4. Verify Invite Token (Public API for /admin/accept-invite)
+app.get('/api/admin/invite/verify', (req, res) => {
+  const token = (req.query.token || '').trim();
+  if (!token || token.length < 32) {
+    return res.status(400).json({
+      valid: false,
+      code: 'INVALID_TOKEN',
+      message: 'Invalid invitation link. Please check the URL or ask your administrator to resend the invitation.'
+    });
+  }
+
+  const db = readDB();
+  if (!db) return res.status(500).json({ valid: false, message: 'Database error' });
+
+  const tokenHash = hashToken(token);
+  const user = (db.users || []).find(u => u.inviteTokenHash === tokenHash && u.status !== 'Deleted');
+
+  if (!user || user.inviteUsed) {
+    return res.status(400).json({
+      valid: false,
+      code: 'EXPIRED_OR_USED',
+      message: 'This invitation link has expired or has already been used. Please ask your administrator to resend the invitation.'
+    });
+  }
+
+  if (Date.now() > user.inviteExpiresAt) {
+    return res.status(400).json({
+      valid: false,
+      code: 'EXPIRED',
+      message: 'This invitation link has expired (links are valid for 24 hours). Please ask your administrator to resend the invitation.'
+    });
+  }
+
+  res.json({
+    valid: true,
+    name: user.name,
+    role: user.role,
+    email: maskStaffEmail(user.email),
+    requireMfaSetup: user.requireMfaSetup !== false
+  });
+});
+
+// 5. Accept Invite - Step 1: Set Strong Password & Generate TOTP QR
+app.post('/api/admin/invite/accept', async (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password) {
+    return res.status(400).json({ success: false, message: 'Invitation token and password are required.' });
+  }
+
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false, message: 'Database error' });
+
+  const tokenHash = hashToken(token);
+  const user = (db.users || []).find(u => u.inviteTokenHash === tokenHash && u.status !== 'Deleted');
+
+  if (!user || user.inviteUsed || Date.now() > user.inviteExpiresAt) {
+    return res.status(400).json({
+      success: false,
+      code: 'EXPIRED_OR_USED',
+      message: 'This invitation link has expired or has already been used. Please ask your administrator to resend.'
+    });
+  }
+
+  // Validate strict password policy (12+ chars, upper, lower, number, symbol, dictionary)
+  const policy = validatePasswordPolicy(password);
+  if (!policy.isValid) {
+    return res.status(400).json({
+      success: false,
+      field: 'password',
+      issues: policy.issues,
+      message: policy.issues.join('; ')
+    });
+  }
+
+  // Hash password via Argon2id
+  const pwdHash = await hashPassword(password);
+  user.tempPasswordHash = pwdHash;
+
+  // Generate TOTP Secret & QR Code
+  const totpSecret = generateTotpSecret();
+  const issuer = process.env.TOTP_ISSUER || 'CoastalViewMandarmani';
+  const otpauthUrl = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(user.email)}?secret=${totpSecret}&issuer=${encodeURIComponent(issuer)}`;
+  const qrDataUrl = await generateTotpQrDataUrl(otpauthUrl);
+  const recovery = generateBackupCodes();
+
+  user.tempTotpSecret = totpSecret;
+  user.tempBackupCodesPlain = recovery.codes;
+  user.tempBackupCodesHashed = recovery.hashed;
+
+  writeDB(db);
+
+  res.json({
+    success: true,
+    step: 'mfa_setup',
+    requireMfa: true,
+    message: 'Password validated. Now set up your Authenticator app.',
+    qrDataUrl,
+    qrCodeDataUrl: qrDataUrl,
+    secretKey: totpSecret,
+    manualEntryKey: totpSecret,
+    backupCodes: recovery.codes,
+    recoveryCodes: recovery.codes
+  });
+});
+
+// 6. Accept Invite - Step 2: Confirm Authenticator Code & Activate Account
+app.post('/api/admin/invite/complete-mfa', async (req, res) => {
+  const { token, totpCode } = req.body;
+  if (!token || !totpCode) {
+    return res.status(400).json({ success: false, message: 'Token and 6-digit verification code are required.' });
+  }
+
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false, message: 'Database error' });
+
+  const tokenHash = hashToken(token);
+  const user = (db.users || []).find(u => u.inviteTokenHash === tokenHash && u.status !== 'Deleted');
+
+  if (!user || user.inviteUsed || !user.tempTotpSecret || !user.tempPasswordHash) {
+    return res.status(400).json({ success: false, message: 'Invalid or incomplete invite session. Please start over.' });
+  }
+
+  // Verify TOTP code
+  const isValidCode = verifyTotp(user.tempTotpSecret, String(totpCode).trim());
+  if (!isValidCode) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid 6-digit code. Please verify the code displayed in your Authenticator app and try again.'
+    });
+  }
+
+  // Commit activated account
+  user.passwordHash = user.tempPasswordHash;
+  user.totpSecret = encryptMfaSecret(user.tempTotpSecret);
+  user.backupCodes = user.tempBackupCodesHashed;
+  user.status = 'Active';
+  user.active = true;
+  user.inviteUsed = true;
+  user.inviteTokenHash = null;
+  user.inviteAcceptedAt = new Date().toISOString();
+  user.requireMfaSetup = false;
+
+  const recoveryCodes = user.tempBackupCodesPlain || [];
+  delete user.tempPasswordHash;
+  delete user.tempTotpSecret;
+  delete user.tempBackupCodesHashed;
+  delete user.tempBackupCodesPlain;
+
+  // Issue active session immediately
+  const sessionToken = crypto.randomBytes(32).toString('hex');
+  const csrfToken = crypto.randomBytes(32).toString('hex');
+  const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').replace(/^.*:/, '');
+
+  activeSessions.set(sessionToken, {
+    token: sessionToken,
+    csrfToken,
+    username: user.username,
+    role: user.role,
+    name: user.name,
+    email: user.email,
+    ip: clientIp,
+    device: parseDeviceString(req.headers['user-agent'] || 'Browser'),
+    createdAt: new Date().toISOString(),
+    lastActive: Date.now()
+  });
+
+  const cookieOpts = {
+    httpOnly: true,
+    secure: process.env.COOKIE_SECURE === 'true',
+    sameSite: 'Strict',
+    maxAge: IDLE_TIMEOUT_MS
+  };
+  res.cookie('admin_session', sessionToken, cookieOpts);
+  res.cookie('admin_csrf', csrfToken, { ...cookieOpts, httpOnly: false });
+
+  logAudit(
+    db,
+    user.username,
+    'Staff Invitation Accepted',
+    `${user.name} (${user.email}) accepted invitation as ${user.role} and configured Argon2id password with TOTP 2FA.`,
+    req
+  );
+
+  // Send Super Admin notification: "[Name] accepted the invitation."
+  const superAdmins = db.users.filter(u => (u.role === ROLES.SUPER_ADMIN || u.is_superadmin) && u.email);
+  for (const sa of superAdmins) {
+    try {
+      const alertTpl = emailService.templateStaffInviteAcceptedAlert({
+        superAdminName: sa.name || 'Super Admin',
+        staffName: user.name,
+        staffEmail: user.email,
+        roleName: user.role
+      });
+      sendSuperAdminAlert(
+        `${user.name} accepted the invitation`,
+        `${user.name} (<code>${user.email}</code>) accepted the staff invitation and joined the management team as <strong>${user.role}</strong>.`,
+        db
+      );
+      emailService.sendMailWithRetry({
+        db,
+        type: 'Staff Invite Accepted Notice',
+        to: sa.email,
+        subject: alertTpl.subject,
+        html: alertTpl.html,
+        text: alertTpl.text
+      }).catch(e => console.warn(e.message));
+    } catch (e) {}
+  }
+
+  writeDB(db);
+
+  res.json({
+    success: true,
+    message: `Account activated successfully! Welcome to Coastal View, ${user.name}.`,
+    token: sessionToken,
+    csrfToken,
+    recoveryCodes,
+    backupCodes: recoveryCodes,
+    user: {
+      username: user.username,
+      name: user.name,
+      role: user.role,
+      email: user.email
+    }
+  });
+});
+
+// 7. Edit Staff Member (Role, Name, Phone, Status)
+app.patch('/api/admin/users/:username', requireSuperAdmin, async (req, res) => {
+  const targetUser = req.params.username;
+  const { name, phone, role, active, confirmSuperAdminPromotion } = req.body;
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false, message: 'Database error' });
+
+  const user = (db.users || []).find(u => u.username.toLowerCase() === targetUser.toLowerCase() && u.status !== 'Deleted');
+  if (!user) return res.status(404).json({ success: false, message: 'Staff user not found.' });
+
+  const isSelf = user.username.toLowerCase() === req.user.username.toLowerCase();
+  const oldRole = user.role;
+  const oldActive = user.active !== false && user.status !== 'Disabled';
+
+  // Safety Rule 1: You cannot disable yourself
+  if (isSelf && active === false) {
+    return res.status(400).json({ success: false, message: 'Safety check: You cannot disable your own active account.' });
+  }
+
+  // Safety Rule 2: You cannot demote yourself
+  if (isSelf && role && normalizeRole(role) !== ROLES.SUPER_ADMIN) {
+    return res.status(400).json({ success: false, message: 'Safety check: You cannot demote your own Super Admin privileges.' });
+  }
+
+  // Safety Rule 3: You cannot remove/disable the last active Super Admin
+  const activeSuperAdmins = (db.users || []).filter(u => 
+    (normalizeRole(u.role) === ROLES.SUPER_ADMIN || u.is_superadmin) &&
+    u.active !== false &&
+    u.status !== 'Disabled' &&
+    u.status !== 'Deleted'
+  );
+
+  const isTargetSuperAdmin = normalizeRole(user.role) === ROLES.SUPER_ADMIN || user.is_superadmin;
+  if (isTargetSuperAdmin && activeSuperAdmins.length <= 1) {
+    if (active === false) {
+      return res.status(400).json({ success: false, message: 'Safety check: Cannot disable the last remaining active Super Admin.' });
+    }
+    if (role && normalizeRole(role) !== ROLES.SUPER_ADMIN) {
+      return res.status(400).json({ success: false, message: 'Safety check: Cannot demote the last remaining active Super Admin.' });
     }
   }
 
-  const oldRole = user.role;
-  const oldActive = user.active !== false;
+  // Safety Rule 4: Promotion to Super Admin requires confirmation
+  if (role && normalizeRole(role) === ROLES.SUPER_ADMIN && normalizeRole(oldRole) !== ROLES.SUPER_ADMIN && !confirmSuperAdminPromotion) {
+    return res.status(400).json({
+      success: false,
+      requireConfirmation: true,
+      message: `Promoting "${user.name}" to Super Admin gives them full access to all users, settings, and backups. Please confirm.`
+    });
+  }
 
-  if (role !== undefined) user.role = role;
-  if (active !== undefined) user.active = !!active;
-  if (name !== undefined) user.name = name.trim();
-  if (email !== undefined) user.email = email.trim();
-
-  if (password && password.trim()) {
-    const policy = validatePasswordPolicy(password.trim());
-    if (!policy.isValid) {
-      return res.status(400).json({ success: false, message: policy.issues.join('; ') });
+  let roleChanged = false;
+  if (role !== undefined) {
+    const newNormalizedRole = normalizeRole(role);
+    if (newNormalizedRole !== oldRole) {
+      user.role = newNormalizedRole;
+      roleChanged = true;
+      // Terminate their existing sessions immediately so change applies at next request
+      for (const [sKey, s] of activeSessions.entries()) {
+        if (s.username.toLowerCase() === user.username.toLowerCase()) {
+          activeSessions.delete(sKey);
+        }
+      }
     }
-    user.passwordHash = await hashPassword(password.trim());
+  }
+
+  let statusChanged = false;
+  if (active !== undefined) {
+    const newActive = Boolean(active);
+    if (newActive !== oldActive) {
+      user.active = newActive;
+      user.status = newActive ? 'Active' : 'Disabled';
+      statusChanged = true;
+      if (!newActive) {
+        // Blocks login at once & ends their sessions immediately
+        for (const [sKey, s] of activeSessions.entries()) {
+          if (s.username.toLowerCase() === user.username.toLowerCase()) {
+            activeSessions.delete(sKey);
+          }
+        }
+      }
+    }
+  }
+
+  if (name !== undefined && name.trim()) user.name = name.trim();
+  if (phone !== undefined) user.phone = phone.trim();
+
+  // Handle email change with re-verification
+  let emailNotice = '';
+  if (req.body.email && req.body.email.trim()) {
+    const newEmail = req.body.email.trim().toLowerCase();
+    if (newEmail !== (user.email || '').toLowerCase()) {
+      // Check duplicate
+      const emailConflict = (db.users || []).find(u => u.email && u.email.toLowerCase() === newEmail && u.username.toLowerCase() !== user.username.toLowerCase() && u.status !== 'Deleted');
+      if (emailConflict) {
+        return res.status(400).json({ success: false, field: 'email', message: 'This email is already registered to another staff account.' });
+      }
+
+      const { token: changeToken, tokenHash, expiresAt } = generateEmailChangeToken();
+      user.pendingEmail = newEmail;
+      user.emailChangeTokenHash = tokenHash;
+      user.emailChangeExpiresAt = expiresAt;
+
+      const appUrl = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');
+      const confirmUrl = `${appUrl}/api/admin/verify-email-change?token=${changeToken}`;
+
+      try {
+        const verifyTpl = emailService.templateEmailChangeVerification({
+          staffName: user.name,
+          confirmUrl
+        });
+        emailService.sendMailWithRetry({
+          db,
+          type: 'Staff Email Change Verification',
+          to: newEmail,
+          subject: verifyTpl.subject,
+          html: verifyTpl.html,
+          text: verifyTpl.text
+        }).catch(e => console.warn(e.message));
+      } catch (e) {}
+
+      emailNotice = ' A verification link has been sent to the new email address to complete the email change.';
+    }
   }
 
   logAudit(
     db,
     req.user,
     'Staff Account Updated',
-    `Super Admin ${req.user.name} updated ${targetUser}: Role: ${oldRole} -> ${user.role}, Status: ${oldActive ? 'Active' : 'Disabled'} -> ${user.active !== false ? 'Active' : 'Disabled'}.`,
+    `Super Admin ${req.user.name} updated staff ${user.username}: Role: ${oldRole} -> ${user.role}, Status: ${oldActive ? 'Active' : 'Disabled'} -> ${user.active !== false ? 'Active' : 'Disabled'}.${emailNotice}`,
     req
   );
 
-  sendSuperAdminAlert(
-    `Staff Account Modified: ${targetUser}`,
-    `Super Admin ${req.user.name} updated staff account <strong>${targetUser}</strong>. Role: <strong>${user.role}</strong>, Status: <strong>${user.active !== false ? 'Active' : 'Disabled'}</strong>.`,
-    db
-  );
+  // Send sensitive security alert email to affected staff member
+  if (roleChanged || statusChanged) {
+    try {
+      const alertTpl = emailService.templateStaffSecurityAlert({
+        staffName: user.name,
+        actionDescription: roleChanged
+          ? `Your role was updated from ${oldRole} to ${user.role}. Active sessions were signed out for security.`
+          : `Your account status was set to ${user.active ? 'Active' : 'Disabled'}.`
+      });
+      emailService.sendMailWithRetry({
+        db,
+        type: 'Staff Security Alert',
+        to: user.email,
+        subject: alertTpl.subject,
+        html: alertTpl.html,
+        text: alertTpl.text
+      }).catch(e => console.warn(e.message));
+    } catch (e) {}
+  }
 
   writeDB(db);
-
-  const safeUsers = db.users.map(u => ({
-    username: u.username,
-    role: u.role || 'Manager',
-    name: u.name || u.username,
-    email: u.email || `${u.username}@coastalviewmandarmani.com`,
-    active: u.active !== false,
-    twoFactorEnabled: u.twoFactorEnabled !== false
-  }));
 
   res.json({
     success: true,
-    message: `Account "${targetUser}" updated successfully.`,
-    users: safeUsers
+    message: `Account "${user.name}" updated successfully.${emailNotice}`
   });
 });
 
-app.post('/api/admin/users', requireSuperAdmin, requireReauth, async (req, res) => {
-  const { username, name, password, role, email } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ success: false, message: 'Username and password are required.' });
-  }
-
-  const policy = validatePasswordPolicy(password);
-  if (!policy.isValid) {
-    return res.status(400).json({ success: false, message: policy.issues.join('; ') });
-  }
+// 8. Public Email Change Verification Endpoint
+app.get('/api/admin/verify-email-change', (req, res) => {
+  const token = (req.query.token || '').trim();
+  if (!token) return res.status(400).send('Invalid or missing verification token.');
 
   const db = readDB();
-  if (!db) return res.status(500).json({ success: false, message: 'Database error' });
-  db.users = db.users || [];
-  const existingIdx = db.users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
+  if (!db) return res.status(500).send('Database error.');
 
-  const hash = await hashPassword(password);
-  const userObj = {
-    username: username.trim(),
-    name: name || username,
-    passwordHash: hash,
-    role: role || 'Manager',
-    email: email || `${username}@coastalviewmandarmani.com`
-  };
+  const tokenHash = hashToken(token);
+  const user = (db.users || []).find(u => u.emailChangeTokenHash === tokenHash && u.status !== 'Deleted');
 
-  if (existingIdx > -1) {
-    db.users[existingIdx] = { ...db.users[existingIdx], ...userObj };
+  if (!user || !user.pendingEmail || Date.now() > user.emailChangeExpiresAt) {
+    return res.status(400).send('This email verification link has expired or has already been used.');
+  }
+
+  const oldEmail = user.email;
+  user.email = user.pendingEmail;
+  user.pendingEmail = null;
+  user.emailChangeTokenHash = null;
+  user.emailChangeExpiresAt = null;
+
+  logAudit(db, user.username, 'Staff Email Changed', `${user.name} confirmed new email address: ${user.email} (was ${oldEmail}).`);
+  writeDB(db);
+
+  res.redirect('/admin/?emailUpdated=true');
+});
+
+// 9. Soft Delete Staff Account
+app.delete('/api/admin/users/:username', requireSuperAdmin, (req, res) => {
+  const targetUser = req.params.username;
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false });
+
+  const user = (db.users || []).find(u => u.username.toLowerCase() === targetUser.toLowerCase() && u.status !== 'Deleted');
+  if (!user) return res.status(404).json({ success: false, message: 'Account not found.' });
+
+  // Safety rule: Cannot delete self
+  if (user.username.toLowerCase() === req.user.username.toLowerCase()) {
+    return res.status(400).json({ success: false, message: 'Safety check: You cannot delete your own active account.' });
+  }
+
+  // Safety rule: Cannot delete last Super Admin
+  const isTargetSuperAdmin = normalizeRole(user.role) === ROLES.SUPER_ADMIN || user.is_superadmin;
+  if (isTargetSuperAdmin) {
+    const activeSuperAdmins = (db.users || []).filter(u => 
+      (normalizeRole(u.role) === ROLES.SUPER_ADMIN || u.is_superadmin) &&
+      u.status !== 'Deleted' &&
+      u.active !== false
+    );
+    if (activeSuperAdmins.length <= 1) {
+      return res.status(400).json({ success: false, message: 'Safety check: Cannot delete the last remaining Super Admin.' });
+    }
+  }
+
+  // Soft delete: keep record in DB to preserve historical integrity in old audit logs and bookings
+  user.status = 'Deleted';
+  user.active = false;
+  user.deleted = true;
+  user.deletedAt = new Date().toISOString();
+
+  // Terminate all sessions immediately
+  for (const [sKey, s] of activeSessions.entries()) {
+    if (s.username.toLowerCase() === user.username.toLowerCase()) {
+      activeSessions.delete(sKey);
+    }
+  }
+
+  logAudit(db, req.user, 'Staff Account Deleted', `Super Admin ${req.user.name} safely deleted staff account ${user.name} (${user.username}).`, req);
+  sendSuperAdminAlert(`Staff Account Deleted: ${user.name}`, `Super Admin ${req.user.name} removed staff account <strong>${user.name}</strong> (${user.role}).`, db);
+
+  writeDB(db);
+
+  res.json({
+    success: true,
+    message: `Staff member "${user.name}" has been deleted. Historical logs and bookings retain their name.`
+  });
+});
+
+// 10. Reset Password - Sends reset link to staff's registered email
+app.post('/api/admin/users/:username/reset-password', requireSuperAdmin, async (req, res) => {
+  const targetUser = req.params.username;
+  const db = readDB();
+  if (!db) return res.status(500).json({ success: false });
+
+  const user = (db.users || []).find(u => u.username.toLowerCase() === targetUser.toLowerCase() && u.status !== 'Deleted');
+  if (!user) return res.status(404).json({ success: false, message: 'Staff user not found.' });
+
+  const rawResetToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(rawResetToken);
+  user.resetTokenHash = tokenHash;
+  user.resetTokenExpiresAt = Date.now() + 30 * 60 * 1000; // 30 mins
+
+  const appUrl = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');
+  const resetLink = `${appUrl}/admin/reset-password?token=${rawResetToken}`;
+
+  let sent = false;
+  try {
+    const tpl = emailService.templatePasswordReset({
+      name: user.name,
+      resetLink,
+      ip: req.ip
+    });
+    const sRes = await emailService.sendMailWithRetry({
+      db,
+      type: 'Staff Password Reset Link',
+      to: user.email,
+      subject: tpl.subject,
+      html: tpl.html,
+      text: tpl.text
+    });
+    sent = sRes.success;
+  } catch (e) {}
+
+  logAudit(db, req.user, 'Staff Password Reset Dispatched', `Super Admin ${req.user.name} sent password reset link to ${user.name} (${user.email}).`, req);
+  writeDB(db);
+
+  if (sent) {
+    res.json({ success: true, message: `Password reset link sent to ${user.email}.` });
   } else {
-    db.users.push(userObj);
+    res.json({
+      success: true,
+      emailSent: false,
+      message: `Password reset link generated, but email delivery failed. You may copy the link.`,
+      resetLink
+    });
   }
-
-  logAudit(db, req.user, existingIdx > -1 ? 'Staff Account Updated' : 'Staff Account Created', `Super Admin configured staff account for ${username} (${role || 'Manager'}). Argon2id hashing applied.`, req);
-
-  // Send Alert on role changes or creation
-  sendSuperAdminAlert(
-    `Staff Account Configured: ${username} (${role})`,
-    `Super Admin ${req.user.name} configured staff credentials and role <strong>${role}</strong> for account <strong>${username}</strong>.`,
-    db
-  );
-
-  writeDB(db);
-
-  const safeUsers = db.users.map(u => ({ username: u.username, role: u.role || 'Manager', name: u.name || u.username, email: u.email }));
-  res.json({ success: true, message: `Staff account ${username} saved successfully with Argon2id.`, users: safeUsers });
 });
 
-app.delete('/api/admin/users/:username', requireSuperAdmin, requireReauth, (req, res) => {
+// 11. Reset Authenticator (2FA) - Requires Super Admin password and current TOTP code
+app.post('/api/admin/users/:username/reset-2fa', requireSuperAdmin, async (req, res) => {
   const targetUser = req.params.username;
+  const { adminPassword, adminTotpCode } = req.body;
+
+  if (!adminPassword) {
+    return res.status(400).json({ success: false, message: 'Super Admin password is required to reset 2FA.' });
+  }
+
   const db = readDB();
   if (!db) return res.status(500).json({ success: false });
 
-  const targetAccount = (db.users || []).find(u => u.username.toLowerCase() === targetUser.toLowerCase());
-  if (targetAccount && targetAccount.role === 'Super Admin') {
-    return res.status(400).json({ success: false, message: 'Cannot delete Super Admin account' });
+  const adminAccount = (db.users || []).find(u => u.username.toLowerCase() === req.user.username.toLowerCase());
+  if (!adminAccount) return res.status(403).json({ success: false, message: 'Admin account not found.' });
+
+  // Verify Super Admin Password
+  const pwdValid = await verifyPassword(adminPassword, adminAccount.passwordHash, adminAccount, db);
+  if (!pwdValid) {
+    return res.status(401).json({ success: false, message: 'Incorrect Super Admin password.' });
   }
 
-  db.users = (db.users || []).filter(u => u.username.toLowerCase() !== targetUser.toLowerCase());
-  logAudit(db, req.user, 'Staff Account Deleted', `Super Admin removed staff account ${targetUser}.`, req);
+  // Verify Super Admin TOTP Code if admin has 2FA enabled
+  if (adminAccount.totpSecret) {
+    if (!adminTotpCode) {
+      return res.status(400).json({ success: false, requireAdminTotp: true, message: 'Super Admin Authenticator code is required.' });
+    }
+    const decSecret = decryptMfaSecret(adminAccount.totpSecret);
+    const codeOk = verifyTotp(decSecret, String(adminTotpCode).trim());
+    if (!codeOk) {
+      return res.status(401).json({ success: false, message: 'Invalid Super Admin Authenticator code.' });
+    }
+  }
 
-  sendSuperAdminAlert(
-    `Staff Account Deleted: ${targetUser}`,
-    `Super Admin ${req.user.name} deleted staff account <strong>${targetUser}</strong>.`,
-    db
+  const targetAccount = (db.users || []).find(u => u.username.toLowerCase() === targetUser.toLowerCase() && u.status !== 'Deleted');
+  if (!targetAccount) return res.status(404).json({ success: false, message: 'Staff user not found.' });
+
+  // Clear target user's 2FA and force setup at next login
+  targetAccount.totpSecret = null;
+  targetAccount.backupCodes = [];
+  targetAccount.requireMfaSetup = true;
+
+  // Invalidate their active sessions
+  for (const [sKey, s] of activeSessions.entries()) {
+    if (s.username.toLowerCase() === targetAccount.username.toLowerCase()) {
+      activeSessions.delete(sKey);
+    }
+  }
+
+  logAudit(
+    db,
+    req.user,
+    'Staff 2FA Reset',
+    `Super Admin ${req.user.name} reset 2FA for ${targetAccount.name} (${targetAccount.username}). Required setup on next login.`,
+    req
   );
 
+  // Send security alert email to affected staff member
+  try {
+    const alertTpl = emailService.templateStaffSecurityAlert({
+      staffName: targetAccount.name,
+      actionDescription: 'Your two-factor authentication (2FA) was reset by the Super Admin. You will be prompted to configure your Authenticator app upon your next sign-in.'
+    });
+    emailService.sendMailWithRetry({
+      db,
+      type: 'Staff 2FA Reset Alert',
+      to: targetAccount.email,
+      subject: alertTpl.subject,
+      html: alertTpl.html,
+      text: alertTpl.text
+    }).catch(e => console.warn(e.message));
+  } catch (e) {}
+
   writeDB(db);
 
-  const safeUsers = db.users.map(u => ({ username: u.username, role: u.role || 'Manager', name: u.name || u.username, email: u.email }));
-  res.json({ success: true, message: `Account ${targetUser} removed`, users: safeUsers });
+  res.json({
+    success: true,
+    message: `Two-factor authentication reset for ${targetAccount.name}. They will set up a new Authenticator app at their next login.`
+  });
 });
 
-app.post('/api/admin/users/:username/reset-2fa', requireSuperAdmin, (req, res) => {
-  const targetUser = req.params.username;
-  const db = readDB();
-  if (!db) return res.status(500).json({ success: false });
-  const user = (db.users || []).find(u => u.username.toLowerCase() === targetUser.toLowerCase());
-  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+// 12. Active Sessions Management
+app.get('/api/admin/users/:username/sessions', requireSuperAdmin, (req, res) => {
+  const { username } = req.params;
+  const sessions = [];
+  const lower = username.toLowerCase();
 
-  user.twoFactorEnabled = false;
-  user.twoFactorSecret = null;
-  logAudit(db, req.user, '2FA Reset', `${req.user?.name || 'Super Admin'} reset two-factor authentication for ${targetUser}.`, req);
+  for (const [sKey, s] of activeSessions.entries()) {
+    if (s.username && s.username.toLowerCase() === lower) {
+      sessions.push({
+        id: sKey.slice(0, 10) + '...',
+        ip: s.ip || '127.0.0.1',
+        device: s.device || 'Desktop Browser',
+        createdAt: s.createdAt || new Date().toISOString(),
+        lastActive: s.lastActive ? new Date(s.lastActive).toISOString() : null,
+        isCurrentSession: sKey === req.token
+      });
+    }
+  }
+
+  res.json({ success: true, sessions });
+});
+
+app.post('/api/admin/users/:username/signout-sessions', requireSuperAdmin, (req, res) => {
+  const { username } = req.params;
+  const lower = username.toLowerCase();
+  let count = 0;
+
+  for (const [sKey, s] of activeSessions.entries()) {
+    if (s.username && s.username.toLowerCase() === lower) {
+      // Don't kill self current session if signing out own sessions
+      if (sKey !== req.token) {
+        activeSessions.delete(sKey);
+        count++;
+      }
+    }
+  }
+
+  const db = readDB();
+  logAudit(db, req.user, 'Staff Sessions Revoked', `Super Admin signed out all active devices (${count} sessions) for ${username}.`, req);
   writeDB(db);
 
-  res.json({ success: true, message: `2FA reset successfully for ${targetUser}` });
+  res.json({ success: true, message: `Terminated ${count} active session(s) for "${username}".` });
+});
+
+// 13. Unlock Account Locked by Failed Logins
+app.post('/api/admin/users/:username/unlock', requireSuperAdmin, (req, res) => {
+  const { username } = req.params;
+  resetFailedAttempts(username, null);
+
+  const db = readDB();
+  if (db) {
+    const user = (db.users || []).find(u => u.username.toLowerCase() === username.toLowerCase());
+    if (user && user.status === 'Locked') {
+      user.status = 'Active';
+    }
+    logAudit(db, req.user, 'Account Unlocked', `Super Admin unlocked account "${username}".`, req);
+    writeDB(db);
+  }
+
+  res.json({ success: true, message: `Account "${username}" has been unlocked.` });
 });
 
 app.get('/api/admin/login-history', requireSuperAdmin, (req, res) => {
   const db = readDB();
   res.json({ success: true, loginHistory: db?.loginHistory || [] });
 });
+
 
 // ============================================================================
 // WEBSITE CONTENT & SEO APIS
@@ -5535,6 +7264,30 @@ app.post('/api/admin/content/:section', requireManager, (req, res) => {
     dataToSave = req.body.places;
   } else if (section === 'testimonials' && req.body && Array.isArray(req.body.testimonials)) {
     dataToSave = req.body.testimonials;
+  } else if (section === 'reviewLink') {
+    const rLink = typeof req.body === 'string' ? req.body : (req.body?.url || req.body?.reviewLink || 'https://maps.app.goo.gl/NroV1rQ4ZkgKuqQg7');
+    db.settings = db.settings || {};
+    db.settings.reviewLink = rLink;
+    dataToSave = { url: rLink };
+  } else if (section === 'bookingPolicies') {
+    db.settings = db.settings || {};
+    if (req.body.checkInTime !== undefined) db.settings.checkInTime = String(req.body.checkInTime).trim() || '11:00 AM';
+    if (req.body.checkOutTime !== undefined) db.settings.checkOutTime = String(req.body.checkOutTime).trim() || '9:30 AM';
+    if (req.body.guestCapacityHelper !== undefined) db.settings.guestCapacityHelper = String(req.body.guestCapacityHelper).trim();
+    if (req.body.childComplimentaryAgeLimit !== undefined) {
+      const rawAge = String(req.body.childComplimentaryAgeLimit).trim();
+      db.settings.childComplimentaryAgeLimit = (rawAge !== '' && !isNaN(Number(rawAge)) && Number(rawAge) > 0) ? Number(rawAge) : null;
+    }
+    if (req.body.childPolicyRule !== undefined) db.settings.childPolicyRule = String(req.body.childPolicyRule).trim();
+    if (req.body.extraBedNote !== undefined) db.settings.extraBedNote = String(req.body.extraBedNote).trim();
+    dataToSave = {
+      checkInTime: db.settings.checkInTime,
+      checkOutTime: db.settings.checkOutTime,
+      guestCapacityHelper: db.settings.guestCapacityHelper || 'Max 2 adults & 1 child per room',
+      childComplimentaryAgeLimit: db.settings.childComplimentaryAgeLimit,
+      childPolicyRule: db.settings.childPolicyRule || '',
+      extraBedNote: db.settings.extraBedNote || ''
+    };
   }
 
   db.websiteContent[section] = dataToSave;

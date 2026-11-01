@@ -1,3 +1,4 @@
+const testEnv = require('./test_db_helper');
 /**
  * E2E Chatbot Flow & API Acceptance Test
  * Tests against live server at http://localhost:3000
@@ -178,7 +179,7 @@ async function runE2ETests() {
   const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'mgr_subir', password: 'ManagerSubir@2026' })
+    body: JSON.stringify({ username: 'mgr_subir', password: testEnv.TEST_PASSWORDS.manager })
   });
   const loginData = await loginRes.json();
   let token = loginData.token;

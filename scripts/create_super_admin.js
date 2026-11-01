@@ -7,8 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const argon2 = require('argon2');
-
-const DB_PATH = path.join(__dirname, '..', 'data', 'db.json');
+const { readDB, writeDB } = require('../db_store');
 
 // Common weak password dictionary
 const COMMON_PASSWORDS = new Set([
@@ -20,25 +19,6 @@ const COMMON_PASSWORDS = new Set([
   'shadow123456', 'secret123456', 'testing12345', 'hoteladmin123',
   'resortadmin123', 'beachresort123', 'anisresort123', 'coastaladmin'
 ]);
-
-function readDB() {
-  try {
-    return JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
-  } catch (err) {
-    console.error('Error reading database file:', err.message);
-    process.exit(1);
-  }
-}
-
-function writeDB(data) {
-  try {
-    fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2), 'utf8');
-    return true;
-  } catch (err) {
-    console.error('Error writing database file:', err.message);
-    return false;
-  }
-}
 
 function validatePassword(pwd) {
   const issues = [];

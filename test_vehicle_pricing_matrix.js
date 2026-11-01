@@ -1,3 +1,4 @@
+const testEnv = require('./test_db_helper');
 const assert = require('assert');
 const fs = require('fs');
 const http = require('http');
@@ -38,11 +39,12 @@ async function makeRequest(port, method, path, data = null, headers = {}) {
 }
 
 async function runTests() {
+  await testEnv.startIsolatedServer();
   console.log('================================================================');
   console.log('STARTING VEHICLE PRICING MATRIX COMPREHENSIVE TEST SUITE');
   console.log('================================================================');
 
-  const dbOriginal = JSON.parse(fs.readFileSync('data/db.json', 'utf8'));
+  const dbOriginal = JSON.parse(fs.readFileSync(testEnv.TEMP_DB_PATH, 'utf8'));
   let testsPassed = 0;
   let testsFailed = 0;
 
@@ -171,7 +173,7 @@ async function runTests() {
       bookingId: 'TEST-INV-V01',
       guestName: 'Dr. Test Guest',
       guestPhone: '9876543210',
-      guestEmail: 'test@example.com',
+      guestEmail: 'test@testdomain.in',
       roomName: 'Luxury Ocean Suite',
       roomsCount: 1,
       checkIn: '2026-11-01',

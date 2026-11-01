@@ -1,3 +1,4 @@
+const testEnv = require('./test_db_helper');
 /**
  * Automated Acceptance Test Suite for Chatbot V2
  * 
@@ -17,13 +18,14 @@ const { ChatbotEngine } = require('./chatbot/chatbot_engine');
 const { BookingStateMachine } = require('./chatbot/booking_state_machine');
 const { processChatRequest, recordConversationAndInquiry, getChatStats } = require('./chatbot_service');
 
-const DB_PATH = path.join(__dirname, 'data', 'db.json');
+const DB_PATH = testEnv.TEMP_DB_PATH;
 
 function getDB() {
   return JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
 }
 
 async function runTestSuite() {
+  await testEnv.startIsolatedServer();
   console.log('================================================================================');
   console.log('🌟 RUNNING SECTION 9 AUTOMATED ACCEPTANCE SUITE FOR CHATBOT REBUILD');
   console.log('================================================================================\n');

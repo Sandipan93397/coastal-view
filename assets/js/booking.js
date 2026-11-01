@@ -3,6 +3,12 @@
 let hotelSettings = {
   advancePercentage: 20,
   balancePercentage: 80,
+  checkInTime: "11:00 AM",
+  checkOutTime: "9:30 AM",
+  guestCapacityHelper: "Max 2 adults & 1 child per room",
+  childComplimentaryAgeLimit: null,
+  childPolicyRule: "",
+  extraBedNote: "Need an extra bed? Please call front desk at +91 7812027551.",
   carRentalPricePerDay: 2500,
   candlelightDinnerBeachside: 3500,
   candlelightDinnerPoolside: 2800,
@@ -137,22 +143,28 @@ window.prefillBookingForm = function(params = {}) {
 };
 
 function renderRoomLoadError(show) {
+  const sel = document.getElementById('bookRoomSelect');
   let errBox = document.getElementById('roomLoadErrorBox');
-  if (!errBox) {
-    const sel = document.getElementById('bookRoomSelect');
-    if (sel && sel.parentElement) {
-      errBox = document.createElement('div');
-      errBox.id = 'roomLoadErrorBox';
-      errBox.className = 'room-load-error-box';
-      errBox.style.cssText = 'color: #EF4444; font-size: 0.8rem; margin-top: 6px; display: none; align-items: center; gap: 8px;';
-      errBox.innerHTML = '<span class="material-symbols-outlined" style="font-size: 16px;">error</span> Failed to load suites. <button type="button" class="btn btn-sm btn-outline-gold" style="padding: 2px 8px; font-size: 0.75rem;" onclick="window.loadInitialBookingData()">Retry</button>';
-      sel.parentElement.appendChild(errBox);
-    }
+  if (!errBox && sel && sel.parentElement) {
+    errBox = document.createElement('div');
+    errBox.id = 'roomLoadErrorBox';
+    errBox.className = 'room-load-error-banner';
+    sel.parentElement.appendChild(errBox);
   }
   if (errBox) {
+    errBox.innerHTML = '<span class="material-symbols-outlined" style="font-size: 16px;">error</span> <span>Couldn\'t load rooms.</span> <button type="button" class="room-load-retry-btn" onclick="window.retryLoadRooms()">Retry</button>';
     errBox.style.display = show ? 'inline-flex' : 'none';
   }
+  if (show && sel) {
+    sel.innerHTML = '<option value="" selected disabled>Couldn\'t load rooms</option>';
+  }
 }
+
+window.retryLoadRooms = async function() {
+  await loadInitialBookingData();
+  await fetchAndApplyAvailability();
+  calculateLivePrice();
+};
 
 // Load real settings, rooms, and vehicles from API
 async function loadInitialBookingData() {
@@ -160,13 +172,15 @@ async function loadInitialBookingData() {
     const [settingsRes, roomsRes, vehiclesRes] = await Promise.all([
       fetch('/api/settings').then(r => r.json()).catch(() => ({ success: false })),
       fetch('/api/rooms').then(r => r.json()).catch(() => ({ success: false })),
-      fetch('/api/vehicles').then(r => r.json()).catch(() => ({ success: false }))
+      fetch('/api/vehicles?_t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).catch(() => ({ success: false }))
     ]);
 
     if (settingsRes.success && settingsRes.settings) {
       hotelSettings = { ...hotelSettings, ...settingsRes.settings };
       updateDinnerSelectLabels();
       updateBreakfastAddonDisplay();
+      updateCapacityPolicyNotes();
+    } else {
       updateCapacityPolicyNotes();
     }
     if (roomsRes.success && Array.isArray(roomsRes.rooms) && roomsRes.rooms.length > 0) {
@@ -175,8 +189,11 @@ async function loadInitialBookingData() {
       renderRoomLoadError(false);
       populateRoomSelect();
       updateRoomCardsStatus();
+      updateRoomsCountDropdown();
       updateGuestDropdownLimits();
     } else {
+      hotelRooms = [];
+      window.hotelRooms = [];
       renderRoomLoadError(true);
     }
     if (vehiclesRes.success && vehiclesRes.vehicles) {
@@ -232,11 +249,14 @@ function getAvailableServicesForVehicle(vId) {
   }
   return defs.map(d => {
     const s = v.services[d.key];
-    const hasPrice = s && s.enabled !== false && s.price != null && Number(s.price) > 0;
+    const isExplicitlyDisabled = s && s.enabled === false;
+    const hasValidPrice = s && s.price !== null && s.price !== undefined && s.price !== '' && !isNaN(Number(s.price)) && Number(s.price) >= 0;
+    const hasPrice = hasValidPrice && !isExplicitlyDisabled;
+    const numPrice = hasPrice ? Number(s.price) : null;
     return {
       key: d.key,
       label: d.label,
-      price: hasPrice ? Number(s.price) : null,
+      price: numPrice,
       isTour: d.isTour,
       hasPrice
     };
@@ -245,8 +265,8 @@ function getAvailableServicesForVehicle(vId) {
 
 function syncVehicleTextInDom() {
   const car = (hotelVehicles || []).find(v => v.id === 'car');
-  const carTourPrice = car?.services?.tour?.enabled && car?.services?.tour?.price
-    ? ('₹' + Number(car.services.tour.price).toLocaleString('en-IN') + '/day')
+  const carTourPrice = car?.services?.tour?.enabled && car?.services?.tour?.price !== null && car?.services?.tour?.price !== undefined
+    ? (Number(car.services.tour.price) === 0 ? 'Free' : ('₹' + Number(car.services.tour.price).toLocaleString('en-IN') + '/day'))
     : 'Ask us';
   document.querySelectorAll('.dyn-car-tour-price').forEach(el => {
     el.textContent = carTourPrice;
@@ -283,21 +303,23 @@ function renderVehicleLines() {
 
   container.innerHTML = bookingVehicleLines.map((line, idx) => {
     const currentV = activeVehicles.find(v => v.id === line.vehicleId) || activeVehicles[0];
-    const availableSvcs = currentV ? getAvailableServicesForVehicle(currentV.id) : [];
+    const allSvcs = currentV ? getAvailableServicesForVehicle(currentV.id) : [];
+    const availableSvcs = allSvcs.filter(s => s.hasPrice);
     
     if (availableSvcs.length > 0 && !availableSvcs.some(s => s.key === line.serviceType)) {
       line.serviceType = availableSvcs[0].key;
     }
-    const currentSvc = availableSvcs.find(s => s.key === line.serviceType);
-    const unitPrice = currentSvc ? currentSvc.price : 0;
+    const currentSvc = allSvcs.find(s => s.key === line.serviceType);
+    const hasPrice = currentSvc ? currentSvc.hasPrice : false;
+    const unitPrice = hasPrice ? (currentSvc.price ?? 0) : null;
     const isTour = line.serviceType === 'tour';
     const days = Math.max(1, line.days || nights || 1);
-    const lineTotal = isTour ? (unitPrice * line.quantity * days) : (unitPrice * line.quantity);
+    const lineTotal = hasPrice ? (isTour ? (unitPrice * line.quantity * days) : (unitPrice * line.quantity)) : 0;
 
     const routes = (vehicleSettings && vehicleSettings.enableRoutePricing && vehicleSettings.routes) 
       ? vehicleSettings.routes.filter(r => r.enabled) 
       : [];
-    const routeOptionsHtml = routes.map(r => '<option value="' + escapeHtml(r.name) + '">' + escapeHtml(r.name) + '</option>').join('') + '<option value="Other">Other (ask us)</option>';
+    const routeOptionsHtml = routes.map(r => '<option style="background-color: #073B4C; color: #FFFFFF;" value="' + escapeHtml(r.name) + '">' + escapeHtml(r.name) + '</option>').join('') + '<option style="background-color: #073B4C; color: #FFFFFF;" value="Other">Other (ask us)</option>';
 
     return '<div class="vehicle-line-card" data-line-index="' + idx + '">' +
       '<div class="vehicle-line-header">' +
@@ -308,16 +330,24 @@ function renderVehicleLines() {
         (bookingVehicleLines.length > 1 ? '<button type="button" class="btn-remove-line" onclick="removeVehicleLine(' + idx + ')" title="Remove vehicle line"><span class="material-symbols-outlined" style="font-size: 16px;">delete</span> Remove</button>' : '') +
       '</div>' +
       '<div class="vehicle-selectors-grid">' +
-        '<div>' +
+        '<div class="vehicle-type-field-wrap">' +
           '<label class="vehicle-sublabel">Vehicle Type (Capacity)</label>' +
-          '<select class="booking-input vehicle-line-type-select" onchange="changeVehicleLineType(' + idx + ', this.value)">' +
-            activeVehicles.map(v => '<option value="' + v.id + '" ' + (v.id === line.vehicleId ? 'selected' : '') + '>' + v.name + ' (Up to ' + (v.capacity || 4) + ' passengers)</option>').join('') +
-          '</select>' +
+          '<div class="vehicle-type-select-wrap">' +
+            '<select class="booking-input vehicle-line-type-select" onchange="changeVehicleLineType(' + idx + ', this.value)" aria-label="Vehicle Type">' +
+              activeVehicles.map(v => '<option style="background-color: #073B4C; color: #FFFFFF;" value="' + v.id + '" ' + (v.id === line.vehicleId ? 'selected' : '') + '>' + escapeHtml(v.name) + ' — Up to ' + (v.capacity || 4) + ' people</option>').join('') +
+            '</select>' +
+            '<div class="vehicle-type-two-line">' +
+              '<div class="v-type-name">' + escapeHtml(currentV ? currentV.name : 'Vehicle') + '</div>' +
+              '<div class="v-type-cap"><span class="material-symbols-outlined" style="font-size: 13px;">groups</span> Up to ' + (currentV ? (currentV.capacity || 4) : 4) + ' people</div>' +
+            '</div>' +
+          '</div>' +
         '</div>' +
         '<div>' +
           '<label class="vehicle-sublabel">Service Type</label>' +
           '<select class="booking-input vehicle-line-svc-select" onchange="changeVehicleLineService(' + idx + ', this.value)">' +
-            (availableSvcs.length > 0 ? availableSvcs.map(s => '<option value="' + s.key + '" ' + (s.key === line.serviceType ? 'selected' : '') + '>' + s.label + (s.hasPrice ? (' (₹' + s.price.toLocaleString('en-IN') + (s.isTour ? '/day' : '') + ')') : ' (Ask us)') + '</option>').join('') : '<option value="">No services available (Ask us)</option>') +
+            (availableSvcs.length > 0 
+              ? availableSvcs.map(s => '<option style="background-color: #073B4C; color: #FFFFFF;" value="' + s.key + '" ' + (s.key === line.serviceType ? 'selected' : '') + '>' + s.label + (s.price === 0 ? ' (Free)' : (' (₹' + s.price.toLocaleString('en-IN') + (s.isTour ? '/day' : '') + ')')) + '</option>').join('') 
+              : '<option style="background-color: #073B4C; color: #FFFFFF;" value="" disabled selected>No services available (Ask us)</option>') +
           '</select>' +
         '</div>' +
         '<div>' +
@@ -342,8 +372,11 @@ function renderVehicleLines() {
           '<div class="field-item" style="flex: 0 0 160px;"><label class="vehicle-sublabel">Tour Days</label><div class="vehicle-stepper-wrap"><button type="button" class="vehicle-stepper-btn" onclick="stepVehicleLineDays(' + idx + ', -1)">−</button><input type="number" class="booking-input vehicle-qty-input" value="' + days + '" readonly><button type="button" class="vehicle-stepper-btn" onclick="stepVehicleLineDays(' + idx + ', 1)">+</button></div></div><div class="field-item" style="flex: 1; min-width: 200px;"><label class="vehicle-sublabel">Sightseeing Notes (Optional)</label><input type="text" class="booking-input" placeholder="e.g. Tajpur, Digha, Udaipur beach" value="' + escapeHtml(line.tourNotes || '') + '" oninput="updateVehicleLineField(' + idx + ', \'tourNotes\', this.value)"></div>' : '') +
       '</div>' +
       '<div class="vehicle-line-price-strip">' +
-        (unitPrice > 0 ? 
-          ('<span class="rate-formula">' + (isTour ? ('Rate: ₹' + unitPrice.toLocaleString('en-IN') + '/day × ' + line.quantity + ' vehicle' + (line.quantity > 1 ? 's' : '') + ' × ' + days + ' day' + (days > 1 ? 's' : '')) : ('Rate: ₹' + unitPrice.toLocaleString('en-IN') + ' × ' + line.quantity + ' vehicle' + (line.quantity > 1 ? 's' : ''))) + '</span><span class="rate-line-total">= ₹' + lineTotal.toLocaleString('en-IN') + '</span>') :
+        (hasPrice ? 
+          (unitPrice === 0 ?
+            ('<span class="rate-formula">Rate: Free × ' + line.quantity + ' vehicle' + (line.quantity > 1 ? 's' : '') + '</span><span class="rate-line-total" style="color: var(--turquoise); font-weight: 700;">Free</span>') :
+            ('<span class="rate-formula">' + (isTour ? ('Rate: ₹' + unitPrice.toLocaleString('en-IN') + '/day × ' + line.quantity + ' vehicle' + (line.quantity > 1 ? 's' : '') + ' × ' + days + ' day' + (days > 1 ? 's' : '')) : ('Rate: ₹' + unitPrice.toLocaleString('en-IN') + ' × ' + line.quantity + ' vehicle' + (line.quantity > 1 ? 's' : ''))) + '</span><span class="rate-line-total">= ₹' + lineTotal.toLocaleString('en-IN') + '</span>')
+          ) :
           ('<span class="rate-formula" style="color: #94A3B8;">Price on request</span><span class="rate-line-total" style="color: var(--champagne-gold); font-weight: 600;">Ask us</span>')) +
       '</div>' +
     '</div>';
@@ -354,7 +387,8 @@ function changeVehicleLineType(idx, vehicleId) {
   if (!bookingVehicleLines[idx]) return;
   bookingVehicleLines[idx].vehicleId = vehicleId;
   const svcs = getAvailableServicesForVehicle(vehicleId);
-  bookingVehicleLines[idx].serviceType = svcs.length > 0 ? svcs[0].key : 'tour';
+  const priced = svcs.filter(s => s.hasPrice);
+  bookingVehicleLines[idx].serviceType = priced.length > 0 ? priced[0].key : (svcs.length > 0 ? svcs[0].key : 'tour');
   renderVehicleLines();
   calculateLivePrice();
 }
@@ -547,22 +581,25 @@ function populateRoomSelect() {
   const activeRooms = (hotelRooms || []).filter(r => !r.isArchived);
 
   if (activeRooms.length === 0) {
-    const opt = document.createElement('option');
-    opt.value = '';
-    opt.disabled = true;
-    opt.selected = true;
-    opt.textContent = 'Suites unavailable (please retry)';
-    select.appendChild(opt);
     renderRoomLoadError(true);
     return;
   }
 
   renderRoomLoadError(false);
-  let firstAvailableId = null;
+
+  // Always start with placeholder "Select a suite"
+  const placeholderOpt = document.createElement('option');
+  placeholderOpt.value = '';
+  placeholderOpt.textContent = 'Select a suite';
+  select.appendChild(placeholderOpt);
 
   activeRooms.forEach(room => {
     const avail = currentAvailabilityMap[room.id];
-    const isSold = room.isSoldOut || (avail && (avail.available <= 0 || avail.isSoldOut));
+    const availCount = (avail && avail.available !== undefined)
+      ? Number(avail.available)
+      : (room.quantity !== undefined ? Number(room.quantity) : 4);
+    const isSold = Boolean(room.isSoldOut || (avail && (avail.available <= 0 || avail.isSoldOut)) || availCount <= 0);
+
     const opt = document.createElement('option');
     opt.value = room.id;
     opt.setAttribute('data-price', (room.price !== null && room.price !== undefined) ? room.price : '');
@@ -575,24 +612,22 @@ function populateRoomSelect() {
     if (isSold) {
       opt.disabled = true;
       opt.textContent = `${room.name} — ${priceFormatted} (Sold out)`;
+    } else if (availCount > 0 && availCount <= 3) {
+      opt.disabled = false;
+      opt.textContent = `${room.name} — ${priceFormatted} (Only ${availCount} left)`;
     } else {
       opt.disabled = false;
       opt.textContent = `${room.name} — ${priceFormatted}`;
-      if (!firstAvailableId) {
-        firstAvailableId = room.id;
-      }
     }
     select.appendChild(opt);
   });
 
-  // Preserve selected value if still available and not sold out, else choose first available
+  // Preserve previously selected value ONLY if it was explicitly selected and not sold out; otherwise stay on "Select a suite" ("")
   const prevOpt = prevSelected ? select.querySelector(`option[value="${prevSelected}"]`) : null;
   if (prevOpt && !prevOpt.disabled) {
     select.value = prevSelected;
-  } else if (firstAvailableId) {
-    select.value = firstAvailableId;
-  } else if (activeRooms[0]) {
-    select.value = activeRooms[0].id;
+  } else {
+    select.value = '';
   }
 
   syncToMobileRoomOptions(select.value);
@@ -604,8 +639,14 @@ function syncToMobileRoomOptions(selectedId) {
     const rId = opt.getAttribute('data-room-id');
     const avail = currentAvailabilityMap[rId];
     const rObj = (hotelRooms || []).find(r => r.id === rId);
-    const isSold = (rObj && rObj.isSoldOut) || (avail && (avail.available <= 0 || avail.isSoldOut));
+    const availCount = (avail && avail.available !== undefined)
+      ? Number(avail.available)
+      : (rObj && rObj.quantity !== undefined ? Number(rObj.quantity) : 4);
+    const isSold = Boolean((rObj && rObj.isSoldOut) || (avail && (avail.available <= 0 || avail.isSoldOut)) || availCount <= 0);
     const radio = opt.querySelector('.m-room-radio');
+
+    const oldLowBadge = opt.querySelector('.m-room-low-badge');
+    if (oldLowBadge) oldLowBadge.remove();
 
     if (isSold) {
       opt.classList.add('is-sold-out');
@@ -624,12 +665,21 @@ function syncToMobileRoomOptions(selectedId) {
       if (radio) radio.disabled = false;
       const badge = opt.querySelector('.m-room-sold-badge');
       if (badge) badge.remove();
+
+      if (availCount > 0 && availCount <= 3) {
+        const lowBadge = document.createElement('span');
+        lowBadge.className = 'm-room-low-badge';
+        lowBadge.style.cssText = 'background: rgba(245, 158, 11, 0.2); color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 0.68rem; padding: 2px 6px; border-radius: 4px; font-weight: 700; margin-left: 6px;';
+        lowBadge.textContent = `Only ${availCount} left`;
+        const nameRow = opt.querySelector('.m-room-name-row') || opt;
+        nameRow.appendChild(lowBadge);
+      }
     }
 
-    const isMatch = rId === selectedId;
+    const isMatch = Boolean(selectedId && rId === selectedId && !isSold);
     opt.classList.toggle('selected', isMatch);
-    if (radio && isMatch && !isSold) {
-      radio.checked = true;
+    if (radio) {
+      radio.checked = isMatch;
     }
   });
 }
@@ -761,20 +811,36 @@ function updateRoomCardsStatus() {
   applyAvailabilityToCards();
 }
 
-// Fetch live inventory availability for selected stay dates
+// Fetch live inventory availability for selected stay dates (or general inventory on load)
 async function fetchAndApplyAvailability() {
   const checkIn = document.getElementById('bookCheckIn')?.value;
   const checkOut = document.getElementById('bookCheckOut')?.value;
-  if (!checkIn || !checkOut) return;
+
+  let queryCheckIn = checkIn;
+  let queryCheckOut = checkOut;
+  if (!queryCheckIn || !queryCheckOut) {
+    const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const y1 = nowIST.getFullYear();
+    const m1 = String(nowIST.getMonth() + 1).padStart(2, '0');
+    const d1 = String(nowIST.getDate()).padStart(2, '0');
+    const tmr = new Date(nowIST);
+    tmr.setDate(tmr.getDate() + 1);
+    const y2 = tmr.getFullYear();
+    const m2 = String(tmr.getMonth() + 1).padStart(2, '0');
+    const d2 = String(tmr.getDate()).padStart(2, '0');
+    queryCheckIn = `${y1}-${m1}-${d1}`;
+    queryCheckOut = `${y2}-${m2}-${d2}`;
+  }
 
   try {
-    const res = await fetch(`/api/rooms/availability?checkIn=${encodeURIComponent(checkIn)}&checkOut=${encodeURIComponent(checkOut)}`);
+    const res = await fetch(`/api/rooms/availability?checkIn=${encodeURIComponent(queryCheckIn)}&checkOut=${encodeURIComponent(queryCheckOut)}`);
     const data = await res.json();
     if (data.success && Array.isArray(data.availability)) {
       currentAvailabilityMap = {};
       data.availability.forEach(item => {
         currentAvailabilityMap[item.roomId] = item;
       });
+      populateRoomSelect();
       applyAvailabilityToCards();
       updateRoomsCountDropdown();
       calculateLivePrice();
@@ -849,12 +915,24 @@ function updateRoomsCountDropdown() {
   if (!roomSelect || !countSelect) return;
 
   const roomId = roomSelect.value;
-  const avail = currentAvailabilityMap[roomId];
-  const maxAvailable = avail ? Math.max(0, avail.available) : 1;
   const currentVal = parseInt(countSelect.value, 10) || 1;
+  let maxAvailable = 4;
+
+  if (roomId) {
+    const avail = currentAvailabilityMap[roomId];
+    const roomObj = (hotelRooms || []).find(r => r.id === roomId);
+    if (avail && avail.available !== undefined) {
+      maxAvailable = Math.max(0, Number(avail.available));
+    } else if (roomObj && roomObj.quantity !== undefined) {
+      maxAvailable = Math.max(0, Number(roomObj.quantity));
+    }
+    if (roomObj && roomObj.isSoldOut) {
+      maxAvailable = 0;
+    }
+  }
 
   countSelect.innerHTML = '';
-  if (maxAvailable <= 0) {
+  if (roomId && maxAvailable <= 0) {
     const opt = document.createElement('option');
     opt.value = '0';
     opt.textContent = '0 Rooms (Sold Out)';
@@ -862,11 +940,12 @@ function updateRoomsCountDropdown() {
     opt.selected = true;
     countSelect.appendChild(opt);
   } else {
-    for (let i = 1; i <= maxAvailable; i++) {
+    const limit = Math.max(1, maxAvailable);
+    for (let i = 1; i <= limit; i++) {
       const opt = document.createElement('option');
       opt.value = String(i);
       opt.textContent = `${i} Room${i > 1 ? 's' : ''}`;
-      if (i === currentVal || (currentVal > maxAvailable && i === maxAvailable)) {
+      if (i === currentVal || (currentVal > limit && i === limit)) {
         opt.selected = true;
       }
       countSelect.appendChild(opt);
@@ -878,17 +957,64 @@ function updateRoomsCountDropdown() {
   updateGuestDropdownLimits();
 }
 
-// Update Children Age Policy & Extra Bed Notes from Admin Settings
+// Update Check-in/Check-out Times, Guest Rule Helper, Children Age Policy & Extra Bed Notes from Admin Settings
 function updateCapacityPolicyNotes() {
-  const childAge = hotelSettings.childComplimentaryAgeLimit || 5;
+  const checkInTime = hotelSettings.checkInTime || '11:00 AM';
+  const checkOutTime = hotelSettings.checkOutTime || '9:30 AM';
+
+  document.querySelectorAll('.dyn-checkin-time').forEach(el => {
+    el.textContent = checkInTime;
+  });
+  document.querySelectorAll('.dyn-checkout-time').forEach(el => {
+    el.textContent = checkOutTime;
+  });
+
+  // Update JSON-LD schema checkinTime / checkoutTime dynamically
+  const schemaEl = document.getElementById('hotelRoomsSchema');
+  if (schemaEl) {
+    try {
+      const schemaObj = JSON.parse(schemaEl.textContent);
+      schemaObj.checkinTime = checkInTime;
+      schemaObj.checkoutTime = checkOutTime;
+      schemaEl.textContent = JSON.stringify(schemaObj, null, 2);
+    } catch (e) {}
+  }
+
+  // Update Guest Rule Helper
+  const guestRuleText = document.getElementById('bookingGuestRuleText');
+  if (guestRuleText) {
+    guestRuleText.textContent = hotelSettings.guestCapacityHelper || 'Max 2 adults & 1 child per room';
+  }
+
+  // Children policy note: ONLY display if both childComplimentaryAgeLimit and childPolicyRule are set in Admin Settings
+  const childAge = hotelSettings.childComplimentaryAgeLimit;
+  const childRule = hotelSettings.childPolicyRule ? String(hotelSettings.childPolicyRule).trim() : '';
   const childNote = document.getElementById('bookingChildAgeNote');
   if (childNote) {
-    childNote.innerHTML = `<span class="material-symbols-outlined" style="font-size: 14px; color: var(--turquoise);">child_care</span> Children up to ${childAge} years stay complimentary without extra bed.`;
+    const hasValidAge = childAge !== null && childAge !== undefined && childAge !== '' && !isNaN(Number(childAge)) && Number(childAge) > 0;
+    if (hasValidAge && childRule) {
+      childNote.style.display = 'inline-flex';
+      childNote.innerHTML = `<span class="material-symbols-outlined" style="font-size: 16px; color: var(--turquoise);">child_care</span> Children up to ${Number(childAge)} years ${escapeHtml(childRule)}`;
+    } else {
+      childNote.style.display = 'none';
+      childNote.innerHTML = '';
+    }
   }
+
+  // Extra Bed Note from Admin Settings
   const extraBedNote = document.getElementById('bookingExtraBedNote');
   if (extraBedNote) {
     const ph = hotelSettings.phone || '7812027551';
-    extraBedNote.innerHTML = `<span class="material-symbols-outlined" style="font-size: 14px; color: var(--champagne-gold);">call</span> Need an extra bed? Please call front desk at +91 ${ph}.`;
+    const noteText = (hotelSettings.extraBedNote !== undefined)
+      ? String(hotelSettings.extraBedNote).trim()
+      : `Need an extra bed? Please call front desk at +91 ${ph}.`;
+    if (noteText) {
+      extraBedNote.style.display = 'inline-flex';
+      extraBedNote.innerHTML = `<span class="material-symbols-outlined" style="font-size: 16px; color: var(--champagne-gold);">call</span> <span>${escapeHtml(noteText)}</span>`;
+    } else {
+      extraBedNote.style.display = 'none';
+      extraBedNote.innerHTML = '';
+    }
   }
 }
 
@@ -940,6 +1066,16 @@ function updateGuestDropdownLimits() {
       opt.selected = true;
     }
     childrenSelect.appendChild(opt);
+  }
+
+  // Update helper text below Adults and Children selects
+  const adultsHelper = document.getElementById('adultsLimitHelper');
+  if (adultsHelper) {
+    adultsHelper.textContent = `Max ${maxAllowedAdults} adult${maxAllowedAdults > 1 ? 's' : ''}`;
+  }
+  const childrenHelper = document.getElementById('childrenLimitHelper');
+  if (childrenHelper) {
+    childrenHelper.textContent = `Max ${maxAllowedChildren} child${maxAllowedChildren !== 1 ? 'ren' : ''}`;
   }
 
   // Enforce Capacity Warning Banner with One-Click Add Room Button
@@ -996,47 +1132,126 @@ window.addAnotherRoomForCapacity = function() {
   if (alertEl) alertEl.style.display = 'none';
 };
 
-// Setup minimum dates (Check-in today, Check-out tomorrow, min 1 night)
+function getTodayISTString() {
+  const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const yyyy = nowIST.getFullYear();
+  const mm = String(nowIST.getMonth() + 1).padStart(2, '0');
+  const dd = String(nowIST.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function addDaysToDateString(dateStr, days) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  const ry = dt.getFullYear();
+  const rm = String(dt.getMonth() + 1).padStart(2, '0');
+  const rd = String(dt.getDate()).padStart(2, '0');
+  return `${ry}-${rm}-${rd}`;
+}
+
+function showBookingFormError(msg) {
+  const errEl = document.getElementById('bookingFormErrorMsg');
+  if (!errEl) return;
+  if (msg) {
+    errEl.innerHTML = `<span class="material-symbols-outlined" style="font-size: 16px;">error</span> <span>${escapeHtml(msg)}</span>`;
+    errEl.style.display = 'inline-flex';
+  } else {
+    errEl.style.display = 'none';
+    errEl.innerHTML = '';
+  }
+}
+
+// Setup minimum dates (block past dates, require check-out after check-in, leave empty on fresh load)
 function setupBookingDates() {
   const checkInInput = document.getElementById('bookCheckIn');
   const checkOutInput = document.getElementById('bookCheckOut');
   if (!checkInInput || !checkOutInput) return;
 
-  const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-  const yyyy = nowIST.getFullYear();
-  const mm = String(nowIST.getMonth() + 1).padStart(2, '0');
-  const dd = String(nowIST.getDate()).padStart(2, '0');
-  const minCheckIn = `${yyyy}-${mm}-${dd}`;
+  const minCheckIn = getTodayISTString();
+  const maxCheckDate = addDaysToDateString(minCheckIn, 500);
+  const defaultMinCheckOut = addDaysToDateString(minCheckIn, 1);
 
   checkInInput.min = minCheckIn;
-  if (!checkInInput.value || checkInInput.value < minCheckIn) {
-    checkInInput.value = minCheckIn;
-  }
+  checkInInput.max = maxCheckDate;
+  checkOutInput.min = defaultMinCheckOut;
+  checkOutInput.max = maxCheckDate;
 
-  const inDate = new Date(checkInInput.value);
-  const nextDay = new Date(inDate);
-  nextDay.setDate(nextDay.getDate() + 1);
-  const tY = nextDay.getFullYear();
-  const tM = String(nextDay.getMonth() + 1).padStart(2, '0');
-  const tD = String(nextDay.getDate()).padStart(2, '0');
-  const minCheckOut = `${tY}-${tM}-${tD}`;
-
-  checkOutInput.min = minCheckOut;
-  if (!checkOutInput.value || checkOutInput.value <= checkInInput.value) {
-    checkOutInput.value = minCheckOut;
-  }
-
-  // Sync to mobile sheet inputs
+  // Sync min/max to mobile sheet inputs
   const mCheckIn = document.getElementById('mCheckIn');
   const mCheckOut = document.getElementById('mCheckOut');
   if (mCheckIn) {
     mCheckIn.min = minCheckIn;
-    if (!mCheckIn.value || mCheckIn.value < minCheckIn) mCheckIn.value = checkInInput.value;
+    mCheckIn.max = maxCheckDate;
   }
   if (mCheckOut) {
-    mCheckOut.min = minCheckOut;
-    if (!mCheckOut.value || mCheckOut.value <= mCheckIn.value) mCheckOut.value = checkOutInput.value;
+    mCheckOut.min = defaultMinCheckOut;
+    mCheckOut.max = maxCheckDate;
   }
+
+  // Open native date picker on click
+  [checkInInput, checkOutInput, mCheckIn, mCheckOut].forEach(el => {
+    if (!el || el.dataset.pickerBound) return;
+    el.dataset.pickerBound = 'true';
+    el.addEventListener('click', () => {
+      if (typeof el.showPicker === 'function') {
+        try { el.showPicker(); } catch (e) {}
+      }
+    });
+  });
+}
+
+function validateAndNormalizeDates() {
+  const checkInInput = document.getElementById('bookCheckIn');
+  const checkOutInput = document.getElementById('bookCheckOut');
+  if (!checkInInput || !checkOutInput) return { valid: false, reason: 'Please choose your dates' };
+
+  const minCheckIn = getTodayISTString();
+  const maxCheckDate = addDaysToDateString(minCheckIn, 500);
+  checkInInput.min = minCheckIn;
+  checkInInput.max = maxCheckDate;
+
+  let inVal = checkInInput.value;
+  let outVal = checkOutInput.value;
+
+  if (inVal) {
+    if (inVal < minCheckIn) {
+      inVal = minCheckIn;
+      checkInInput.value = minCheckIn;
+      showBookingFormError('Past dates are not allowed. Check-in adjusted to today.');
+    } else if (inVal > maxCheckDate) {
+      inVal = maxCheckDate;
+      checkInInput.value = maxCheckDate;
+    }
+    const minCheckOut = addDaysToDateString(inVal, 1);
+    checkOutInput.min = minCheckOut;
+    const mCheckOut = document.getElementById('mCheckOut');
+    if (mCheckOut) mCheckOut.min = minCheckOut;
+
+    if (outVal && outVal <= inVal) {
+      outVal = minCheckOut;
+      checkOutInput.value = minCheckOut;
+      showBookingFormError('Check-out must be after check-in. Adjusted to next day.');
+    }
+  } else {
+    const defaultMinOut = addDaysToDateString(minCheckIn, 1);
+    checkOutInput.min = defaultMinOut;
+    if (outVal && outVal < defaultMinOut) {
+      outVal = defaultMinOut;
+      checkOutInput.value = defaultMinOut;
+      showBookingFormError('Past dates are not allowed.');
+    }
+  }
+
+  const mCheckIn = document.getElementById('mCheckIn');
+  const mCheckOut = document.getElementById('mCheckOut');
+  if (mCheckIn && mCheckIn.value !== checkInInput.value) mCheckIn.value = checkInInput.value;
+  if (mCheckOut && mCheckOut.value !== checkOutInput.value) mCheckOut.value = checkOutInput.value;
+
+  if (!inVal || !outVal) {
+    return { valid: false, reason: 'Please choose your dates' };
+  }
+  return { valid: true, checkIn: inVal, checkOut: outVal };
 }
 
 // Event Listeners for Live Price Calculation
@@ -1064,14 +1279,23 @@ function setupBookingEventListeners() {
     const el = document.getElementById(id);
     if (el) {
       el.addEventListener('change', async () => {
+        showBookingFormError('');
         if (id === 'vehicleTypeSelect') {
           updateVehicleDetailsDisplay();
         }
         if (id === 'bookCheckIn' || id === 'bookCheckOut') {
+          validateAndNormalizeDates();
           await fetchAndApplyAvailability();
+          if (document.getElementById('toggleCarNeed')?.checked) {
+            renderVehicleLines();
+          }
         }
-        if (id === 'bookRoomSelect' || id === 'bookRoomsCount') {
+        if (id === 'bookRoomSelect') {
+          syncToMobileRoomOptions(el.value);
           updateRoomsCountDropdown();
+          updateGuestDropdownLimits();
+        }
+        if (id === 'bookRoomsCount') {
           updateGuestDropdownLimits();
         }
         calculateLivePrice();
@@ -1224,13 +1448,51 @@ function setupBookingEventListeners() {
     });
   }
 
-  // Open Checkout Modal
+  // Open Checkout Modal or explain what's missing when tapped while disabled
   const checkoutBtn = document.getElementById('openCheckoutModalBtn');
-  if (checkoutBtn) {
-    checkoutBtn.addEventListener('click', (e) => {
+  const reserveTapArea = document.getElementById('reserveBtnTapArea');
+
+  const handleReserveTap = (e) => {
+    const checkInVal = document.getElementById('bookCheckIn')?.value;
+    const checkOutVal = document.getElementById('bookCheckOut')?.value;
+    const roomVal = document.getElementById('bookRoomSelect')?.value;
+
+    if (!checkInVal || !checkOutVal) {
       e.preventDefault();
-      openCheckoutModal();
-    });
+      e.stopPropagation();
+      showBookingFormError('Please choose your dates');
+      const targetEl = !checkInVal ? document.getElementById('bookCheckIn') : document.getElementById('bookCheckOut');
+      if (targetEl) targetEl.focus();
+      return;
+    }
+    if (!roomVal) {
+      e.preventDefault();
+      e.stopPropagation();
+      showBookingFormError('Please select a suite');
+      const roomEl = document.getElementById('bookRoomSelect');
+      if (roomEl) roomEl.focus();
+      return;
+    }
+    if (checkoutBtn && checkoutBtn.disabled) {
+      e.preventDefault();
+      e.stopPropagation();
+      const calc = calculateLivePrice();
+      if (calc && calc.isSoldOut) {
+        showBookingFormError('Selected suite is sold out for these dates');
+      } else {
+        showBookingFormError('Guest count exceeds room capacity. Please add another room');
+      }
+      return;
+    }
+    e.preventDefault();
+    showBookingFormError('');
+    openCheckoutModal();
+  };
+
+  if (reserveTapArea) {
+    reserveTapArea.addEventListener('click', handleReserveTap);
+  } else if (checkoutBtn) {
+    checkoutBtn.addEventListener('click', handleReserveTap);
   }
 
   // Handle Booking Form Submission
@@ -1242,46 +1504,142 @@ function setupBookingEventListeners() {
 
 // Calculate Live Total, Pay Now (20%), and Pay at Hotel (80%)
 function calculateLivePrice() {
-  const checkInVal = document.getElementById('bookCheckIn')?.value;
-  const checkOutVal = document.getElementById('bookCheckOut')?.value;
+  const checkInInput = document.getElementById('bookCheckIn');
+  const checkOutInput = document.getElementById('bookCheckOut');
   const roomSelect = document.getElementById('bookRoomSelect');
   const roomsCount = Math.max(1, parseInt(document.getElementById('bookRoomsCount')?.value, 10) || 1);
-  const carNeed = document.getElementById('toggleCarNeed')?.checked;
+  const carNeed = Boolean(document.getElementById('toggleCarNeed')?.checked);
   let carCount = Math.max(1, parseInt(document.getElementById('carCountInput')?.value, 10) || 1);
-  const vehicleSelect = document.getElementById('vehicleTypeSelect');
-  const tripSelect = document.getElementById('vehicleTripTypeSelect');
-  const candleNeed = document.getElementById('toggleCandlelight')?.checked;
+  const candleNeed = Boolean(document.getElementById('toggleCandlelight')?.checked);
   const dinnerSetup = document.getElementById('dinnerSetupSelect')?.value || 'Beachside';
   const dinnerCount = Math.max(1, parseInt(document.getElementById('dinnerCountInput')?.value, 10) || 1);
   const adultsCount = Math.max(1, parseInt(document.getElementById('bookAdults')?.value, 10) || 2);
+  const childrenCount = Math.max(0, parseInt(document.getElementById('bookChildren')?.value, 10) || 0);
 
-  if (!checkInVal || !checkOutVal || !roomSelect) return;
+  const totalEl = document.getElementById('liveTotalAmount');
+  const payNowEl = document.getElementById('livePayNow');
+  const payHotelEl = document.getElementById('livePayHotel');
+  const nightsWrap = document.getElementById('liveNightsWrap');
+  const nightsLabel = document.getElementById('liveNightsCount');
+  const checkOutHelper = document.getElementById('checkOutTimeHelper');
+  const breakdownContainer = document.getElementById('priceBreakdownContainer');
+  const incBanner = document.getElementById('liveSuiteInclusionsBanner');
+  const incChipsContainer = document.getElementById('liveSuiteInclusionsChips');
+  const checkoutBtn = document.getElementById('openCheckoutModalBtn');
 
-  const inDate = new Date(checkInVal);
-  const outDate = new Date(checkOutVal);
+  let checkInVal = checkInInput?.value || '';
+  let checkOutVal = checkOutInput?.value || '';
+  const selectedRoomId = roomSelect?.value || '';
 
-  if (outDate <= inDate) {
-    // Auto-adjust checkout to 1 day after checkin
-    const nextDay = new Date(inDate);
-    nextDay.setDate(nextDay.getDate() + 1);
-    const y = nextDay.getFullYear();
-    const m = String(nextDay.getMonth() + 1).padStart(2, '0');
-    const d = String(nextDay.getDate()).padStart(2, '0');
-    document.getElementById('bookCheckOut').value = `${y}-${m}-${d}`;
-    return calculateLivePrice();
+  // Normalize dates if both are filled and outDate <= inDate
+  let hasValidDates = false;
+  let nights = 0;
+
+  if (checkInVal && checkOutVal) {
+    const inDate = new Date(checkInVal);
+    let outDate = new Date(checkOutVal);
+    if (!isNaN(inDate.getTime()) && !isNaN(outDate.getTime())) {
+      if (outDate <= inDate) {
+        const minOut = addDaysToDateString(checkInVal, 1);
+        if (checkOutInput) checkOutInput.value = minOut;
+        checkOutVal = minOut;
+        outDate = new Date(checkOutVal);
+      }
+      nights = Math.max(1, Math.round((outDate - inDate) / (1000 * 60 * 60 * 24)));
+      hasValidDates = true;
+    }
   }
 
-  // Minimum 1 night
-  const nights = Math.max(1, Math.round((outDate - inDate) / (1000 * 60 * 60 * 24)));
+  // Update nights count display in helper text & summary label whenever dates are chosen
+  const checkOutTimeStr = hotelSettings.checkOutTime || '9:30 AM';
+  if (hasValidDates && nights > 0) {
+    if (nightsWrap) nightsWrap.style.display = 'inline';
+    if (nightsLabel) nightsLabel.textContent = `${nights} night${nights > 1 ? 's' : ''}`;
+    if (checkOutHelper) {
+      checkOutHelper.innerHTML = `Until <span class="dyn-checkout-time">${escapeHtml(checkOutTimeStr)}</span> • <strong>${nights} night${nights > 1 ? 's' : ''}</strong>`;
+    }
+  } else {
+    if (nightsWrap) nightsWrap.style.display = 'none';
+    if (nightsLabel) nightsLabel.textContent = '';
+    if (checkOutHelper) {
+      checkOutHelper.innerHTML = `Until <span class="dyn-checkout-time">${escapeHtml(checkOutTimeStr)}</span>`;
+    }
+  }
+
+  const hasSelectedSuite = Boolean(selectedRoomId && roomSelect && roomSelect.selectedIndex >= 0);
+
+  // Requirement 2: Until check-in date, check-out date, and suite are all selected,
+  // show neutral message ("Select dates and a suite to see your price") with no ₹ amount,
+  // and Pay Now and Pay at Hotel show "—". Reserve Stay is disabled.
+  if (!hasValidDates || !hasSelectedSuite) {
+    if (totalEl) {
+      totalEl.textContent = 'Select dates and a suite to see your price';
+      totalEl.classList.add('neutral-message');
+    }
+    if (payNowEl) payNowEl.textContent = '—';
+    if (payHotelEl) payHotelEl.textContent = '—';
+    if (breakdownContainer) breakdownContainer.style.display = 'none';
+
+    ['liveRoomSummaryLine', 'liveTransportSummaryLine', 'liveBreakfastSummaryLine', 'liveDinnerSummaryLine', 'liveTaxSummaryLine'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.style.display = 'none';
+        el.innerHTML = '';
+      }
+    });
+
+    if (incBanner) incBanner.style.display = 'none';
+    if (incChipsContainer) incChipsContainer.innerHTML = '';
+
+    if (checkoutBtn) {
+      checkoutBtn.disabled = true;
+      checkoutBtn.setAttribute('aria-disabled', 'true');
+      checkoutBtn.className = 'btn btn-disabled';
+      checkoutBtn.innerHTML = `<span class="material-symbols-outlined">verified</span> Reserve Stay (Pay 20% Now)`;
+    }
+
+    if (typeof window.syncMobileBookingDisplays === 'function') {
+      window.syncMobileBookingDisplays({
+        isComplete: false,
+        checkIn: checkInVal,
+        checkOut: checkOutVal,
+        nights,
+        roomsCount,
+        adultsCount,
+        currentChildren: childrenCount,
+        grandTotal: null,
+        payNow: null,
+        payAtHotel: null,
+        isSoldOut: false
+      });
+    }
+
+    return {
+      isValid: false,
+      isComplete: false,
+      missingReason: !hasValidDates ? 'Please choose your dates' : 'Please select a suite'
+    };
+  }
 
   const selectedOpt = roomSelect.options[roomSelect.selectedIndex];
+  const selectedRoomObj = (hotelRooms || []).find(r => r.id === selectedRoomId);
   const priceAttr = selectedOpt?.getAttribute('data-price');
-  const hasNumericPrice = priceAttr !== '' && priceAttr !== 'null' && priceAttr !== null && !isNaN(parseFloat(priceAttr));
-  const roomPrice = hasNumericPrice ? parseFloat(priceAttr) : null;
-  const currentRoomAvail = currentAvailabilityMap[roomSelect.value];
-  const maxRoomAvail = currentRoomAvail ? currentRoomAvail.available : 1;
-  const isSoldOut = (selectedOpt ? selectedOpt.getAttribute('data-soldout') === 'true' : false) || 
-                    (currentRoomAvail && (currentRoomAvail.available <= 0 || currentRoomAvail.isSoldOut));
+  const rawPrice = (priceAttr !== '' && priceAttr !== 'null' && priceAttr !== null && priceAttr !== undefined)
+    ? parseFloat(priceAttr)
+    : (selectedRoomObj && selectedRoomObj.price !== undefined ? Number(selectedRoomObj.price) : NaN);
+  const hasNumericPrice = !isNaN(rawPrice) && rawPrice >= 0;
+  const roomPrice = hasNumericPrice ? rawPrice : 0;
+
+  const currentRoomAvail = currentAvailabilityMap[selectedRoomId];
+  const maxRoomAvail = currentRoomAvail && currentRoomAvail.available !== undefined
+    ? Number(currentRoomAvail.available)
+    : (selectedRoomObj && selectedRoomObj.quantity !== undefined ? Number(selectedRoomObj.quantity) : 4);
+  const isSoldOut = Boolean(
+    (selectedOpt && selectedOpt.getAttribute('data-soldout') === 'true') ||
+    (selectedRoomObj && selectedRoomObj.isSoldOut) ||
+    (currentRoomAvail && (currentRoomAvail.available <= 0 || currentRoomAvail.isSoldOut)) ||
+    maxRoomAvail <= 0
+  );
 
   // Formula 1: Room cost = room price per night × number of nights × number of rooms
   const roomSubtotal = hasNumericPrice ? (roomPrice * nights * roomsCount) : 0;
@@ -1304,12 +1662,14 @@ function calculateLivePrice() {
       const vObj = (hotelVehicles || []).find(v => v.id === line.vehicleId);
       const vName = vObj ? vObj.name : 'Vehicle';
       const svc = vObj?.services?.[line.serviceType];
-      const hasPrice = svc && svc.enabled !== false && svc.price != null && Number(svc.price) > 0;
+      const isExplicitlyDisabled = svc && svc.enabled === false;
+      const hasValidPrice = svc && svc.price !== null && svc.price !== undefined && svc.price !== '' && !isNaN(Number(svc.price)) && Number(svc.price) >= 0;
+      const hasPrice = hasValidPrice && !isExplicitlyDisabled;
       const unitPrice = hasPrice ? Number(svc.price) : 0;
       const isTour = line.serviceType === 'tour';
       const lineDays = isTour ? Math.max(1, line.days || nights || 1) : 1;
       const qty = Math.max(1, line.quantity || 1);
-      const lineTotal = isTour ? (unitPrice * qty * lineDays) : (unitPrice * qty);
+      const lineTotal = hasPrice ? (isTour ? (unitPrice * qty * lineDays) : (unitPrice * qty)) : 0;
 
       let sLabel = 'Trip';
       if (line.serviceType === 'pickup') sLabel = 'Pickup';
@@ -1317,12 +1677,16 @@ function calculateLivePrice() {
       else if (line.serviceType === 'pickup_drop') sLabel = 'Pickup + Drop';
       else if (line.serviceType === 'tour') sLabel = 'Tour';
 
-      carTotal += lineTotal;
-      
+      if (hasPrice) {
+        carTotal += lineTotal;
+      }
+
       let lineDesc = '';
-      if (!hasPrice || unitPrice === 0) {
+      if (!hasPrice) {
         hasUnpricedVehicle = true;
         lineDesc = `${vName} · ${sLabel} × ${qty} (Ask us)`;
+      } else if (unitPrice === 0) {
+        lineDesc = `${vName} · ${sLabel} × ${qty} = Free`;
       } else if (isTour) {
         lineDesc = `${vName} · ${sLabel} × ${qty} veh × ${lineDays} day${lineDays > 1 ? 's' : ''} = ₹${lineTotal.toLocaleString('en-IN')}`;
       } else {
@@ -1367,6 +1731,8 @@ function calculateLivePrice() {
         vBanner.textContent = `Total Transport: ₹${carTotal.toLocaleString('en-IN')}`;
       } else if (hasUnpricedVehicle) {
         vBanner.textContent = `Total Transport: Ask us (rate on request)`;
+      } else if (activeVehicleLines.some(l => l.hasPrice && l.unitPrice === 0)) {
+        vBanner.textContent = `Total Transport: Free`;
       } else {
         vBanner.textContent = '';
       }
@@ -1382,8 +1748,8 @@ function calculateLivePrice() {
 
   if (candleNeed) {
     dinnerUnitPrice = dinnerSetup === 'Beachside'
-      ? (hotelSettings.candlelightDinnerBeachside || 3500)
-      : (hotelSettings.candlelightDinnerPoolside || 2800);
+      ? Number(hotelSettings.candlelightDinnerBeachside || 3500)
+      : Number(hotelSettings.candlelightDinnerPoolside || 2800);
 
     const isPerGuest = hotelSettings.candlelightPricingMode === 'per_guest';
     dinnerMultiplier = isPerGuest ? adultsCount : dinnerCount;
@@ -1392,10 +1758,9 @@ function calculateLivePrice() {
 
   // Formula: Optional Breakfast Add-on
   const bfEnabled = hotelSettings.breakfastEnabled !== false && (!hotelSettings.breakfastAddon || hotelSettings.breakfastAddon.enabled !== false);
-  const bfNeed = document.getElementById('toggleBreakfast')?.checked && bfEnabled;
+  const bfNeed = Boolean(document.getElementById('toggleBreakfast')?.checked && bfEnabled);
   const bfPrice = Number(hotelSettings.breakfastPrice !== undefined ? hotelSettings.breakfastPrice : (hotelSettings.breakfastAddon?.price || 200));
   const bfUnit = hotelSettings.breakfastUnit || hotelSettings.breakfastAddon?.unit || 'per_person_per_day';
-  const childrenCount = parseInt(document.getElementById('bookChildren')?.value, 10) || 0;
   const totalGuests = adultsCount + childrenCount;
 
   let bfCount = parseInt(document.getElementById('breakfastGuestsInput')?.value, 10) || totalGuests;
@@ -1427,15 +1792,14 @@ function calculateLivePrice() {
   }
 
   const grandTotal = baseSubtotal + taxAmount;
-  const advancePercent = hotelSettings.advancePercentage || 20;
-  const payNow = hasNumericPrice ? Math.round((grandTotal * advancePercent) / 100) : Math.round((carTotal + dinnerTotal + breakfastTotal + taxAmount) * advancePercent / 100);
-  const payAtHotel = hasNumericPrice ? (grandTotal - payNow) : null;
+  const advancePercent = Number(hotelSettings.advancePercentage) || 20;
+  const payNow = Math.round((grandTotal * advancePercent) / 100);
+  const payAtHotel = grandTotal - payNow;
 
-  // Breakdown lines formatting as specified in Prompt 2:
-  // Examples: “Room: ₹X × 2 nights × 1 room,” “Toto × 1 × 2 days,” “Candlelight dinner.” Only show lines that apply.
+  // Breakdown lines formatting:
   const roomBreakdownText = hasNumericPrice
-    ? `Room: ₹${roomPrice.toLocaleString('en-IN')} × ${nights} night${nights > 1 ? 's' : ''} × ${roomsCount} room${roomsCount > 1 ? 's' : ''}`
-    : `Room: ${selectedOpt ? selectedOpt.text.split('—')[0].trim() : 'Room'} (Ask at hotel)`;
+    ? `Room: ₹${roomPrice.toLocaleString('en-IN')} × ${nights} night${nights > 1 ? 's' : ''} × ${roomsCount} room${roomsCount > 1 ? 's' : ''} = ₹${roomSubtotal.toLocaleString('en-IN')}`
+    : `Room: ${selectedRoomObj ? selectedRoomObj.name : 'Suite'} (Ask at hotel)`;
 
   const transportBreakdownText = carNeed
     ? `${vehicleName} × ${carCount} × ${nights} day${nights > 1 ? 's' : ''}`
@@ -1444,11 +1808,11 @@ function calculateLivePrice() {
   let dinnerBreakdownText = '';
   if (candleNeed) {
     if (hotelSettings.candlelightPricingMode === 'per_guest') {
-      dinnerBreakdownText = `Candlelight dinner (${dinnerSetup}) × ${adultsCount} guests`;
+      dinnerBreakdownText = `Candlelight dinner (${dinnerSetup}) × ${adultsCount} guests = ₹${dinnerTotal.toLocaleString('en-IN')}`;
     } else if (dinnerMultiplier > 1) {
-      dinnerBreakdownText = `Candlelight dinner (${dinnerSetup}) × ${dinnerMultiplier}`;
+      dinnerBreakdownText = `Candlelight dinner (${dinnerSetup}) × ${dinnerMultiplier} = ₹${dinnerTotal.toLocaleString('en-IN')}`;
     } else {
-      dinnerBreakdownText = `Candlelight dinner`;
+      dinnerBreakdownText = `Candlelight dinner (${dinnerSetup}) = ₹${dinnerTotal.toLocaleString('en-IN')}`;
     }
   }
 
@@ -1456,57 +1820,48 @@ function calculateLivePrice() {
     ? `GST / Taxes (${taxPct}%): ₹${taxAmount.toLocaleString('en-IN')}`
     : '';
 
-  // Update Total, Pay Now (20%), and Pay at Hotel (80%)
-  const totalEl = document.getElementById('liveTotalAmount');
-  const payNowEl = document.getElementById('livePayNow');
-  const payHotelEl = document.getElementById('livePayHotel');
-  const nightsLabel = document.getElementById('liveNightsCount');
-  const checkoutBtn = document.getElementById('openCheckoutModalBtn');
-
   if (totalEl) {
+    totalEl.classList.remove('neutral-message');
     if (hasNumericPrice) {
       totalEl.textContent = `₹${grandTotal.toLocaleString('en-IN')}`;
     } else {
-      totalEl.textContent = (carTotal + dinnerTotal + breakfastTotal + taxAmount > 0) ? `Ask at hotel (+ ₹${(carTotal + dinnerTotal + breakfastTotal + taxAmount).toLocaleString('en-IN')})` : 'Ask at hotel';
+      totalEl.textContent = (carTotal + dinnerTotal + breakfastTotal + taxAmount > 0)
+        ? `Ask at hotel (+ ₹${(carTotal + dinnerTotal + breakfastTotal + taxAmount).toLocaleString('en-IN')})`
+        : 'Ask at hotel';
     }
   }
 
   if (payNowEl) {
-    if (hasNumericPrice) {
-      payNowEl.textContent = `₹${payNow.toLocaleString('en-IN')}`;
-    } else {
-      payNowEl.textContent = (payNow > 0) ? `₹${payNow.toLocaleString('en-IN')} (Add-ons)` : 'Ask at hotel';
-    }
+    payNowEl.textContent = hasNumericPrice ? `₹${payNow.toLocaleString('en-IN')}` : '—';
   }
 
   if (payHotelEl) {
-    if (hasNumericPrice) {
-      payHotelEl.textContent = `₹${payAtHotel.toLocaleString('en-IN')}`;
-    } else {
-      payHotelEl.textContent = 'Pay balance at hotel';
-    }
+    payHotelEl.textContent = hasNumericPrice ? `₹${payAtHotel.toLocaleString('en-IN')}` : '—';
   }
-
-  if (nightsLabel) nightsLabel.textContent = `${nights} night${nights > 1 ? 's' : ''}`;
 
   // Sync to Mobile Summary Card & Bottom Sheet
   if (typeof window.syncMobileBookingDisplays === 'function') {
     window.syncMobileBookingDisplays({
+      isComplete: true,
       checkIn: checkInVal,
       checkOut: checkOutVal,
       nights,
       roomsCount,
       adultsCount,
-      currentChildren: parseInt(document.getElementById('bookChildren')?.value, 10) || 0,
+      currentChildren: childrenCount,
       grandTotal,
       payNow,
+      payAtHotel,
       isSoldOut
     });
   }
 
-  // Update itemized breakdown lines under the total (only show lines that apply)
+  // Show breakdown container and update itemized lines
+  if (breakdownContainer) breakdownContainer.style.display = 'flex';
+
   const roomLineEl = document.getElementById('liveRoomSummaryLine');
   const transportSummaryLine = document.getElementById('liveTransportSummaryLine');
+  const breakfastLineEl = document.getElementById('liveBreakfastSummaryLine');
   const dinnerLineEl = document.getElementById('liveDinnerSummaryLine');
   const taxLineEl = document.getElementById('liveTaxSummaryLine');
 
@@ -1525,7 +1880,6 @@ function calculateLivePrice() {
     }
   }
 
-  const breakfastLineEl = document.getElementById('liveBreakfastSummaryLine');
   if (breakfastLineEl) {
     if (bfNeed && breakfastTotal > 0) {
       breakfastLineEl.style.display = 'flex';
@@ -1557,16 +1911,12 @@ function calculateLivePrice() {
   }
 
   // Validate Capacity Limits and enforce 2 Adults + 1 Child per room rule
-  const selectedRoomObj = hotelRooms.find(r => r.id === roomSelect.value);
   const rMaxA = selectedRoomObj ? (parseInt(selectedRoomObj.maxAdults, 10) || 2) : 2;
   const rMaxC = selectedRoomObj ? ((selectedRoomObj.maxChildren !== undefined && selectedRoomObj.maxChildren !== null) ? parseInt(selectedRoomObj.maxChildren, 10) : 1) : 1;
   const maxAllowedAdults = rMaxA * roomsCount;
   const maxAllowedChildren = rMaxC * roomsCount;
 
-  const currentAdults = parseInt(document.getElementById('bookAdults')?.value, 10) || 2;
-  const currentChildren = parseInt(document.getElementById('bookChildren')?.value, 10) || 0;
-
-  const isCapacityExceeded = (currentAdults > maxAllowedAdults) || (currentChildren > maxAllowedChildren);
+  const isCapacityExceeded = (adultsCount > maxAllowedAdults) || (childrenCount > maxAllowedChildren);
   const capacityAlertEl = document.getElementById('roomCapacityAlert');
   const capacityAlertMsg = document.getElementById('roomCapacityAlertMsg');
 
@@ -1584,14 +1934,17 @@ function calculateLivePrice() {
   if (checkoutBtn) {
     if (isSoldOut || maxRoomAvail <= 0) {
       checkoutBtn.disabled = true;
+      checkoutBtn.setAttribute('aria-disabled', 'true');
       checkoutBtn.textContent = 'Room Sold Out for Selected Dates';
       checkoutBtn.className = 'btn btn-disabled';
     } else if (isCapacityExceeded) {
       checkoutBtn.disabled = true;
+      checkoutBtn.setAttribute('aria-disabled', 'true');
       checkoutBtn.textContent = 'Capacity Exceeded · Please Add Another Room';
       checkoutBtn.className = 'btn btn-disabled';
     } else {
       checkoutBtn.disabled = false;
+      checkoutBtn.setAttribute('aria-disabled', 'false');
       checkoutBtn.innerHTML = `<span class="material-symbols-outlined">verified</span> Reserve Stay (Pay 20% Now)`;
       checkoutBtn.className = 'btn btn-coral';
     }
@@ -1616,12 +1969,10 @@ function calculateLivePrice() {
   ];
 
   // Update live suite inclusions banner in live booking form
-  const incBanner = document.getElementById('liveSuiteInclusionsBanner');
-  const incChipsContainer = document.getElementById('liveSuiteInclusionsChips');
   if (incBanner && incChipsContainer) {
     if (suiteInclusions.length > 0) {
       incBanner.style.display = 'flex';
-      incChipsContainer.innerHTML = suiteInclusions.map((inc, i) => {
+      incChipsContainer.innerHTML = suiteInclusions.map((inc) => {
         const txt = typeof inc === 'string' ? inc : inc.text;
         return `<span class="inc-pill"><span class="material-symbols-outlined" style="font-size:12px; color:#10B981;">check_circle</span> ${txt}</span>`;
       }).join('');
@@ -1632,8 +1983,10 @@ function calculateLivePrice() {
   }
 
   return {
-    roomId: roomSelect.value,
-    roomName: selectedOpt ? selectedOpt.text.split('—')[0].trim() : '',
+    isValid: !isSoldOut && !isCapacityExceeded,
+    isComplete: true,
+    roomId: selectedRoomId,
+    roomName: selectedRoomObj ? selectedRoomObj.name : (selectedOpt ? selectedOpt.text.split('—')[0].trim() : ''),
     roomPrice,
     checkIn: checkInVal,
     checkOut: checkOutVal,
@@ -1675,32 +2028,41 @@ function calculateLivePrice() {
   };
 }
 
-// "Book This Room" button handler
+// "Book This Room" button handler: preselects suite in booking form and scrolls to booking section
 window.selectRoomForBooking = function(roomId) {
   const avail = currentAvailabilityMap[roomId];
-  if (avail && (avail.available <= 0 || avail.isSoldOut)) {
-    alert('This room is sold out for the selected dates. Please choose different dates or select another suite.');
+  const roomObj = (hotelRooms || []).find(r => r.id === roomId);
+  if ((roomObj && roomObj.isSoldOut) || (avail && (avail.available <= 0 || avail.isSoldOut))) {
+    showBookingFormError('This suite is sold out for the selected dates. Please choose another suite.');
     return;
   }
 
   const roomSelect = document.getElementById('bookRoomSelect');
   if (roomSelect) {
     roomSelect.value = roomId;
+    syncToMobileRoomOptions(roomId);
     updateRoomsCountDropdown();
     updateGuestDropdownLimits();
     calculateLivePrice();
   }
-  
-  // Smooth scroll to booking section
+
+  // Smooth scroll to booking section so guest can review or select dates
   const bookingSec = document.getElementById('bookingSection');
   if (bookingSec) {
     bookingSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  // Open the checkout modal
-  setTimeout(() => {
-    openCheckoutModal();
-  }, 450);
+  const checkInEl = document.getElementById('bookCheckIn');
+  const checkOutEl = document.getElementById('bookCheckOut');
+  if (!checkInEl?.value || !checkOutEl?.value) {
+    showBookingFormError('Suite selected! Please choose your check-in and check-out dates to see your total.');
+    setTimeout(() => {
+      if (checkInEl && !checkInEl.value) checkInEl.focus();
+      else if (checkOutEl && !checkOutEl.value) checkOutEl.focus();
+    }, 450);
+  } else {
+    showBookingFormError('');
+  }
 };
 
 // "Reserve Candlelight Dinner" CTA handler
@@ -1726,8 +2088,12 @@ window.selectCandlelightAddon = function(setup = 'Beachside') {
 // Open Reservation Checkout Modal
 function openCheckoutModal() {
   const calc = calculateLivePrice();
-  if (!calc || calc.isSoldOut) {
-    alert('The selected room is currently Sold Out. Please select an available suite.');
+  if (!calc || !calc.isComplete) {
+    showBookingFormError(calc?.missingReason || 'Please choose your dates and select a suite');
+    return;
+  }
+  if (calc.isSoldOut) {
+    showBookingFormError('The selected suite is currently sold out. Please select an available suite.');
     return;
   }
 
@@ -1757,7 +2123,7 @@ function openCheckoutModal() {
   summaryBox.innerHTML = `
     <div style="background: #FAF6EE; border: 1px solid var(--champagne-gold); border-radius: 12px; padding: 18px; margin-bottom: 20px;">
       <div style="font-size: 0.82rem; color: #666; margin-bottom: 12px; border-bottom: 1px solid #EAE0D0; padding-bottom: 8px;">
-        Dates: <strong>${calc.checkIn}</strong> to <strong>${calc.checkOut}</strong> (${calc.nights} night${calc.nights > 1 ? 's' : ''})
+        Dates: <strong>${calc.checkIn} (from ${hotelSettings.checkInTime || '11:00 AM'})</strong> to <strong>${calc.checkOut} (until ${hotelSettings.checkOutTime || '9:30 AM'})</strong> (${calc.nights} night${calc.nights > 1 ? 's' : ''})
       </div>
 
       <div style="margin-bottom: 12px;">
@@ -1963,6 +2329,8 @@ async function handleReservationSubmit(e) {
 
     const data = await res.json();
     if (data.success && data.booking) {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<span class="material-symbols-outlined">check_circle</span> Confirm Reservation';
       document.getElementById('checkoutModal').classList.remove('open');
       renderBookingVoucher(data.booking);
       fetchAndApplyAvailability();
@@ -2002,11 +2370,11 @@ function renderBookingVoucher(booking) {
         <h2 style="font-family: var(--font-serif); font-size: 1.8rem; color: var(--ocean-blue); margin-bottom: 2px;">Coastal View</h2>
         <div style="font-size: 0.76rem; letter-spacing: 2px; text-transform: uppercase; color: var(--champagne-gold); margin-bottom: 6px;">Managed By Ani's</div>
         <div style="display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px;">
-          <div class="voucher-ref" style="font-weight: 700; color: var(--ocean-blue); background: #E0F2FE; border-color: #BAE6FD;">
-            INVOICE NO: ${booking.invoiceNumber || 'CV-2026-Pending'}
-          </div>
-          <div class="voucher-ref" style="background: rgba(7, 59, 76, 0.06);">
+          <div class="voucher-ref" style="font-weight: 800; font-size: 0.95rem; color: #073B4C; background: #E0F2FE; border: 1.5px solid #7DD3FC; padding: 6px 14px; border-radius: 6px;">
             BOOKING ID: ${booking.bookingId}
+          </div>
+          <div class="voucher-ref" style="font-weight: 600; color: #475569; background: #F8FAFC; border: 1px solid #CBD5E1; padding: 6px 14px; border-radius: 6px;">
+            INVOICE NO: ${booking.invoiceNumber || booking.bookingId}
           </div>
         </div>
         <div style="margin-top: 4px;">
@@ -2024,8 +2392,8 @@ function renderBookingVoucher(booking) {
         <div class="voucher-row"><span>Suite Booked:</span> <strong>${booking.roomName} (${booking.roomsCount} room)</strong></div>
         <div class="voucher-row"><span>Included in Stay:</span> <strong style="color: #10B981;">AC, Free Wi-Fi, Smart TV, Pool access, Housekeeping, Hot water</strong></div>
         ${booking.breakfast ? `<div class="voucher-row"><span>Optional Breakfast:</span> <strong>Breakfast Add-on (${booking.breakfastUnit === 'per_room_per_day' ? (booking.roomsCount || 1) + ' room' : (booking.breakfastGuests || 2) + ' guest(s)'}, ${booking.nights} day(s) - ₹${(booking.breakfastTotal || 0).toLocaleString('en-IN')})</strong></div>` : ''}
-        <div class="voucher-row"><span>Check-In:</span> <strong>${booking.checkIn} (from ${hotelSettings.checkInTime || '12:00 PM'})</strong></div>
-        <div class="voucher-row"><span>Check-Out:</span> <strong>${booking.checkOut} (until ${hotelSettings.checkOutTime || '11:00 AM'})</strong></div>
+        <div class="voucher-row"><span>Check-In:</span> <strong>${booking.checkIn} (from ${hotelSettings.checkInTime || '11:00 AM'})</strong></div>
+        <div class="voucher-row"><span>Check-Out:</span> <strong>${booking.checkOut} (until ${hotelSettings.checkOutTime || '9:30 AM'})</strong></div>
         <div class="voucher-row"><span>Duration:</span> <strong>${booking.nights} night(s)</strong></div>
         ${booking.vehicleLines && booking.vehicleLines.length > 0 
           ? booking.vehicleLines.map(vl => `<div class="voucher-row"><span>Transport (${vl.vehicleName}):</span> <strong>${vl.serviceLabel || vl.serviceType} (×${vl.quantity}${vl.serviceType === 'tour' ? ', ' + (vl.days || 1) + 'd' : ''}) - ₹${(vl.lineTotal || 0).toLocaleString('en-IN')}${vl.pickupPoint ? ' | Pick: ' + vl.pickupPoint + (vl.pickupTime ? ' ' + vl.pickupTime : '') : ''}${vl.dropPoint ? ' | Drop: ' + vl.dropPoint + (vl.dropTime ? ' ' + vl.dropTime : '') : ''}</strong></div>`).join('')
@@ -2059,8 +2427,8 @@ function renderBookingVoucher(booking) {
 
       <div style="background: rgba(7, 59, 76, 0.05); border-radius: 8px; padding: 12px 14px; margin-bottom: 20px; font-size: 0.8rem; color: #444;">
         <strong style="color: var(--ocean-blue);">To Complete 20% Advance Transfer:</strong><br>
-        UPI ID: <strong style="color: var(--turquoise);">${hotelSettings.paymentUPI || 'coastalview@upi'}</strong><br>
-        Bank Details: ${hotelSettings.paymentBank || 'Contact hotel for bank wire details'}<br>
+        ${hotelSettings.paymentUPI ? `UPI ID: <strong style="color: var(--turquoise);">${hotelSettings.paymentUPI}</strong><br>` : ''}
+        ${hotelSettings.paymentBank ? `Bank Details: ${hotelSettings.paymentBank}<br>` : ''}
         <em>Please send your transfer screenshot on WhatsApp to <strong>${hotelSettings.whatsapp || '+91 7812027551'}</strong> with Booking ID <strong>${booking.bookingId}</strong>.</em>
       </div>
 
@@ -2077,6 +2445,9 @@ function renderBookingVoucher(booking) {
             <span class="material-symbols-outlined">print</span> Print Voucher
           </button>
         `}
+        <a class="btn btn-outline-gold" href="${hotelSettings.reviewLink || 'https://maps.app.goo.gl/NroV1rQ4ZkgKuqQg7'}" target="_blank" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+          ⭐ Review us
+        </a>
         <button class="btn btn-outline-gold" onclick="document.getElementById('voucherModal').classList.remove('open')">
           Done
         </button>

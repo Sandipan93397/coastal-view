@@ -1,3 +1,4 @@
+const testEnv = require('./test_db_helper');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -49,6 +50,7 @@ function get(endpoint, token = null) {
 }
 
 async function runAllTests() {
+  await testEnv.startIsolatedServer();
   console.log('================================================================');
   console.log('   PROMPT 2: BOOKING TOTAL CALCULATION & BREAKDOWN TEST SUITE   ');
   console.log('================================================================\n');
@@ -70,7 +72,7 @@ async function runAllTests() {
   // --- PART 1: TEST SCENARIOS FROM PROMPT 2 VIA SERVER API ---
 
   // Admin login to verify settings & email
-  const loginRes = await post('/api/auth/login', { username: 'admin', password: 'CoastalAdmin@2026' });
+  const loginRes = await post('/api/auth/login', { username: 'admin', password: testEnv.TEST_PASSWORDS.admin });
   assert(loginRes.data.success, 'Super Admin logged in successfully');
   const token = loginRes.data.token;
 
@@ -101,8 +103,8 @@ async function runAllTests() {
     needCar: false,
     candlelightDinner: false,
     guestName: 'Ananya Roy',
-    guestPhone: '+91 98300 11111',
-    guestEmail: 'ananya.roy@example.com',
+    guestPhone: '+91 7812027551',
+    guestEmail: 'ananya.roy@testdomain.in',
     clientTotal: 999999 // Must be IGNORED by server!
   });
 
@@ -129,9 +131,9 @@ async function runAllTests() {
     vehicleType: 'toto',
     carCount: 1,
     candlelightDinner: false,
-    guestName: 'Debashis Mukherjee',
-    guestPhone: '+91 98300 22222',
-    guestEmail: 'debashis@example.com',
+    guestName: 'Sourav Mukherjee',
+    guestPhone: '+91 7812027552',
+    guestEmail: 'Rajarshi@testdomain.in',
     clientTotal: 10 // Must be IGNORED by server!
   });
 
@@ -165,8 +167,8 @@ async function runAllTests() {
     dinnerSetup: 'Beachside',
     dinnerCount: 1,
     guestName: 'Subhasish Ghosh',
-    guestPhone: '+91 98300 33333',
-    guestEmail: 'subhasish@example.com'
+    guestPhone: '+91 7812027553',
+    guestEmail: 'subhasish@testdomain.in'
   });
 
   assert(resC.status === 200 && resC.data.success, 'Scenario C booking created successfully');
@@ -202,7 +204,7 @@ async function runAllTests() {
     candlelightDinner: true,
     dinnerSetup: 'Poolside',
     guestName: 'Sanjay Dutt',
-    guestPhone: '+91 98300 44444'
+    guestPhone: '+91 7812027554'
   });
   // Auto: 1200 * 2 * 1 = 2400. Poolside: 2800. Room: 2500. Total = 7700
   assert(resD1.data.totalAmount === 7700, `Turned ON: Total is ₹7,700 (actual: ₹${resD1.data.totalAmount})`);
@@ -217,7 +219,7 @@ async function runAllTests() {
     needCar: false,
     candlelightDinner: false,
     guestName: 'Sanjay Dutt',
-    guestPhone: '+91 98300 44444'
+    guestPhone: '+91 7812027554'
   });
   assert(resD2.data.totalAmount === 2500, `Turned OFF: Total dropped back to ₹2,500 (actual: ₹${resD2.data.totalAmount})`);
   assert(resD2.data.booking.carTotal === 0, 'Transport cost is 0 when turned off');
@@ -240,7 +242,7 @@ async function runAllTests() {
     needCar: false,
     candlelightDinner: false,
     guestName: 'Tax Test Guest',
-    guestPhone: '+91 98300 55555'
+    guestPhone: '+91 7812027555'
   });
   // Subtotal = 2500. 12% tax = 300. Total = 2800
   assert(resE.data.booking.taxAmount === 300, `Tax calculated when enabled in admin (actual: ₹${resE.data.booking.taxAmount})`);
@@ -262,7 +264,7 @@ async function runAllTests() {
   // Check confirmation email in outbox
   const outboxRes = await get('/api/admin/emails', token);
   assert(outboxRes.data.success, 'Admin retrieved email outbox');
-  const confirmationEmail = outboxRes.data.emails.find(e => e.to === 'subhasish@example.com');
+  const confirmationEmail = outboxRes.data.emails.find(e => e.to === 'subhasish@testdomain.in');
   assert(confirmationEmail !== undefined, 'Confirmation email dispatched to guest email');
   assert(confirmationEmail.html.includes('Room: ₹2,700 × 2 nights × 2 rooms'), 'Confirmation email table contains itemized room breakdown');
   assert(confirmationEmail.html.includes('Car × 1 × 2 days'), 'Confirmation email table contains transport breakdown');

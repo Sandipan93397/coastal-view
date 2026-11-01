@@ -50,18 +50,33 @@ Hostinger Business Web Hosting includes PHP 8.1 / 8.2 / 8.3 with PDO SQLite enab
 
 ---
 
-## Method 2: Hostinger Node.js Application Deployment
+## Method 2: Hostinger Business Node.js Application Deployment (Recommended)
 
-If you prefer using Hostinger's Node.js engine:
-1. In Hostinger hPanel, search for **Node.js**.
-2. Click **Create Application**.
-3. Set:
-   * **Node.js Version:** `20.x` or `18.x`
-   * **Application Root:** `public_html`
-   * **Application Startup File:** `server.js`
-4. Upload all project files including `package.json` and `server.js`.
-5. Click **NPM Install** in the hPanel Node.js manager.
-6. Click **Start / Restart Application**.
+1. **Node.js Version:**
+   * Select **Node.js `22.x` (`>= 22.5.0`)** in Hostinger hPanel -> **Advanced** -> **Node.js** so built-in `node:sqlite` (`admin_staff.sqlite` in WAL mode) is active. (Node `20.x` / `18.x` is also supported via automatic atomic JSON fallback).
+2. **Keep `DATA_DIR` and `UPLOADS_DIR` Outside `public_html` (Redeploy-Safe):**
+   * On Hostinger, Git pulls or ZIP redeployments inside `public_html/` can overwrite files inside the app root.
+   * Create persistent directories **outside** `public_html/` via SSH or File Manager:
+     ```bash
+     mkdir -p /home/u123456789/coastalview_data/backups
+     mkdir -p /home/u123456789/coastalview_data/invoices
+     mkdir -p /home/u123456789/coastalview_uploads
+     chmod 700 /home/u123456789/coastalview_data
+     ```
+   * Set in `.env` (or hPanel Node.js Environment Variables):
+     ```env
+     NODE_ENV=production
+     DATA_DIR=/home/u123456789/coastalview_data
+     UPLOADS_DIR=/home/u123456789/coastalview_uploads
+     ```
+3. **Exclude Test Files from Production:**
+   * Do **not** upload `test_*.js`, `verify_*.js`, `test_db_helper.js`, `scripts/test_*.js`, or `scratch/` (see `.deployignore` and `package.json` `"files"`).
+4. **Daily Automated Backups:**
+   * The Node server runs `performDailyBackup()` on startup and every 24 hours, writing `db-backup-YYYY-MM-DD.json` into `$DATA_DIR/backups/` (14-day rolling retention).
+   * In Hostinger **hPanel -> Advanced -> Cron Jobs**, add a daily off-dir backup cron (`0 2 * * *`):
+     ```bash
+     mkdir -p /home/u123456789/offsite_backups && tar -czf /home/u123456789/offsite_backups/coastalview-data-$(date +\%F).tar.gz /home/u123456789/coastalview_data && find /home/u123456789/offsite_backups -name "coastalview-data-*.tar.gz" -mtime +30 -delete
+     ```
 
 ---
 

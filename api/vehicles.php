@@ -5,6 +5,9 @@ $method = $_SERVER['REQUEST_METHOD'];
 $db = getDB();
 
 if ($method === 'GET') {
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
     echo json_encode([
         'success' => true,
         'vehicles' => $db['vehicles'] ?? [],
@@ -24,6 +27,40 @@ if ($method === 'POST') {
     $action = $_GET['action'] ?? '';
     $idParam = $_GET['id'] ?? '';
     $input = getJsonInput();
+
+    if ($action === 'cell' || strpos($_SERVER['REQUEST_URI'] ?? '', '/cell') !== false) {
+        $id = $_GET['id'] ?? ($input['id'] ?? '');
+        $serviceType = $input['serviceType'] ?? '';
+        $price = $input['price'] ?? null;
+        $enabled = isset($input['enabled']) ? boolval($input['enabled']) : true;
+
+        $db['vehicles'] = $db['vehicles'] ?? [];
+        $found = false;
+        foreach ($db['vehicles'] as &$v) {
+            if ($v['id'] === $id) {
+                $v['services'] = $v['services'] ?? [];
+                $numPrice = ($price === null || $price === '' || !is_numeric($price)) ? null : max(0, floatval($price));
+                $isEnabled = $numPrice === null ? false : $enabled;
+                $v['services'][$serviceType] = [
+                    'price' => $numPrice,
+                    'enabled' => $isEnabled
+                ];
+                if ($serviceType === 'tour') {
+                    $v['pricePerDay'] = $numPrice;
+                }
+                $found = true;
+                break;
+            }
+        }
+        if ($found) {
+            saveDB($db);
+            echo json_encode(['success' => true, 'message' => 'Cell updated']);
+        } else {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Vehicle not found']);
+        }
+        exit;
+    }
 
     if ($action === 'toggle-triptype' || $action === 'settings' || $idParam === 'settings') {
         $enable = !empty($input['enableTripType']);

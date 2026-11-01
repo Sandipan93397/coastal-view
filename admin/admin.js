@@ -42,6 +42,7 @@ let turnstileWidgetId = null;
 let turnstileSiteKey = null;
 let isCaptchaRequired = false;
 let captchaPolicy = 'smart';
+let currentPreAuthHasTotp = false;
 
 // Menu Manager & Circular Cropper State
 let filterOnlyNeedingPhotos = false;
@@ -202,15 +203,19 @@ function initAuth() {
             const modeTitle = document.getElementById('twoFactorModeTitle');
             const modeInstruction = document.getElementById('twoFactorInstruction');
             const switchBtn = document.getElementById('btnSwitchToEmailCode');
+            const totpBtn = document.getElementById('btnSwitchToTotpCode');
+            currentPreAuthHasTotp = Boolean(data.hasTotp || data.mfaType === 'totp');
 
             if (data.mfaType === 'totp') {
               if (modeTitle) modeTitle.textContent = 'Authenticator App (TOTP)';
               if (modeInstruction) modeInstruction.textContent = 'Enter the 6-digit verification code from your Authenticator app.';
               if (switchBtn) switchBtn.style.display = 'inline-block';
+              if (totpBtn) totpBtn.style.display = 'none';
             } else {
               if (modeTitle) modeTitle.textContent = 'Email Verification Code';
               if (modeInstruction) modeInstruction.textContent = `Enter the 6-digit code sent to ${data.maskedEmail || 'your email'}.`;
               if (switchBtn) switchBtn.style.display = 'none';
+              if (totpBtn) totpBtn.style.display = currentPreAuthHasTotp ? 'inline-block' : 'none';
             }
 
             clearOtpInputs('otpInputsRow', 'twoFactorCode');
@@ -801,6 +806,20 @@ function initSidebarNav() {
 }
 
 function switchTab(targetId) {
+  // Enforce server-aligned RBAC on tab switching
+  if (['tabUsers', 'tabSettings', 'tabAudit'].includes(targetId)) {
+    if (!currentUser || currentUser.role !== 'Super Admin') {
+      showToast("You don't have permission to access this section.", "error");
+      return;
+    }
+  }
+  if (['tabRooms', 'tabPhotos', 'tabMenu', 'tabGallery', 'tabContent', 'tabVehicles', 'tabReports'].includes(targetId)) {
+    if (!currentUser || !['Super Admin', 'Manager'].includes(currentUser.role)) {
+      showToast("You don't have permission to access this section.", "error");
+      return;
+    }
+  }
+
   const panes = document.querySelectorAll('.admin-tab-pane');
   panes.forEach(p => p.classList.remove('active'));
   const pane = document.getElementById(targetId);
@@ -814,6 +833,9 @@ function switchTab(targetId) {
     if (typeof loadEmailStats === 'function') loadEmailStats();
     if (typeof loadActiveSessions === 'function') loadActiveSessions();
     if (typeof loadUserSecurityStatus === 'function') loadUserSecurityStatus();
+  }
+  if (targetId === 'tabUsers') {
+    if (typeof renderUsersTab === 'function') renderUsersTab();
   }
 }
 window.switchTab = switchTab;
@@ -1090,8 +1112,6 @@ function applyRoleVisibility(role) {
     if (navContent) navContent.style.display = 'flex';
     if (navVehicles) navVehicles.style.display = 'flex';
     if (navReports) navReports.style.display = 'flex';
-    if (navSettings) navSettings.style.display = 'flex';
-    if (navBackup) navBackup.style.display = 'flex';
   } else {
     // Front Desk restrictions
     if (navRooms) navRooms.style.display = 'none';
@@ -1101,14 +1121,17 @@ function applyRoleVisibility(role) {
     if (navContent) navContent.style.display = 'none';
     if (navVehicles) navVehicles.style.display = 'none';
     if (navReports) navReports.style.display = 'none';
-    if (navSettings) navSettings.style.display = 'none';
-    if (navBackup) navBackup.style.display = 'none';
   }
 
+  // Super Admin ONLY: Users, Settings, Backup
   if (isSuperAdmin) {
     if (navUsers) navUsers.style.display = 'flex';
+    if (navSettings) navSettings.style.display = 'flex';
+    if (navBackup) navBackup.style.display = 'flex';
   } else {
     if (navUsers) navUsers.style.display = 'none';
+    if (navSettings) navSettings.style.display = 'none';
+    if (navBackup) navBackup.style.display = 'none';
   }
 }
 
@@ -3979,6 +4002,41 @@ function renderWebsiteContent() {
     document.getElementById('tourBookingUrl').value = c.anisTours.bookingUrl || '';
     document.getElementById('tourDescription').value = c.anisTours.description || '';
   }
+
+  // Google Review Link & QR
+  const reviewUrl = (c.reviewLink?.url || c.reviewLink || (adminState.invoiceSettings && adminState.invoiceSettings.reviewLink) || 'https://maps.app.goo.gl/NroV1rQ4ZkgKuqQg7');
+  if (document.getElementById('cfgGoogleReviewUrl')) {
+    document.getElementById('cfgGoogleReviewUrl').value = reviewUrl;
+  }
+  updateReviewQrPreview();
+
+  // Booking Timings & Guest Policies (Synced with adminState.settings)
+  const s = adminState.settings || {};
+  const bp = c.bookingPolicies || {};
+  if (document.getElementById('contentCheckInTime')) document.getElementById('contentCheckInTime').value = s.checkInTime || bp.checkInTime || '11:00 AM';
+  if (document.getElementById('contentCheckOutTime')) document.getElementById('contentCheckOutTime').value = s.checkOutTime || bp.checkOutTime || '9:30 AM';
+  if (document.getElementById('contentGuestCapacityHelper')) document.getElementById('contentGuestCapacityHelper').value = s.guestCapacityHelper || bp.guestCapacityHelper || 'Max 2 adults & 1 child per room';
+  if (document.getElementById('contentExtraBedNote')) document.getElementById('contentExtraBedNote').value = s.extraBedNote !== undefined ? s.extraBedNote : (bp.extraBedNote !== undefined ? bp.extraBedNote : 'Need an extra bed? Please call front desk at +91 7812027551.');
+  if (document.getElementById('contentChildFreeAge')) {
+    const ageVal = s.childComplimentaryAgeLimit !== undefined ? s.childComplimentaryAgeLimit : bp.childComplimentaryAgeLimit;
+    document.getElementById('contentChildFreeAge').value = (ageVal !== null && ageVal !== undefined && ageVal !== '') ? ageVal : '';
+  }
+  if (document.getElementById('contentChildPolicyRule')) document.getElementById('contentChildPolicyRule').value = s.childPolicyRule || bp.childPolicyRule || '';
+}
+
+async function saveBookingPoliciesContent() {
+  const rawAge = (document.getElementById('contentChildFreeAge')?.value || '').trim();
+  const payload = {
+    checkInTime: (document.getElementById('contentCheckInTime')?.value || '11:00 AM').trim(),
+    checkOutTime: (document.getElementById('contentCheckOutTime')?.value || '9:30 AM').trim(),
+    guestCapacityHelper: (document.getElementById('contentGuestCapacityHelper')?.value || '').trim(),
+    extraBedNote: (document.getElementById('contentExtraBedNote')?.value || '').trim(),
+    childComplimentaryAgeLimit: (rawAge !== '' && !isNaN(Number(rawAge)) && Number(rawAge) > 0) ? Number(rawAge) : null,
+    childPolicyRule: (document.getElementById('contentChildPolicyRule')?.value || '').trim()
+  };
+  await authFetch('/api/admin/content/bookingPolicies', { method: 'POST', body: payload });
+  showToast('Booking timings & guest policies saved.', 'success');
+  loadAllAdminData(false);
 }
 
 async function saveHeroContent() {
@@ -4831,9 +4889,13 @@ function renderVehiclesTable() {
 
     const cellHtml = serviceDefs.map(svc => {
       const cell = services[svc.key];
-      const hasPrice = cell && cell.price != null && Number(cell.price) > 0;
-      const isEnabled = cell ? !!cell.enabled : false;
-      const priceText = hasPrice ? ('₹' + Number(cell.price).toLocaleString('en-IN')) : 'Not set';
+      const hasPrice = cell && cell.price != null && cell.price !== '' && !isNaN(Number(cell.price)) && Number(cell.price) >= 0;
+      const isEnabled = cell ? cell.enabled !== false : false;
+      const numPrice = hasPrice ? Number(cell.price) : null;
+      let priceText = 'Not set';
+      if (hasPrice) {
+        priceText = numPrice === 0 ? 'Free (₹0)' : ('₹' + numPrice.toLocaleString('en-IN'));
+      }
 
       return `
         <td style="text-align: center; cursor: pointer; padding: 10px; transition: all 0.15s ease;"
@@ -4893,10 +4955,25 @@ function openEditMatrixCellModal(vehicleId, serviceType) {
     tour: 'Tour (per day)'
   };
 
+  const hasConfiguredPrice = svc.price !== null && svc.price !== undefined && svc.price !== '';
+  const priceInput = document.getElementById('matrixCellPrice');
+  const enabledCheckbox = document.getElementById('matrixCellEnabled');
+
   document.getElementById('matrixCellVehicleId').value = vehicleId;
   document.getElementById('matrixCellServiceType').value = serviceType;
-  document.getElementById('matrixCellPrice').value = (svc.price != null && svc.price !== '') ? svc.price : '';
-  document.getElementById('matrixCellEnabled').checked = svc.enabled !== false && svc.price != null && Number(svc.price) > 0;
+  priceInput.value = hasConfiguredPrice ? svc.price : '';
+  
+  // If price is already configured, respect existing enabled flag; otherwise default enabled to true
+  enabledCheckbox.checked = hasConfiguredPrice ? svc.enabled !== false : true;
+
+  // Auto-enable toggle when typing a price in the input
+  priceInput.oninput = () => {
+    const val = priceInput.value.trim();
+    if (val !== '') {
+      enabledCheckbox.checked = true;
+    }
+  };
+
   document.getElementById('matrixCellModalTitle').textContent = `Pricing: ${v.name} · ${labels[serviceType] || serviceType}`;
   document.getElementById('matrixCellLabel').textContent = `${labels[serviceType] || serviceType} Rate (₹)`;
 
@@ -4909,7 +4986,7 @@ async function handleSaveMatrixCellSubmit(e) {
   const serviceType = document.getElementById('matrixCellServiceType').value;
   const priceVal = document.getElementById('matrixCellPrice').value.trim();
   const price = priceVal === '' ? null : Number(priceVal);
-  const enabled = document.getElementById('matrixCellEnabled').checked;
+  const enabled = price === null ? false : document.getElementById('matrixCellEnabled').checked;
 
   try {
     const res = await authFetch(`/api/vehicles/${vehicleId}/cell`, {
@@ -5304,13 +5381,17 @@ function renderSettingsForm() {
   if (document.getElementById('cfgWhatsapp')) document.getElementById('cfgWhatsapp').value = s.whatsapp || '';
   if (document.getElementById('cfgEmail')) document.getElementById('cfgEmail').value = s.email || '';
   if (document.getElementById('cfgAddress')) document.getElementById('cfgAddress').value = s.address || '';
-  if (document.getElementById('cfgCheckIn')) document.getElementById('cfgCheckIn').value = s.checkInTime || '12:00 PM';
-  if (document.getElementById('cfgCheckOut')) document.getElementById('cfgCheckOut').value = s.checkOutTime || '11:00 AM';
+  if (document.getElementById('cfgCheckIn')) document.getElementById('cfgCheckIn').value = s.checkInTime || '11:00 AM';
+  if (document.getElementById('cfgCheckOut')) document.getElementById('cfgCheckOut').value = s.checkOutTime || '9:30 AM';
   if (document.getElementById('cfgAdvancePct')) document.getElementById('cfgAdvancePct').value = s.advancePercentage || 20;
   if (document.getElementById('cfgEnableTax')) document.getElementById('cfgEnableTax').checked = !!s.enableTax;
   if (document.getElementById('cfgTaxPct')) document.getElementById('cfgTaxPct').value = s.taxPercentage || 12;
   if (document.getElementById('cfgCaptchaPolicy')) document.getElementById('cfgCaptchaPolicy').value = s.captchaPolicy || 'smart';
-  if (document.getElementById('cfgChildAgeLimit')) document.getElementById('cfgChildAgeLimit').value = s.childComplimentaryAgeLimit || 5;
+  if (document.getElementById('cfgChildAgeLimit')) {
+    document.getElementById('cfgChildAgeLimit').value = (s.childComplimentaryAgeLimit !== null && s.childComplimentaryAgeLimit !== undefined && s.childComplimentaryAgeLimit !== '') ? s.childComplimentaryAgeLimit : '';
+  }
+  if (document.getElementById('cfgChildPolicyRule')) document.getElementById('cfgChildPolicyRule').value = s.childPolicyRule || '';
+  if (document.getElementById('cfgExtraBedNote')) document.getElementById('cfgExtraBedNote').value = s.extraBedNote !== undefined ? s.extraBedNote : 'Need an extra bed? Please call front desk at +91 7812027551.';
   if (document.getElementById('cfgExtraPersonAllowed')) document.getElementById('cfgExtraPersonAllowed').checked = !!s.extraPersonAllowed;
   if (document.getElementById('cfgExtraPersonPrice')) document.getElementById('cfgExtraPersonPrice').value = s.extraPersonPrice || 0;
   if (document.getElementById('cfgUpiId')) document.getElementById('cfgUpiId').value = s.paymentUPI || '';
@@ -5321,6 +5402,7 @@ function renderSettingsForm() {
 }
 
 async function saveHotelSettingsForm() {
+  const rawChildAge = (document.getElementById('cfgChildAgeLimit')?.value || '').trim();
   const body = {
     phone: document.getElementById('cfgPhone').value.trim(),
     whatsapp: document.getElementById('cfgWhatsapp').value.trim(),
@@ -5332,7 +5414,9 @@ async function saveHotelSettingsForm() {
     enableTax: document.getElementById('cfgEnableTax') ? document.getElementById('cfgEnableTax').checked : false,
     taxPercentage: Number(document.getElementById('cfgTaxPct').value),
     captchaPolicy: document.getElementById('cfgCaptchaPolicy') ? document.getElementById('cfgCaptchaPolicy').value : 'smart',
-    childComplimentaryAgeLimit: Number(document.getElementById('cfgChildAgeLimit')?.value || 5),
+    childComplimentaryAgeLimit: (rawChildAge !== '' && !isNaN(Number(rawChildAge)) && Number(rawChildAge) > 0) ? Number(rawChildAge) : null,
+    childPolicyRule: (document.getElementById('cfgChildPolicyRule')?.value || '').trim(),
+    extraBedNote: document.getElementById('cfgExtraBedNote') ? document.getElementById('cfgExtraBedNote').value.trim() : undefined,
     extraPersonAllowed: document.getElementById('cfgExtraPersonAllowed') ? document.getElementById('cfgExtraPersonAllowed').checked : false,
     extraPersonPrice: Number(document.getElementById('cfgExtraPersonPrice')?.value || 0),
     paymentUPI: document.getElementById('cfgUpiId').value.trim(),
@@ -5460,8 +5544,11 @@ async function loadInvoiceSettings() {
 }
 
 function renderInvoiceSettings(s = {}) {
-  if (document.getElementById('cfgInvPrefix')) document.getElementById('cfgInvPrefix').value = s.invoicePrefix || 'CV';
-  if (document.getElementById('cfgInvNextNumber')) document.getElementById('cfgInvNextNumber').value = s.invoiceNextNumber || 1001;
+  if (document.getElementById('cfgBookingPrefix')) document.getElementById('cfgBookingPrefix').value = s.bookingPrefix || s.invoicePrefix || 'CV';
+  if (document.getElementById('cfgBookingYear')) document.getElementById('cfgBookingYear').value = s.bookingYear || new Date().getFullYear();
+  if (document.getElementById('cfgInvPrefix')) document.getElementById('cfgInvPrefix').value = s.invoicePrefix || s.bookingPrefix || 'CV';
+  if (document.getElementById('cfgInvNextNumber')) document.getElementById('cfgInvNextNumber').value = s.bookingNextNumber || s.invoiceNextNumber || 1001;
+  if (document.getElementById('cfgPaymentMethods')) document.getElementById('cfgPaymentMethods').value = s.paymentMethods || '';
 
   const gstCheckbox = document.getElementById('cfgInvGstEnabled');
   if (gstCheckbox) {
@@ -5518,8 +5605,10 @@ function toggleInvGstFields() {
 }
 
 async function saveInvoiceSettingsForm() {
-  const prefix = document.getElementById('cfgInvPrefix') ? document.getElementById('cfgInvPrefix').value.trim() : 'CV';
+  const bookingPrefix = document.getElementById('cfgBookingPrefix') ? document.getElementById('cfgBookingPrefix').value.trim() : (document.getElementById('cfgInvPrefix') ? document.getElementById('cfgInvPrefix').value.trim() : 'CV');
+  const bookingYear = document.getElementById('cfgBookingYear') ? parseInt(document.getElementById('cfgBookingYear').value, 10) : new Date().getFullYear();
   const nextNumber = document.getElementById('cfgInvNextNumber') ? parseInt(document.getElementById('cfgInvNextNumber').value, 10) : 1001;
+  const paymentMethods = document.getElementById('cfgPaymentMethods') ? document.getElementById('cfgPaymentMethods').value.trim() : '';
   const gstEnabled = document.getElementById('cfgInvGstEnabled') ? document.getElementById('cfgInvGstEnabled').checked : false;
   const gstin = document.getElementById('cfgInvGstin') ? document.getElementById('cfgInvGstin').value.trim() : '';
   const gstRate = document.getElementById('cfgInvGstRate') ? Number(document.getElementById('cfgInvGstRate').value) : 12;
@@ -5530,8 +5619,12 @@ async function saveInvoiceSettingsForm() {
   const invoiceTerms = Array.from(termInputs).map(i => i.value.trim()).filter(Boolean);
 
   const body = {
-    invoicePrefix: prefix,
+    bookingPrefix,
+    bookingYear,
+    invoicePrefix: bookingPrefix,
+    bookingNextNumber: nextNumber,
     invoiceNextNumber: nextNumber,
+    paymentMethods,
     gstEnabled,
     gstin,
     gstRate,
@@ -5651,53 +5744,6 @@ function refreshInvoiceSamplePreview() {
   }
 }
 
-function openAddStaffModal() {
-  document.getElementById('staffAccountModal').classList.add('open');
-}
-
-async function handleCreateStaffSubmit(e) {
-  e.preventDefault();
-  const name = document.getElementById('newStaffName').value.trim();
-  const username = document.getElementById('newStaffUsername').value.trim();
-  const email = document.getElementById('newStaffEmail').value.trim();
-  const role = document.getElementById('newStaffRole').value;
-  const password = document.getElementById('newStaffPassword').value.trim();
-
-  try {
-    const res = await authFetch('/api/admin/users', {
-      method: 'POST',
-      body: { name, username, email, role, password }
-    });
-
-    closeModal('staffAccountModal');
-    showToast(res.message, res.success ? 'success' : 'error');
-    loadAllAdminData();
-  } catch (err) {
-    showToast('Error creating staff account.', 'error');
-  }
-}
-
-async function resetStaff2FA(username) {
-  if (!confirm(`Reset 2FA key for ${username}? A new verification code will be generated.`)) return;
-  try {
-    const res = await authFetch(`/api/admin/users/${username}/reset-2fa`, { method: 'POST' });
-    alert(`2FA Reset Success!\nNew Emergency Recovery Code: ${res.newCode}`);
-    showToast(res.message, 'success');
-  } catch (err) {
-    showToast('Failed to reset 2FA.', 'error');
-  }
-}
-
-async function deleteStaffAccount(username) {
-  if (!confirm(`Are you sure you want to permanently delete staff account "${username}"?`)) return;
-  try {
-    const res = await authFetch(`/api/admin/users/${username}`, { method: 'DELETE' });
-    showToast(res.message, res.success ? 'success' : 'error');
-    loadAllAdminData();
-  } catch (err) {
-    showToast('Failed to delete staff user.', 'error');
-  }
-}
 
 function downloadDatabaseBackup() {
   window.location.href = '/api/admin/backup';
@@ -7192,8 +7238,98 @@ window.filterInvoicesByStatus = function(status) {
 };
 
 // ============================================================================
-// DEDICATED USERS TAB RENDERER (SUPER ADMIN ONLY)
+// DEDICATED USERS TAB RENDERER & STAFF GOVERNANCE (SUPER ADMIN ONLY)
 // ============================================================================
+let staffDirectoryState = {
+  users: [],
+  searchQuery: '',
+  filterRole: 'ALL',
+  filterStatus: 'ALL',
+  page: 1,
+  pageSize: 10,
+  matrixLoaded: false
+};
+
+async function togglePermissionsMatrix() {
+  const card = document.getElementById('permissionsMatrixCard');
+  const btnText = document.getElementById('toggleMatrixBtnText');
+  if (!card) return;
+  const isHidden = card.style.display === 'none' || !card.style.display;
+  card.style.display = isHidden ? 'block' : 'none';
+  if (btnText) btnText.textContent = isHidden ? 'Hide Permissions Matrix' : 'View Permissions Matrix';
+  if (isHidden && !staffDirectoryState.matrixLoaded) {
+    await loadPermissionsMatrix();
+  }
+}
+window.togglePermissionsMatrix = togglePermissionsMatrix;
+
+async function loadPermissionsMatrix() {
+  const container = document.getElementById('permissionsMatrixContent');
+  if (!container) return;
+  try {
+    const res = await authFetch('/api/admin/roles-matrix');
+    if (res.success && Array.isArray(res.matrix)) {
+      staffDirectoryState.matrixLoaded = true;
+      let html = `
+        <table class="matrix-table">
+          <thead>
+            <tr>
+              <th style="width: 46%;">Module & Operational Permission</th>
+              <th style="width: 18%; text-align: center;">Super Admin</th>
+              <th style="width: 18%; text-align: center;">Manager</th>
+              <th style="width: 18%; text-align: center;">Front Desk</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+      res.matrix.forEach(cat => {
+        html += `
+          <tr class="matrix-category-row">
+            <td colspan="4">${cat.category}</td>
+          </tr>
+        `;
+        cat.items.forEach(item => {
+          html += `
+            <tr>
+              <td>${item.name}</td>
+              <td style="text-align: center;">${item.superAdmin ? '<span class="matrix-check">✓ Full</span>' : '<span class="matrix-cross">✕</span>'}</td>
+              <td style="text-align: center;">${item.manager ? '<span class="matrix-check">✓ Allowed</span>' : '<span class="matrix-cross">✕ No</span>'}</td>
+              <td style="text-align: center;">${item.frontDesk ? '<span class="matrix-check">✓ Allowed</span>' : '<span class="matrix-cross">✕ No</span>'}</td>
+            </tr>
+          `;
+        });
+      });
+      html += `</tbody></table>`;
+      container.innerHTML = html;
+    }
+  } catch (err) {
+    container.innerHTML = `<div style="color: #EF4444; padding: 12px;">Failed to load permissions matrix.</div>`;
+  }
+}
+
+function handleStaffSearch(query) {
+  staffDirectoryState.searchQuery = (query || '').trim().toLowerCase();
+  staffDirectoryState.page = 1;
+  applyStaffFiltersAndRender();
+}
+window.handleStaffSearch = handleStaffSearch;
+
+function handleStaffFilterChange() {
+  const roleSelect = document.getElementById('staffRoleFilter');
+  const statusSelect = document.getElementById('staffStatusFilter');
+  if (roleSelect) staffDirectoryState.filterRole = roleSelect.value;
+  if (statusSelect) staffDirectoryState.filterStatus = statusSelect.value;
+  staffDirectoryState.page = 1;
+  applyStaffFiltersAndRender();
+}
+window.handleStaffFilterChange = handleStaffFilterChange;
+
+function goToStaffPage(pageNum) {
+  staffDirectoryState.page = pageNum;
+  applyStaffFiltersAndRender();
+}
+window.goToStaffPage = goToStaffPage;
+
 async function renderUsersTab() {
   const tbody = document.getElementById('usersTableBody');
   if (!tbody) return;
@@ -7201,66 +7337,638 @@ async function renderUsersTab() {
   try {
     const res = await authFetch('/api/admin/users');
     if (res.success && Array.isArray(res.users)) {
-      tbody.innerHTML = res.users.map(u => {
-        const isActive = u.active !== false;
-        const isSuperAdminAccount = u.role === 'Super Admin' || u.is_superadmin;
-        return `
-        <tr>
-          <td data-label="Username"><strong>${u.username}</strong></td>
-          <td data-label="Full Name">${u.name || u.username}</td>
-          <td data-label="Email Address">${u.email || (u.username + '@coastalviewmandarmani.com')}</td>
-          <td data-label="Role">
-            <span class="role-badge ${(u.role || 'manager').toLowerCase().replace(/\s+/g, '-')}" style="padding: 3px 10px; border-radius: 12px; font-weight: 700; font-size: 0.74rem;">
-              ${u.role}
-            </span>
-          </td>
-          <td data-label="Status">
-            <span class="badge-status ${isActive ? 'available' : 'sold-out'}" style="font-size: 0.72rem;">
-              ${isActive ? 'Active' : 'Disabled'}
-            </span>
-          </td>
-          <td data-label="Actions">
-            <div style="display: flex; gap: 5px; flex-wrap: wrap;">
-              <button class="btn-turquoise" style="padding: 3px 8px; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 2px;" onclick="openEditStaffModal('${u.username}')" title="Edit user role & access">
-                <span class="material-symbols-outlined" style="font-size: 14px;">edit</span> Edit
-              </button>
-              ${!isSuperAdminAccount ? `
-                <button class="${isActive ? 'btn-outline-gold' : 'btn-coral'}" style="padding: 3px 8px; font-size: 0.72rem;" onclick="toggleStaffActive('${u.username}', ${!isActive})" title="${isActive ? 'Disable account' : 'Re-enable account'}">
-                  ${isActive ? 'Disable' : 'Enable'}
-                </button>
-                <button class="btn-icon-only" style="width: 26px; height: 26px; color: var(--turquoise-dark);" onclick="resetStaff2FA('${u.username}')" title="Reset 2FA code">
-                  <span class="material-symbols-outlined" style="font-size: 15px;">lock_reset</span>
-                </button>
-                <button class="btn-icon-only" style="width: 26px; height: 26px; color: var(--sunset-coral);" onclick="confirmDeleteStaffUser('${u.username}')" title="Delete account">
-                  <span class="material-symbols-outlined" style="font-size: 15px;">delete</span>
-                </button>
-              ` : '<span style="font-size: 0.72rem; color: #94A3B8; padding: 4px;">Super Admin</span>'}
-            </div>
-          </td>
-        </tr>
-      `;
-      }).join('');
+      staffDirectoryState.users = res.users;
+      applyStaffFiltersAndRender();
     }
   } catch (e) {
     console.error('Error loading users:', e);
   }
 }
+window.renderUsersTab = renderUsersTab;
 
-window.confirmDeleteStaffUser = function(username) {
-  promptReauthModal(async () => {
-    try {
-      const res = await authFetch(`/api/admin/users/${username}`, { method: 'DELETE' });
-      if (res.success) {
-        showToast(`Staff account ${username} removed.`, 'success');
-        renderUsersTab();
-      } else {
-        showToast(res.message || 'Could not remove staff account.', 'error');
-      }
-    } catch (e) {
-      showToast('Network error.', 'error');
+function applyStaffFiltersAndRender() {
+  const tbody = document.getElementById('usersTableBody');
+  const emptyState = document.getElementById('staffEmptyState');
+  const paginationBar = document.getElementById('staffPaginationBar');
+  const paginationInfo = document.getElementById('staffPaginationInfo');
+  const paginationBtns = document.getElementById('staffPaginationBtns');
+  if (!tbody) return;
+
+  const currentSuperAdminUsername = currentUser ? currentUser.username : '';
+
+  let filtered = staffDirectoryState.users.filter(u => {
+    // Search query
+    if (staffDirectoryState.searchQuery) {
+      const q = staffDirectoryState.searchQuery;
+      const matchName = (u.name || '').toLowerCase().includes(q);
+      const matchEmail = (u.email || '').toLowerCase().includes(q);
+      const matchUser = (u.username || '').toLowerCase().includes(q);
+      const matchRole = (u.role || '').toLowerCase().includes(q);
+      if (!matchName && !matchEmail && !matchUser && !matchRole) return false;
     }
-  }, `Confirm deletion of staff account "${username}". Enter password:`);
-};
+
+    // Role filter
+    if (staffDirectoryState.filterRole !== 'ALL') {
+      if (u.role !== staffDirectoryState.filterRole) return false;
+    }
+
+    // Status filter
+    if (staffDirectoryState.filterStatus !== 'ALL') {
+      const isLocked = u.lockedUntil && new Date(u.lockedUntil) > new Date();
+      const isInvited = u.status === 'Invited' || u.invitationPending;
+      const isDisabled = u.active === false;
+      const isActive = !isDisabled && !isLocked && !isInvited;
+
+      if (staffDirectoryState.filterStatus === 'Locked' && !isLocked) return false;
+      if (staffDirectoryState.filterStatus === 'Invited' && !isInvited) return false;
+      if (staffDirectoryState.filterStatus === 'Disabled' && !isDisabled) return false;
+      if (staffDirectoryState.filterStatus === 'Active' && !isActive) return false;
+    }
+
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '';
+    if (emptyState) emptyState.style.display = 'block';
+    if (paginationBar) paginationBar.style.display = 'none';
+    return;
+  }
+
+  if (emptyState) emptyState.style.display = 'none';
+
+  // Pagination calculation
+  const total = filtered.length;
+  const pageSize = staffDirectoryState.pageSize;
+  const totalPages = Math.ceil(total / pageSize);
+  if (staffDirectoryState.page > totalPages) staffDirectoryState.page = totalPages;
+  if (staffDirectoryState.page < 1) staffDirectoryState.page = 1;
+
+  const startIndex = (staffDirectoryState.page - 1) * pageSize;
+  const pageItems = filtered.slice(startIndex, startIndex + pageSize);
+
+  // Render Table Rows
+  tbody.innerHTML = pageItems.map(u => {
+    const isSelf = u.username.toLowerCase() === currentSuperAdminUsername.toLowerCase();
+    const isLocked = u.lockedUntil && new Date(u.lockedUntil) > new Date();
+    const isInvited = u.status === 'Invited' || u.invitationPending;
+    const isDisabled = u.active === false;
+
+    // Status Pill
+    let statusPill = '';
+    if (isDisabled) {
+      statusPill = '<span class="badge-status-pill badge-disabled"><span class="material-symbols-outlined" style="font-size: 13px;">block</span> Disabled</span>';
+    } else if (isLocked) {
+      statusPill = '<span class="badge-status-pill badge-locked"><span class="material-symbols-outlined" style="font-size: 13px;">lock</span> Locked</span>';
+    } else if (isInvited) {
+      statusPill = '<span class="badge-status-pill badge-invited"><span class="material-symbols-outlined" style="font-size: 13px;">mail</span> Invited</span>';
+    } else {
+      statusPill = '<span class="badge-status-pill badge-active"><span class="material-symbols-outlined" style="font-size: 13px;">check_circle</span> Active</span>';
+    }
+
+    // Role Pill
+    const roleClass = u.role === 'Super Admin' ? 'role-super-admin' : (u.role === 'Front Desk' ? 'role-front-desk' : 'role-manager');
+    const rolePill = `<span class="role-badge-pill ${roleClass}"><span class="material-symbols-outlined" style="font-size: 14px;">badge</span> ${u.role}</span>`;
+
+    // Last Login
+    const lastLoginText = u.lastLogin ? new Date(u.lastLogin).toLocaleString() : '<span style="color: #94A3B8;">Never</span>';
+
+    // 2FA Pill
+    const mfaPill = u.mfaConfigured
+      ? '<span class="mfa-status-pill on"><span class="material-symbols-outlined" style="font-size: 15px;">verified_user</span> On</span>'
+      : '<span class="mfa-status-pill pending"><span class="material-symbols-outlined" style="font-size: 15px;">schedule</span> Pending</span>';
+
+    return `
+      <tr>
+        <td data-label="Staff Member">
+          <div style="font-weight: 600; color: #0F1F2C;">${u.name || u.username}</div>
+          <div style="font-size: 0.76rem; color: #64748B;">@${u.username}${u.phone ? ' · ' + u.phone : ''}</div>
+        </td>
+        <td data-label="Email Address">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: #334155;">${u.email}</span>
+        </td>
+        <td data-label="Role">${rolePill}</td>
+        <td data-label="Status">${statusPill}</td>
+        <td data-label="Last Login" style="font-size: 0.8rem; color: #475569;">${lastLoginText}</td>
+        <td data-label="Authenticator">${mfaPill}</td>
+        <td data-label="Actions" style="text-align: right;">
+          <div style="display: inline-flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end;">
+            <button type="button" class="btn-turquoise" style="padding: 4px 8px; font-size: 0.74rem;" onclick="openEditStaffModal('${u.username}')" title="Edit Staff Details">
+              <span class="material-symbols-outlined" style="font-size: 14px;">edit</span> Edit
+            </button>
+
+            ${isInvited ? `
+              <button type="button" class="btn-outline-gold" style="padding: 4px 8px; font-size: 0.74rem;" onclick="resendStaffInvite('${u.username}')" title="Resend Invite Email">
+                <span class="material-symbols-outlined" style="font-size: 14px;">send</span> Resend
+              </button>
+            ` : ''}
+
+            ${isLocked ? `
+              <button type="button" class="btn-outline-gold" style="padding: 4px 8px; font-size: 0.74rem;" onclick="unlockStaffAccount('${u.username}')" title="Unlock Account">
+                <span class="material-symbols-outlined" style="font-size: 14px;">lock_open</span> Unlock
+              </button>
+            ` : ''}
+
+            ${!isInvited && !isDisabled ? `
+              <button type="button" class="btn-outline-gold" style="padding: 4px 8px; font-size: 0.74rem;" onclick="toggleStaffStatus('${u.username}', false)" ${isSelf ? 'disabled title="Cannot disable your own account"' : 'title="Disable Account"'}>
+                <span class="material-symbols-outlined" style="font-size: 14px;">block</span> Disable
+              </button>
+            ` : ''}
+
+            ${isDisabled ? `
+              <button type="button" class="btn-turquoise" style="padding: 4px 8px; font-size: 0.74rem; background: #059669;" onclick="toggleStaffStatus('${u.username}', true)" title="Re-enable Account">
+                <span class="material-symbols-outlined" style="font-size: 14px;">check_circle</span> Enable
+              </button>
+            ` : ''}
+
+            <button type="button" class="btn-icon-only" style="width: 28px; height: 28px; color: #475569;" onclick="sendStaffPasswordReset('${u.username}')" title="Send Password Reset Link">
+              <span class="material-symbols-outlined" style="font-size: 16px;">lock_reset</span>
+            </button>
+
+            <button type="button" class="btn-icon-only" style="width: 28px; height: 28px; color: var(--turquoise-dark);" onclick="openResetStaff2FAModal('${u.username}')" title="Reset Authenticator (2FA)">
+              <span class="material-symbols-outlined" style="font-size: 16px;">smartphone</span>
+            </button>
+
+            <button type="button" class="btn-icon-only" style="width: 28px; height: 28px; color: #64748B;" onclick="openStaffSessionsModal('${u.username}')" title="View Active Login Sessions">
+              <span class="material-symbols-outlined" style="font-size: 16px;">devices</span>
+            </button>
+
+            <button type="button" class="btn-icon-only" style="width: 28px; height: 28px; color: #DC2626;" onclick="openDeleteStaffModal('${u.username}')" ${isSelf ? 'disabled title="Cannot delete your own account"' : 'title="Soft Delete Account"'}>
+              <span class="material-symbols-outlined" style="font-size: 16px;">delete</span>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // Pagination controls
+  if (paginationBar && paginationInfo && paginationBtns) {
+    paginationBar.style.display = total > pageSize ? 'flex' : 'none';
+    paginationInfo.textContent = `Showing ${startIndex + 1} to ${Math.min(startIndex + pageSize, total)} of ${total} staff members`;
+
+    let btnsHtml = `
+      <button class="pagination-btn" onclick="goToStaffPage(${staffDirectoryState.page - 1})" ${staffDirectoryState.page <= 1 ? 'disabled' : ''}>Prev</button>
+    `;
+    for (let p = 1; p <= totalPages; p++) {
+      btnsHtml += `
+        <button class="pagination-btn ${p === staffDirectoryState.page ? 'active' : ''}" onclick="goToStaffPage(${p})">${p}</button>
+      `;
+    }
+    btnsHtml += `
+      <button class="pagination-btn" onclick="goToStaffPage(${staffDirectoryState.page + 1})" ${staffDirectoryState.page >= totalPages ? 'disabled' : ''}>Next</button>
+    `;
+    paginationBtns.innerHTML = btnsHtml;
+  }
+}
+
+// ----------------------------------------------------------------------------
+// ADD STAFF DRAWER & INVITE FLOW
+// ----------------------------------------------------------------------------
+function openAddStaffModal() {
+  const modal = document.getElementById('staffAccountModal');
+  const form = document.getElementById('addStaffForm');
+  const errBox = document.getElementById('newStaffErrorBox');
+  const succBox = document.getElementById('newStaffSuccessBox');
+  const warning = document.getElementById('superAdminRoleWarning');
+  const confirmBox = document.getElementById('confirmSuperAdminCreation');
+  if (form) form.reset();
+  if (errBox) errBox.style.display = 'none';
+  if (succBox) succBox.style.display = 'none';
+  if (warning) warning.style.display = 'none';
+  if (confirmBox) confirmBox.checked = false;
+  const roleSelect = document.getElementById('newStaffRole');
+  if (roleSelect) roleSelect.value = 'Manager';
+  if (modal) modal.classList.add('open');
+}
+window.openAddStaffModal = openAddStaffModal;
+
+function handleStaffRoleSelectionChange(role) {
+  const warning = document.getElementById('superAdminRoleWarning');
+  const confirmBox = document.getElementById('confirmSuperAdminCreation');
+  if (warning) warning.style.display = role === 'Super Admin' ? 'block' : 'none';
+  if (confirmBox) confirmBox.checked = false;
+}
+window.handleStaffRoleSelectionChange = handleStaffRoleSelectionChange;
+
+async function handleCreateStaffSubmit(e) {
+  e.preventDefault();
+  const errBox = document.getElementById('newStaffErrorBox');
+  const succBox = document.getElementById('newStaffSuccessBox');
+  const btn = document.getElementById('btnCreateStaffSubmit');
+
+  if (errBox) errBox.style.display = 'none';
+  if (succBox) succBox.style.display = 'none';
+
+  const name = document.getElementById('newStaffName')?.value.trim();
+  const email = document.getElementById('newStaffEmail')?.value.trim();
+  const phone = document.getElementById('newStaffPhone')?.value.trim();
+  const role = document.getElementById('newStaffRole')?.value;
+  const requireMfa = document.getElementById('newStaffRequireMfa')?.checked !== false;
+
+  if (!name || !email) {
+    if (errBox) {
+      errBox.textContent = 'Please enter staff full name and email address.';
+      errBox.style.display = 'block';
+    }
+    return;
+  }
+
+  if (role === 'Super Admin') {
+    const confirmBox = document.getElementById('confirmSuperAdminCreation');
+    if (!confirmBox || !confirmBox.checked) {
+      if (errBox) {
+        errBox.textContent = 'Please check the confirmation box to grant full Super Admin authority.';
+        errBox.style.display = 'block';
+      }
+      return;
+    }
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined spin" style="font-size: 16px;">progress_activity</span> Sending Invitation...';
+  }
+
+  try {
+    const res = await authFetch('/api/admin/users', {
+      method: 'POST',
+      body: { name, email, role, phone, requireMfa }
+    });
+
+    if (!res.success) {
+      if (errBox) {
+        errBox.textContent = res.message || 'Failed to create staff member.';
+        errBox.style.display = 'block';
+      }
+      return;
+    }
+
+    // Refresh directory list
+    renderUsersTab();
+
+    if (res.emailSent === false) {
+      // SMTP could not deliver email - show copyable invite link for Super Admin once
+      if (succBox) {
+        succBox.innerHTML = `
+          <div style="background: #FFFBEB; border: 1.5px solid #FCD34D; border-radius: 8px; padding: 14px; font-size: 0.85rem; color: #92400E;">
+            <div style="display: flex; gap: 8px; align-items: flex-start;">
+              <span class="material-symbols-outlined" style="color: #D97706; font-size: 20px;">info</span>
+              <div>
+                <strong>User created, but the invite email couldn't be sent. Resend invite.</strong>
+                <div style="font-size: 0.78rem; color: #78350F; margin: 6px 0 10px 0;">
+                  You may provide this single-use 24-hour invitation link directly to ${escapeHtml(name)}:
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <input type="text" readonly value="${res.fallbackInviteLink}" class="form-control" style="font-family: monospace; font-size: 0.78rem; background: #FFF;" id="fallbackInviteInput">
+                  <button type="button" class="btn-turquoise" style="white-space: nowrap; padding: 6px 12px; font-size: 0.78rem;" onclick="navigator.clipboard.writeText('${res.fallbackInviteLink}'); showToast('Invite link copied!', 'success');">
+                    Copy Link
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+        succBox.style.display = 'block';
+      }
+    } else {
+      closeModal('staffAccountModal');
+      showToast(`Invitation sent successfully to ${email}`, 'success');
+    }
+  } catch (err) {
+    if (errBox) {
+      errBox.textContent = 'Network error while inviting staff member.';
+      errBox.style.display = 'block';
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<span class="material-symbols-outlined">send</span> Send Staff Invitation';
+    }
+  }
+}
+window.handleCreateStaffSubmit = handleCreateStaffSubmit;
+
+// ----------------------------------------------------------------------------
+// RESEND INVITE
+// ----------------------------------------------------------------------------
+async function resendStaffInvite(username) {
+  try {
+    const res = await authFetch(`/api/admin/users/${username}/resend-invite`, { method: 'POST' });
+    if (res.success) {
+      if (res.emailSent === false && res.fallbackInviteLink) {
+        promptCopyLinkModal('Resend Invite Link', 'Email delivery failed. Copy the new single-use invite link:', res.fallbackInviteLink);
+      } else {
+        showToast(res.message || 'Invitation resent successfully.', 'success');
+      }
+      renderUsersTab();
+    } else {
+      showToast(res.message || 'Failed to resend invitation.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error while resending invite.', 'error');
+  }
+}
+window.resendStaffInvite = resendStaffInvite;
+
+function promptCopyLinkModal(title, msg, link) {
+  navigator.clipboard.writeText(link).then(() => {
+    alert(`${title}\n\n${msg}\n\n${link}\n\n(Link has also been copied to your clipboard)`);
+  }).catch(() => {
+    alert(`${title}\n\n${msg}\n\n${link}`);
+  });
+}
+
+// ----------------------------------------------------------------------------
+// EDIT STAFF
+// ----------------------------------------------------------------------------
+function openEditStaffModal(username) {
+  const u = staffDirectoryState.users.find(x => x.username.toLowerCase() === username.toLowerCase());
+  if (!u) return;
+
+  const usernameInput = document.getElementById('editStaffUsername');
+  const nameInput = document.getElementById('editStaffName');
+  const phoneInput = document.getElementById('editStaffPhone');
+  const emailInput = document.getElementById('editStaffEmail');
+  const roleSelect = document.getElementById('editStaffRoleSelect');
+  const title = document.getElementById('editStaffRoleModalTitle');
+  const warning = document.getElementById('editSuperAdminConfirmationBox');
+  const confirmBox = document.getElementById('confirmPromoteSuperAdmin');
+
+  if (usernameInput) usernameInput.value = u.username;
+  if (nameInput) nameInput.value = u.name || u.username;
+  if (phoneInput) phoneInput.value = u.phone || '';
+  if (emailInput) emailInput.value = u.email || '';
+  if (roleSelect) roleSelect.value = u.role || 'Manager';
+  if (title) title.textContent = `Edit Staff: ${u.name || u.username}`;
+  if (warning) warning.style.display = 'none';
+  if (confirmBox) confirmBox.checked = false;
+
+  openModal('editStaffRoleModal');
+}
+window.openEditStaffModal = openEditStaffModal;
+
+function handleEditRoleChange(newRole) {
+  const warning = document.getElementById('editSuperAdminConfirmationBox');
+  const confirmBox = document.getElementById('confirmPromoteSuperAdmin');
+  if (warning) warning.style.display = newRole === 'Super Admin' ? 'block' : 'none';
+  if (confirmBox) confirmBox.checked = false;
+}
+window.handleEditRoleChange = handleEditRoleChange;
+
+async function executeSaveStaffRole() {
+  const username = document.getElementById('editStaffUsername')?.value;
+  if (!username) return;
+
+  const name = document.getElementById('editStaffName')?.value.trim();
+  const phone = document.getElementById('editStaffPhone')?.value.trim();
+  const email = document.getElementById('editStaffEmail')?.value.trim();
+  const role = document.getElementById('editStaffRoleSelect')?.value;
+
+  if (role === 'Super Admin') {
+    const warning = document.getElementById('editSuperAdminConfirmationBox');
+    const confirmBox = document.getElementById('confirmPromoteSuperAdmin');
+    if (warning && warning.style.display !== 'none' && (!confirmBox || !confirmBox.checked)) {
+      showToast('Please confirm promoting this user to Super Admin.', 'error');
+      return;
+    }
+  }
+
+  const saveBtn = document.getElementById('btnSaveStaffRole');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
+
+  try {
+    const res = await authFetch(`/api/admin/users/${username}`, {
+      method: 'PATCH',
+      body: { name, phone, email, role }
+    });
+
+    if (res.success) {
+      closeModal('editStaffRoleModal');
+      showToast(res.message || 'Staff account updated.', 'success');
+      renderUsersTab();
+    } else {
+      showToast(res.message || 'Could not update staff account.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error while updating staff: ' + err.message, 'error');
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = '<span class="material-symbols-outlined">save</span> Save Account Changes'; }
+  }
+}
+window.executeSaveStaffRole = executeSaveStaffRole;
+
+// ----------------------------------------------------------------------------
+// TOGGLE ACTIVE / DISABLED & UNLOCK
+// ----------------------------------------------------------------------------
+async function toggleStaffStatus(username, active) {
+  const verb = active ? 'enable' : 'disable';
+  if (!confirm(`Are you sure you want to ${verb} staff account "${username}"?`)) return;
+
+  try {
+    const res = await authFetch(`/api/admin/users/${username}`, {
+      method: 'PATCH',
+      body: { active }
+    });
+    if (res.success) {
+      showToast(res.message || `Account ${active ? 'enabled' : 'disabled'}.`, 'success');
+      renderUsersTab();
+    } else {
+      showToast(res.message || 'Failed to update account status.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error.', 'error');
+  }
+}
+window.toggleStaffStatus = toggleStaffStatus;
+
+async function unlockStaffAccount(username) {
+  try {
+    const res = await authFetch(`/api/admin/users/${username}/unlock`, { method: 'POST' });
+    if (res.success) {
+      showToast(res.message || 'Account unlocked.', 'success');
+      renderUsersTab();
+    } else {
+      showToast(res.message || 'Could not unlock account.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error.', 'error');
+  }
+}
+window.unlockStaffAccount = unlockStaffAccount;
+
+// ----------------------------------------------------------------------------
+// RESET PASSWORD LINK
+// ----------------------------------------------------------------------------
+async function sendStaffPasswordReset(username) {
+  if (!confirm(`Send a secure password reset link to staff member "${username}"?`)) return;
+  try {
+    const res = await authFetch(`/api/admin/users/${username}/reset-password`, { method: 'POST' });
+    if (res.success) {
+      showToast(res.message || 'Password reset link sent to staff email.', 'success');
+    } else {
+      showToast(res.message || 'Failed to send password reset link.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error.', 'error');
+  }
+}
+window.sendStaffPasswordReset = sendStaffPasswordReset;
+
+// ----------------------------------------------------------------------------
+// RESET 2FA
+// ----------------------------------------------------------------------------
+function openResetStaff2FAModal(username) {
+  const u = staffDirectoryState.users.find(x => x.username.toLowerCase() === username.toLowerCase());
+  const input = document.getElementById('reset2faTargetUsername');
+  const nameDisplay = document.getElementById('reset2faTargetName');
+  const pass = document.getElementById('reset2faAdminPassword');
+  const totp = document.getElementById('reset2faAdminTotp');
+
+  if (input) input.value = username;
+  if (nameDisplay) nameDisplay.textContent = u ? (u.name || u.username) : username;
+  if (pass) pass.value = '';
+  if (totp) totp.value = '';
+
+  openModal('resetStaff2FAModal');
+}
+window.openResetStaff2FAModal = openResetStaff2FAModal;
+
+async function executeResetStaff2FA() {
+  const username = document.getElementById('reset2faTargetUsername')?.value;
+  const adminPassword = document.getElementById('reset2faAdminPassword')?.value;
+  const adminTotp = document.getElementById('reset2faAdminTotp')?.value.trim();
+
+  if (!adminPassword || !adminTotp) {
+    showToast('Please enter your Super Admin password and current 6-digit TOTP code.', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btnExecuteReset2FA');
+  if (btn) { btn.disabled = true; btn.textContent = 'Verifying...'; }
+
+  try {
+    const res = await authFetch(`/api/admin/users/${username}/reset-2fa`, {
+      method: 'POST',
+      body: { adminPassword, adminTotp }
+    });
+
+    if (res.success) {
+      closeModal('resetStaff2FAModal');
+      showToast(res.message || 'Staff 2FA has been reset.', 'success');
+      renderUsersTab();
+    } else {
+      showToast(res.message || '2FA reset failed. Verify password and code.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error resetting 2FA.', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined">verified_user</span> Confirm 2FA Reset'; }
+  }
+}
+window.executeResetStaff2FA = executeResetStaff2FA;
+
+// ----------------------------------------------------------------------------
+// SESSIONS MANAGEMENT
+// ----------------------------------------------------------------------------
+async function openStaffSessionsModal(username) {
+  const input = document.getElementById('staffSessionsUsername');
+  const title = document.getElementById('staffSessionsModalTitle');
+  const list = document.getElementById('staffSessionsList');
+  if (input) input.value = username;
+  if (title) title.textContent = `Active Sessions: ${username}`;
+  if (list) list.innerHTML = `<div style="text-align: center; padding: 20px; color: #64748B;">Loading active sessions...</div>`;
+
+  openModal('staffSessionsModal');
+
+  try {
+    const res = await authFetch(`/api/admin/users/${username}/sessions`);
+    if (res.success && Array.isArray(res.sessions)) {
+      if (res.sessions.length === 0) {
+        list.innerHTML = `<div style="text-align: center; padding: 24px; color: #64748B;">No active login sessions found for this user.</div>`;
+      } else {
+        list.innerHTML = res.sessions.map((s, idx) => `
+          <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <div style="font-weight: 600; font-size: 0.86rem; color: #0F1F2C;">
+                <span class="material-symbols-outlined" style="font-size: 16px; vertical-align: middle; color: var(--turquoise);">devices</span>
+                ${escapeHtml(s.userAgent || 'Web Browser')}
+              </div>
+              <div style="font-size: 0.76rem; color: #64748B; margin-top: 2px;">
+                IP: <span style="font-family: monospace;">${escapeHtml(s.ip || 'Unknown')}</span> · Logged in: ${new Date(s.createdAt).toLocaleString()}
+              </div>
+            </div>
+            <div style="font-size: 0.74rem; color: #059669; font-weight: 600;">Active</div>
+          </div>
+        `).join('');
+      }
+    }
+  } catch (err) {
+    if (list) list.innerHTML = `<div style="color: #EF4444; padding: 12px;">Failed to load sessions.</div>`;
+  }
+}
+window.openStaffSessionsModal = openStaffSessionsModal;
+
+async function executeSignoutStaffSessions() {
+  const username = document.getElementById('staffSessionsUsername')?.value;
+  if (!username) return;
+
+  const btn = document.getElementById('btnSignoutAllDevices');
+  if (btn) { btn.disabled = true; btn.textContent = 'Signing out...'; }
+
+  try {
+    const res = await authFetch(`/api/admin/users/${username}/signout-sessions`, { method: 'POST' });
+    if (res.success) {
+      closeModal('staffSessionsModal');
+      showToast(res.message || `Signed out all active sessions for ${username}.`, 'success');
+      renderUsersTab();
+    } else {
+      showToast(res.message || 'Failed to sign out sessions.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error.', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined">logout</span> Sign Out All Devices'; }
+  }
+}
+window.executeSignoutStaffSessions = executeSignoutStaffSessions;
+
+// ----------------------------------------------------------------------------
+// SOFT DELETE STAFF
+// ----------------------------------------------------------------------------
+function openDeleteStaffModal(username) {
+  const u = staffDirectoryState.users.find(x => x.username.toLowerCase() === username.toLowerCase());
+  const input = document.getElementById('deleteStaffTargetUsername');
+  const nameDisplay = document.getElementById('deleteStaffTargetName');
+  if (input) input.value = username;
+  if (nameDisplay) nameDisplay.textContent = u ? `${u.name || u.username} (@${u.username})` : username;
+  openModal('deleteStaffConfirmModal');
+}
+window.openDeleteStaffModal = openDeleteStaffModal;
+
+async function executeConfirmDeleteStaff() {
+  const username = document.getElementById('deleteStaffTargetUsername')?.value;
+  if (!username) return;
+
+  const btn = document.getElementById('btnExecuteDeleteStaff');
+  if (btn) { btn.disabled = true; btn.textContent = 'Deleting...'; }
+
+  try {
+    const res = await authFetch(`/api/admin/users/${username}`, { method: 'DELETE' });
+    if (res.success) {
+      closeModal('deleteStaffConfirmModal');
+      showToast(res.message || `Staff account ${username} soft-deleted.`, 'success');
+      renderUsersTab();
+    } else {
+      showToast(res.message || 'Could not delete staff account.', 'error');
+    }
+  } catch (err) {
+    showToast('Network error.', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined">delete</span> Confirm Soft Delete'; }
+  }
+}
+window.executeConfirmDeleteStaff = executeConfirmDeleteStaff;
 
 // ============================================================================
 // SENSITIVE ACTION REAUTH MODAL HANDLER
@@ -8609,89 +9317,6 @@ async function executeSaveBookingDetails() {
   }
 }
 
-// ----------------------------------------------------------------------------
-// 2. USERS & ROLES EDITING (SUPER ADMIN)
-// ----------------------------------------------------------------------------
-let currentEditingStaff = null;
-
-function openEditStaffModal(username) {
-  authFetch('/api/admin/users').then(res => {
-    if (!res.success || !Array.isArray(res.users)) return;
-    const u = res.users.find(x => x.username.toLowerCase() === username.toLowerCase());
-    if (!u) return;
-    currentEditingStaff = u;
-
-    document.getElementById('editStaffUsername').value = u.username;
-    document.getElementById('editStaffRoleModalTitle').textContent = `Edit Staff Account: ${u.username}`;
-    document.getElementById('editStaffName').value = u.name || u.username;
-    document.getElementById('editStaffEmail').value = u.email || '';
-    document.getElementById('editStaffRoleSelect').value = u.role || 'Manager';
-    document.getElementById('editStaffActiveToggle').checked = u.active !== false;
-    document.getElementById('editStaffNewPassword').value = '';
-
-    openModal('editStaffRoleModal');
-  });
-}
-
-async function executeSaveStaffRole() {
-  const username = document.getElementById('editStaffUsername')?.value;
-  if (!username) return;
-
-  const name = document.getElementById('editStaffName')?.value.trim();
-  const email = document.getElementById('editStaffEmail')?.value.trim();
-  const role = document.getElementById('editStaffRoleSelect')?.value;
-  const active = document.getElementById('editStaffActiveToggle')?.checked;
-  const password = document.getElementById('editStaffNewPassword')?.value.trim();
-
-  promptReauthModal(async () => {
-    const saveBtn = document.getElementById('btnSaveStaffRole');
-    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
-
-    try {
-      const payload = { name, email, role, active };
-      if (password) payload.password = password;
-
-      const res = await authFetch(`/api/admin/users/${username}`, {
-        method: 'PATCH',
-        body: payload
-      });
-
-      if (res.success) {
-        closeModal('editStaffRoleModal');
-        showToast(res.message || `Staff account "${username}" updated successfully.`, 'success');
-        renderUsersTab();
-      } else {
-        showToast(res.message || 'Failed to update user account.', 'error');
-      }
-    } catch (err) {
-      showToast('Error updating staff role: ' + err.message, 'error');
-    } finally {
-      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Account Changes'; }
-    }
-  }, `Confirm security changes to staff account "${username}". Enter Super Admin password:`);
-}
-
-async function toggleStaffActive(username, newActiveState) {
-  const actionWord = newActiveState ? 'enable' : 'disable';
-  if (!confirm(`Are you sure you want to ${actionWord} staff account "${username}"?`)) return;
-
-  promptReauthModal(async () => {
-    try {
-      const res = await authFetch(`/api/admin/users/${username}`, {
-        method: 'PATCH',
-        body: { active: newActiveState }
-      });
-      if (res.success) {
-        showToast(`Account "${username}" is now ${newActiveState ? 'Active' : 'Disabled'}.`, 'success');
-        renderUsersTab();
-      } else {
-        showToast(res.message || 'Failed to update account status.', 'error');
-      }
-    } catch (err) {
-      showToast('Error toggling staff status: ' + err.message, 'error');
-    }
-  }, `Confirm ${actionWord} account "${username}". Enter Super Admin password:`);
-}
 
 // ----------------------------------------------------------------------------
 // 3. LUXURY AMENITIES MANAGER
@@ -9039,6 +9664,85 @@ async function saveAnisToursContent() {
 }
 
 // ----------------------------------------------------------------------------
+// GOOGLE REVIEW LINK & INVOICE QR CODE HANDLERS
+// ----------------------------------------------------------------------------
+function updateReviewQrPreview() {
+  const urlInput = document.getElementById('cfgGoogleReviewUrl');
+  const imgPreview = document.getElementById('reviewQrLivePreview');
+  if (!imgPreview) return;
+  const urlVal = urlInput ? urlInput.value.trim() : '';
+  imgPreview.src = `/api/invoices/review-qr-preview?url=${encodeURIComponent(urlVal || 'https://maps.app.goo.gl/NroV1rQ4ZkgKuqQg7')}&t=${Date.now()}`;
+}
+
+async function saveReviewLinkContent() {
+  const urlInput = document.getElementById('cfgGoogleReviewUrl');
+  const reviewUrl = urlInput ? urlInput.value.trim() : 'https://maps.app.goo.gl/NroV1rQ4ZkgKuqQg7';
+  if (!reviewUrl) {
+    showToast('Please enter a valid review URL.', 'error');
+    return;
+  }
+  try {
+    const res = await authFetch('/api/admin/content/reviewLink', {
+      method: 'POST',
+      body: { url: reviewUrl }
+    });
+    if (res.success) {
+      showToast('Google Review link updated successfully.', 'success');
+      updateReviewQrPreview();
+    } else {
+      showToast(res.message || 'Failed to update review link.', 'error');
+    }
+  } catch (err) {
+    console.error('Error saving review link:', err);
+    showToast('Error saving review link.', 'error');
+  }
+}
+
+async function handleReviewQrUpload(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      showToast('Uploading custom review QR image...', 'info');
+      const res = await authFetch('/api/admin/settings/review-qr', {
+        method: 'POST',
+        body: { imageBase64: e.target.result }
+      });
+      if (res.success) {
+        showToast('Custom review QR code uploaded successfully.', 'success');
+        updateReviewQrPreview();
+      } else {
+        showToast(res.message || 'Failed to upload QR image.', 'error');
+      }
+    } catch (err) {
+      console.error('QR upload failed:', err);
+      showToast('QR upload failed: ' + err.message, 'error');
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+async function resetReviewQrImage() {
+  if (!confirm('Revert to automatic vector QR code generated from your review link?')) return;
+  try {
+    const res = await authFetch('/api/admin/settings/review-qr', {
+      method: 'POST',
+      body: { clear: true }
+    });
+    if (res.success) {
+      showToast('Reverted to automatic generated QR code.', 'success');
+      updateReviewQrPreview();
+    } else {
+      showToast(res.message || 'Failed to reset QR.', 'error');
+    }
+  } catch (err) {
+    showToast('Error resetting review QR.', 'error');
+  }
+}
+
+// ----------------------------------------------------------------------------
 // 7. MISSING MODAL & NAVIGATION HELPERS
 // ----------------------------------------------------------------------------
 function openAddGalleryPhotoModal() {
@@ -9257,6 +9961,8 @@ window.handleSwitchToEmailCode = async function() {
       if (modeTitle) modeTitle.textContent = 'Email Verification Code';
       if (modeInstruction) modeInstruction.textContent = `Enter the 6-digit code sent to ${data.maskedEmail || 'your email'}.`;
       if (btn) btn.style.display = 'none';
+      const totpBtn = document.getElementById('btnSwitchToTotpCode');
+      if (totpBtn && currentPreAuthHasTotp) totpBtn.style.display = 'inline-block';
 
       clearOtpInputs('otpInputsRow', 'twoFactorCode');
       if (data.devCode) {
@@ -9277,6 +9983,22 @@ window.handleSwitchToEmailCode = async function() {
   } finally {
     if (btn) btn.disabled = false;
   }
+};
+
+window.handleSwitchToTotpCode = function() {
+  const modeTitle = document.getElementById('twoFactorModeTitle');
+  const modeInstruction = document.getElementById('twoFactorInstruction');
+  const emailBtn = document.getElementById('btnSwitchToEmailCode');
+  const totpBtn = document.getElementById('btnSwitchToTotpCode');
+  if (modeTitle) modeTitle.textContent = 'Authenticator App (TOTP)';
+  if (modeInstruction) modeInstruction.textContent = 'Enter the 6-digit verification code from your Authenticator app.';
+  if (emailBtn) emailBtn.style.display = 'inline-block';
+  if (totpBtn) totpBtn.style.display = 'none';
+  const devNotice = document.getElementById('devCodeNotice');
+  if (devNotice) devNotice.style.display = 'none';
+  clearOtpInputs('otpInputsRow', 'twoFactorCode');
+  const firstDigit = document.querySelector('#otpInputsRow .otp-digit');
+  if (firstDigit) firstDigit.focus();
 };
 
 window.handleResend2FACode = async function() {
@@ -9845,72 +10567,333 @@ window.executeRegenerateRecoveryCodes = async function() {
 // ----------------------------------------------------------------------------
 // EMAIL ADMIN TOOLS & MAIL LOGS
 // ----------------------------------------------------------------------------
-window.loadEmailStats = async function() {
+// ----------------------------------------------------------------------------
+// SETTINGS > EMAIL MANAGEMENT & SECURE CREDENTIALS (SUPER ADMIN ONLY)
+// ----------------------------------------------------------------------------
+window.loadEmailSettingsForm = async function() {
   try {
-    const res = await authFetch('/api/admin/email/stats');
-    if (!res.success) return;
+    const res = await authFetch('/api/admin/settings/email');
+    if (!res) return;
 
-    const badge = document.getElementById('emailProviderStatusBadge');
-    const sender = document.getElementById('emailSenderAddressSpan');
-    const dailyLimit = document.getElementById('emailDailyLimitSpan');
-    const todayCount = document.getElementById('emailQuotaCountSpan');
-    const quotaBar = document.getElementById('emailQuotaPercentBar');
+    if (res.requireRecentLogin) {
+      showToast('Settings > Email requires recent login (within 10 minutes).', 'info');
+      return;
+    }
+    if (!res.success) {
+      console.warn('Failed to load email settings:', res.message);
+      return;
+    }
+
+    // Input fields
+    const senderInp = document.getElementById('cfgEmailSender');
+    const senderNameInp = document.getElementById('cfgEmailSenderName');
+    const adminAlertInp = document.getElementById('cfgEmailAdminAlert');
+    const hostInp = document.getElementById('cfgEmailHost');
+    const portInp = document.getElementById('cfgEmailPort');
+    const secureInp = document.getElementById('cfgEmailSecure');
+    const secureLbl = document.getElementById('cfgEmailSecureLabel');
+    const passInp = document.getElementById('cfgEmailPassword');
+
+    if (senderInp && res.senderEmail) senderInp.value = res.senderEmail;
+    if (senderNameInp) senderNameInp.value = res.senderName || 'Coastal View';
+    if (adminAlertInp && res.adminAlertEmail) adminAlertInp.value = res.adminAlertEmail;
+    if (hostInp) hostInp.value = res.host || 'smtp.gmail.com';
+    if (portInp) portInp.value = res.port || 465;
+    if (secureInp) {
+      secureInp.checked = res.secure !== false;
+      if (secureLbl) secureLbl.textContent = secureInp.checked ? 'SSL/TLS (Port 465)' : 'STARTTLS (Port 587)';
+    }
+    // CRITICAL: Saved password is NEVER sent back to the browser. Input is always blank.
+    if (passInp) passInp.value = '';
+
+    // Badges & Indicators
+    const savedBadge = document.getElementById('savedPasswordStatusBadge');
+    const savedDesc = document.getElementById('savedPasswordDateDesc');
+    const removeBtn = document.getElementById('btnRemoveSavedPassword');
+    const sourceBadge = document.getElementById('emailSourceBadge');
+    const providerBadge = document.getElementById('emailProviderStatusBadge');
+    const statusTitle = document.getElementById('emailStatusTitleText');
+    const statusIcon = document.getElementById('emailStatusCardIcon');
+    const activeSourceText = document.getElementById('emailActiveSourceText');
+    const senderDisplayText = document.getElementById('emailSenderDisplayText');
+    const lastSuccessText = document.getElementById('emailLastSuccessText');
+    const lastErrorText = document.getElementById('emailLastErrorText');
+    const sendCountText = document.getElementById('emailSendCountText');
+    const sendProgressBar = document.getElementById('emailSendProgressBar');
     const warnBanner = document.getElementById('emailWarningBanner');
 
-    if (badge) {
-      if (res.status === 'connected') {
-        badge.className = 'status-badge status-confirmed';
-        badge.textContent = 'Connected (Verified)';
-      } else if (res.status === 'unconfigured') {
-        badge.className = 'status-badge status-pending';
-        badge.textContent = 'Not Configured (Local Dev)';
+    // Saved password status
+    if (res.hasSavedPassword) {
+      if (savedBadge) {
+        savedBadge.style.display = 'inline-flex';
+        savedBadge.innerHTML = `<span class="material-symbols-outlined" style="font-size: 13px; vertical-align: middle;">check_circle</span> ${res.savedPasswordMasked || '● ● ● ● saved'}`;
+      }
+      if (savedDesc) {
+        const dStr = res.savedPasswordDate ? new Date(res.savedPasswordDate).toLocaleString('en-IN') : 'Saved in DB';
+        savedDesc.textContent = `Encrypted at rest (AES-256-GCM). Saved on: ${dStr}. To change, type a new App Password.`;
+      }
+      if (removeBtn) removeBtn.style.display = 'inline-flex';
+    } else {
+      if (savedBadge) savedBadge.style.display = 'none';
+      if (savedDesc) savedDesc.textContent = '16-character Google App Password. Encrypted with AES-256-GCM. Never shown or sent back to browser.';
+      if (removeBtn) removeBtn.style.display = 'none';
+    }
+
+    // Source label
+    if (sourceBadge) {
+      sourceBadge.textContent = res.sourceLabel || (res.source === 'database' ? 'Admin Settings (Database)' : 'Not Configured');
+    }
+    if (activeSourceText) {
+      activeSourceText.textContent = res.sourceLabel || 'Not Configured';
+    }
+    if (senderDisplayText) {
+      senderDisplayText.textContent = res.senderEmail ? `${res.senderName} <${res.senderEmail}>` : 'No sender configured';
+    }
+
+    // Status rendering: working | not_configured | failing
+    if (providerBadge && statusTitle) {
+      if (res.status === 'working') {
+        providerBadge.className = 'email-badge connected';
+        providerBadge.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">check_circle</span> Email is working';
+        statusTitle.textContent = 'Email is working';
+        statusTitle.style.color = '#34D399';
+        if (statusIcon) { statusIcon.textContent = 'mark_email_read'; statusIcon.style.color = '#34D399'; }
+      } else if (res.status === 'not_configured') {
+        providerBadge.className = 'email-badge not_configured';
+        providerBadge.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">cloud_off</span> Email is not configured';
+        statusTitle.textContent = 'Email is not configured';
+        statusTitle.style.color = '#FBBF24';
+        if (statusIcon) { statusIcon.textContent = 'mark_email_unread'; statusIcon.style.color = '#FBBF24'; }
       } else {
-        badge.className = 'status-badge status-cancelled';
-        badge.textContent = 'Failing (Check SMTP)';
+        providerBadge.className = 'email-badge failing';
+        providerBadge.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">error</span> Email is failing';
+        statusTitle.textContent = 'Email is failing';
+        statusTitle.style.color = '#F87171';
+        if (statusIcon) { statusIcon.textContent = 'mail_lock'; statusIcon.style.color = '#F87171'; }
       }
     }
 
-    if (sender) sender.textContent = `${res.fromName} <${res.fromEmail}>`;
-    if (dailyLimit) dailyLimit.textContent = res.dailyLimit || 300;
-    if (todayCount) todayCount.textContent = res.todayCount || 0;
+    // Last success timestamp
+    if (lastSuccessText) {
+      lastSuccessText.textContent = res.lastSuccessAt 
+        ? new Date(res.lastSuccessAt).toLocaleString('en-IN') 
+        : 'None recorded yet';
+    }
 
-    const percent = Math.min(100, Math.round(((res.todayCount || 0) / (res.dailyLimit || 300)) * 100));
-    if (quotaBar) {
-      quotaBar.style.width = `${percent}%`;
-      if (percent >= 90) quotaBar.style.background = 'var(--sunset-coral)';
-      else if (percent >= 75) quotaBar.style.background = 'var(--champagne-gold)';
-      else quotaBar.style.background = 'var(--turquoise)';
+    // Last error (safe message)
+    if (lastErrorText) {
+      lastErrorText.textContent = res.lastError || 'No errors reported';
+      lastErrorText.style.color = res.lastError ? '#FCA5A5' : 'rgba(255,255,255,0.7)';
+    }
+
+    // Send quota count
+    const dailyLimit = res.dailyLimit || 300;
+    const todayCount = res.todayCount || 0;
+    const percent = Math.min(100, Math.round((todayCount / dailyLimit) * 100));
+
+    if (sendCountText) sendCountText.textContent = `${todayCount} / ${dailyLimit}`;
+    if (sendProgressBar) {
+      sendProgressBar.style.width = `${percent}%`;
+      sendProgressBar.style.background = percent >= 90 ? '#F43F5E' : (percent >= 75 ? '#FBBF24' : '#06B6B0');
     }
 
     // Dashboard warning banner
     if (warnBanner) {
-      if (res.status === 'failing') {
+      if (res.status === 'not_configured') {
         warnBanner.style.display = 'flex';
         warnBanner.innerHTML = `
-          <span class="material-symbols-outlined" style="font-size: 22px; color: var(--sunset-coral);">warning</span>
-          <div>
-            <strong>SMTP Outbound Delivery Failing:</strong> Email notifications (booking confirmations, login codes) cannot be sent. Verify SMTP credentials in Hostinger / <code>.env</code>.
+          <div style="display: flex; align-items: center; gap: 14px;">
+            <span class="material-symbols-outlined" style="color: #D4AF37; font-size: 28px;">mark_email_unread</span>
+            <div>
+              <strong style="color: #073B4C; font-size: 0.95rem; display: block;">Email isn't set up yet</strong>
+              <span style="color: #475569; font-size: 0.82rem;">Set up sender Gmail and Google App Password in Settings &gt; Email to dispatch guest booking confirmations and staff login codes.</span>
+            </div>
           </div>
+          <button type="button" class="btn-outline-gold" style="font-size: 0.8rem; padding: 6px 14px; white-space: nowrap;" onclick="switchAdminTab('tabSettings'); scrollToSettingsSection('emailSettingsCard');">
+            Set Up Email
+          </button>
+        `;
+      } else if (res.status === 'failing') {
+        warnBanner.style.display = 'flex';
+        warnBanner.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 14px;">
+            <span class="material-symbols-outlined" style="color: #F43F5E; font-size: 28px;">error</span>
+            <div>
+              <strong style="color: #073B4C; font-size: 0.95rem; display: block;">Email Delivery Failing</strong>
+              <span style="color: #475569; font-size: 0.82rem;">${res.lastError || 'Gmail rejected the login. Check the App Password in Settings &gt; Email.'}</span>
+            </div>
+          </div>
+          <button type="button" class="btn-outline-gold" style="font-size: 0.8rem; padding: 6px 14px; white-space: nowrap;" onclick="switchAdminTab('tabSettings'); scrollToSettingsSection('emailSettingsCard');">
+            Fix Settings
+          </button>
         `;
       } else if (percent >= 80) {
         warnBanner.style.display = 'flex';
         warnBanner.innerHTML = `
-          <span class="material-symbols-outlined" style="font-size: 22px; color: #D97706;">info</span>
-          <div>
-            <strong>Daily SMTP Quota Warning:</strong> ${res.todayCount} of ${res.dailyLimit} daily emails sent (${percent}%). Approaching free tier limit.
+          <div style="display: flex; align-items: center; gap: 14px;">
+            <span class="material-symbols-outlined" style="color: #D97706; font-size: 28px;">info</span>
+            <div>
+              <strong style="color: #073B4C; font-size: 0.95rem; display: block;">Daily SMTP Quota Alert</strong>
+              <span style="color: #475569; font-size: 0.82rem;">${todayCount} of ${dailyLimit} daily emails sent (${percent}%). Approaching daily limit.</span>
+            </div>
           </div>
+          <button type="button" class="btn-outline-gold" style="font-size: 0.8rem; padding: 6px 14px; white-space: nowrap;" onclick="switchAdminTab('tabSettings'); scrollToSettingsSection('emailSettingsCard');">
+            View Settings
+          </button>
         `;
       } else {
         warnBanner.style.display = 'none';
       }
     }
   } catch (err) {
-    console.warn('Failed to fetch email stats:', err);
+    console.warn('Failed to fetch email settings:', err);
   }
 };
 
+// Full backward-compatible alias
+window.loadEmailStats = window.loadEmailSettingsForm;
+
+// Prompt Save Email Settings (Opens Re-Auth Modal)
+window.promptSaveEmailSettings = function() {
+  const sender = (document.getElementById('cfgEmailSender')?.value || '').trim();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!sender || !emailRegex.test(sender)) {
+    showToast('Please enter a valid Sender Gmail address.', 'error');
+    document.getElementById('cfgEmailSender')?.focus();
+    return;
+  }
+
+  window._emailReauthAction = 'save';
+  const modal = document.getElementById('modalEmailReauth');
+  const title = document.getElementById('emailReauthModalTitle');
+  const errBox = document.getElementById('emailReauthErrorMsg');
+  const saveAnywayBox = document.getElementById('emailSaveAnywayBox');
+  const saveAnywayCheck = document.getElementById('emailSaveAnywayCheck');
+  const pwdInput = document.getElementById('emailReauthPassword');
+  const codeInput = document.getElementById('emailReauth2FACode');
+
+  if (title) title.textContent = 'Save Email Settings (Re-Authentication)';
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  if (saveAnywayBox) saveAnywayBox.style.display = 'none';
+  if (saveAnywayCheck) saveAnywayCheck.checked = false;
+  if (pwdInput) pwdInput.value = '';
+  if (codeInput) codeInput.value = '';
+  if (modal) modal.style.display = 'flex';
+  if (pwdInput) pwdInput.focus();
+};
+
+// Prompt Remove Email Password (Opens Re-Auth Modal)
+window.promptRemoveEmailPassword = function() {
+  window._emailReauthAction = 'remove';
+  const modal = document.getElementById('modalEmailReauth');
+  const title = document.getElementById('emailReauthModalTitle');
+  const errBox = document.getElementById('emailReauthErrorMsg');
+  const saveAnywayBox = document.getElementById('emailSaveAnywayBox');
+  const pwdInput = document.getElementById('emailReauthPassword');
+  const codeInput = document.getElementById('emailReauth2FACode');
+
+  if (title) title.textContent = 'Remove Saved Password (Re-Authentication)';
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  if (saveAnywayBox) saveAnywayBox.style.display = 'none';
+  if (pwdInput) pwdInput.value = '';
+  if (codeInput) codeInput.value = '';
+  if (modal) modal.style.display = 'flex';
+  if (pwdInput) pwdInput.focus();
+};
+
+// Execute Email Re-Auth Action (Save or Remove)
+window.executeEmailReauthAction = async function() {
+  const pwdInput = document.getElementById('emailReauthPassword');
+  const codeInput = document.getElementById('emailReauth2FACode');
+  const errBox = document.getElementById('emailReauthErrorMsg');
+  const saveAnywayCheck = document.getElementById('emailSaveAnywayCheck');
+  const btn = document.getElementById('btnConfirmEmailReauth');
+
+  const currentPassword = (pwdInput?.value || '').trim();
+  const twoFactorCode = (codeInput?.value || '').trim();
+
+  if (!currentPassword) {
+    if (errBox) { errBox.textContent = 'Super Admin current password is required.'; errBox.style.display = 'block'; }
+    return;
+  }
+  if (!twoFactorCode) {
+    if (errBox) { errBox.textContent = 'Authenticator code or recovery code is required.'; errBox.style.display = 'block'; }
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined">hourglass_empty</span> Verifying...';
+  }
+
+  try {
+    if (window._emailReauthAction === 'save') {
+      const payload = {
+        senderEmail: (document.getElementById('cfgEmailSender')?.value || '').trim(),
+        appPassword: (document.getElementById('cfgEmailPassword')?.value || '').trim(),
+        senderName: (document.getElementById('cfgEmailSenderName')?.value || 'Coastal View').trim(),
+        adminAlertEmail: (document.getElementById('cfgEmailAdminAlert')?.value || '').trim(),
+        host: (document.getElementById('cfgEmailHost')?.value || 'smtp.gmail.com').trim(),
+        port: parseInt(document.getElementById('cfgEmailPort')?.value, 10) || 465,
+        secure: document.getElementById('cfgEmailSecure')?.checked !== false,
+        currentPassword,
+        twoFactorCode,
+        saveAnyway: saveAnywayCheck ? saveAnywayCheck.checked : false
+      };
+
+      const res = await authFetch('/api/admin/settings/email', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      if (res && res.success) {
+        showToast('Email settings saved successfully!', 'success');
+        closeModal('modalEmailReauth');
+        loadEmailSettingsForm();
+      } else {
+        if (res && res.canSaveAnyway) {
+          const saveAnywayBox = document.getElementById('emailSaveAnywayBox');
+          if (saveAnywayBox) saveAnywayBox.style.display = 'block';
+        }
+        if (errBox) {
+          errBox.textContent = res.message || 'Failed to save email settings.';
+          errBox.style.display = 'block';
+        }
+      }
+    } else if (window._emailReauthAction === 'remove') {
+      const payload = { currentPassword, twoFactorCode };
+      const res = await authFetch('/api/admin/settings/email/password', {
+        method: 'DELETE',
+        body: JSON.stringify(payload)
+      });
+
+      if (res && res.success) {
+        showToast('Saved email password removed.', 'success');
+        closeModal('modalEmailReauth');
+        loadEmailSettingsForm();
+      } else {
+        if (errBox) {
+          errBox.textContent = res.message || 'Failed to remove saved password.';
+          errBox.style.display = 'block';
+        }
+      }
+    }
+  } catch (err) {
+    if (errBox) {
+      errBox.textContent = 'Network or server error. Please try again.';
+      errBox.style.display = 'block';
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<span class="material-symbols-outlined">lock_open</span> Confirm &amp; Proceed';
+    }
+  }
+};
+
+// Send Test Email
 window.handleSendAdminTestEmail = async function() {
-  const btn = document.getElementById('btnSendAdminTestEmail');
+  const btn = document.getElementById('btnSendTestEmail');
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="material-symbols-outlined">hourglass_empty</span> Sending...';
@@ -9918,24 +10901,54 @@ window.handleSendAdminTestEmail = async function() {
 
   try {
     showToast('Dispatching test message through SMTP...', 'info');
-    const res = await authFetch('/api/admin/email/test', { method: 'POST' });
-    if (res.success) {
-      showToast(res.message || 'Test email successfully sent to Super Admin!', 'success');
-      alert(`✅ Success: ${res.message}\nMessage ID: ${res.messageId || 'OK'}`);
+    const res = await authFetch('/api/admin/settings/email/test', { method: 'POST' });
+    if (res && res.success) {
+      showToast(res.message || 'Test email successfully delivered!', 'success');
+      alert(`✅ Success: ${res.message || 'Test email dispatched successfully'}`);
     } else {
-      showToast(res.message || 'Test email failed. Check logs.', 'error');
-      alert(`❌ Test Email Failed:\n${res.message}\nError Code: ${res.code || 'UNKNOWN'}\nPlease verify SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and MAIL_FROM.`);
+      showToast(res.message || 'Test email delivery failed.', 'error');
+      alert(`❌ Test Email Delivery Failed:\n${res.message || 'Check SMTP credentials in Settings > Email.'}`);
     }
-    loadEmailStats();
+    loadEmailSettingsForm();
   } catch (err) {
     showToast('Failed to trigger test email.', 'error');
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = '<span class="material-symbols-outlined">send</span> Send Test Email to Super Admin';
+      btn.innerHTML = '<span class="material-symbols-outlined">send</span> Send test email';
     }
   }
 };
+
+// Scroll to section in Settings tab
+window.scrollToSettingsSection = function(sectionId) {
+  const el = document.getElementById(sectionId);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.style.transition = 'box-shadow 0.4s';
+    el.style.boxShadow = '0 0 0 3px var(--turquoise)';
+    setTimeout(() => { el.style.boxShadow = ''; }, 1500);
+  }
+};
+
+// 5-Minute Idle Timer for Settings > Email
+let emailSettingsIdleTimer = null;
+function handleEmailSettingsIdleReset() {
+  if (emailSettingsIdleTimer) clearTimeout(emailSettingsIdleTimer);
+  const tabSettings = document.getElementById('tabSettings');
+  if (tabSettings && tabSettings.classList.contains('active')) {
+    emailSettingsIdleTimer = setTimeout(() => {
+      if (tabSettings.classList.contains('active')) {
+        switchTab('tabDashboard');
+        showToast('Settings > Email signed out after 5 minutes idle for session safety.', 'info');
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+  }
+}
+['mousemove', 'keydown', 'click', 'scroll', 'touchstart'].forEach(evt => {
+  window.addEventListener(evt, handleEmailSettingsIdleReset, { passive: true });
+});
+
 
 window.loadMailLogsData = async function() {
   const modal = document.getElementById('mailLogsModal');

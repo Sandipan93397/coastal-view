@@ -1,11 +1,6 @@
-const fs = require('fs');
-const path = require('path');
+const { readDB, writeDB } = require('./db_store');
 
-const dbPath = path.join(__dirname, 'data', 'db.json');
-const db = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-
-// Backup current db
-fs.writeFileSync(path.join(__dirname, 'data', 'db.backup-pre-inventory.json'), JSON.stringify(db, null, 2), 'utf8');
+const db = readDB();
 
 const roomUpdates = {
   'cosy-deluxe-room': {
@@ -54,7 +49,7 @@ if (db.seo && db.seo.schema) {
   db.seo.schema.priceRange = '₹1,800 - ₹2,700';
 }
 
-fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), 'utf8');
+writeDB(db);
 console.log('Successfully updated room prices, tags, and inventory in db.json!');
 const summary = db.rooms.map(r => `${r.name} (${r.tag}): ₹${r.price}/night | Qty: ${r.quantity}`);
 console.log(summary.join('\n'));

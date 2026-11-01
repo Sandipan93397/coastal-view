@@ -73,8 +73,36 @@
       margin-top: 15px;
     }
   </style>
-</head>
 <body>
+  <!-- Lightweight Branded Hosting Wake-up / Preloader Screen -->
+  <div id="hostingWakeupLoader" class="hosting-wakeup-loader" aria-hidden="true">
+    <div class="wakeup-inner">
+      <div class="wakeup-emblem-wrap">
+        <img src="assets/images/logo-emblem.png" alt="Coastal View Logo" class="wakeup-logo" width="64" height="64">
+        <div class="wakeup-spinner-ring"></div>
+      </div>
+      <div class="wakeup-title">Coastal View</div>
+      <div class="wakeup-byline">Managed By Ani's • Mandarmani</div>
+      <div class="wakeup-progress-bar"><div class="wakeup-progress-fill"></div></div>
+    </div>
+  </div>
+  <script>
+    (function() {
+      function dismissLoader() {
+        var el = document.getElementById('hostingWakeupLoader');
+        if (el && !el.classList.contains('dismissed')) {
+          el.classList.add('dismissed');
+          setTimeout(function() { if (el && el.parentNode) el.parentNode.removeChild(el); }, 400);
+        }
+      }
+      if (document.readyState === 'complete') {
+        dismissLoader();
+      } else {
+        window.addEventListener('load', dismissLoader);
+        setTimeout(dismissLoader, 1200);
+      }
+    })();
+  </script>
 
   <!-- Site Header & Glass Navbar -->
   <header class="site-header scrolled" id="siteHeader">
@@ -239,6 +267,7 @@
        FLOATING CHATBOT WIDGET: ANI'S COASTAL CONCIERGE
        ========================================================================== -->
   <div class="concierge-launcher" id="conciergeLauncher" title="Chat with Ani's Coastal Concierge" aria-label="Open Ani's Coastal Concierge Chat" role="button" tabindex="0">
+    <button type="button" class="concierge-dismiss-pill" id="conciergeDismissBtn" aria-label="Dismiss chat for now" title="Dismiss for now">×</button>
     <span class="material-symbols-outlined" aria-hidden="true">support_agent</span>
     <span class="concierge-badge-online" title="Front desk online"></span>
   </div>
@@ -422,10 +451,6 @@
       </svg>
       <span class="m-bar-text">WhatsApp</span>
     </a>
-    <button type="button" class="m-bar-btn" id="mBarChatBtn" onclick="if(window.openChatbot) window.openChatbot();" aria-label="Open Concierge Chatbot">
-      <span class="material-symbols-outlined">support_agent</span>
-      <span class="m-bar-text">Chat</span>
-    </button>
   </nav>
 </body>
 </html>

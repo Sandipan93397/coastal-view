@@ -1,3 +1,4 @@
+const testEnv = require('./test_db_helper');
 /**
  * Comprehensive Automated Test Suite for Coastal View Booking System
  * Validates Desktop (1440px) and Mobile (390px) viewports in real Chrome browser
@@ -129,6 +130,7 @@ async function runBrowserSession(width, height, isMobile, testCallback) {
 }
 
 async function runAllTests() {
+  await testEnv.startIsolatedServer();
   const results = [];
   function assert(title, condition, extra = '') {
     const passed = Boolean(condition);
@@ -574,7 +576,7 @@ async function runAllTests() {
     roomsCount: 1,
     clientTotal: 100, // Tampered! Real amount is 2500
     guestName: 'Honest Guest',
-    guestPhone: '9830012345'
+    guestPhone: '7812027551'
   });
   assert('Server: Tampered clientTotal (₹100 vs ₹2,500) is rejected with 400', tamperRes.status === 400 && tamperRes.data?.code === 'TOTAL_MISMATCH', `Status: ${tamperRes.status}`);
 
@@ -587,7 +589,7 @@ async function runAllTests() {
     children: 0,
     roomsCount: 1,
     guestName: 'Big Group',
-    guestPhone: '9830012345'
+    guestPhone: '7812027551'
   });
   assert('Server: Exceeding room capacity (5 adults in 1 room) is rejected with 400', capacityRes.status === 400 && capacityRes.data?.code === 'CAPACITY_EXCEEDED');
 
@@ -600,7 +602,7 @@ async function runAllTests() {
     children: 0,
     roomsCount: 1,
     guestName: 'Time Traveler',
-    guestPhone: '9830012345'
+    guestPhone: '7812027551'
   });
   assert('Server: Past check-in date is rejected with 400', pastDateRes.status === 400 && pastDateRes.data?.message?.includes('past'));
 
@@ -613,7 +615,7 @@ async function runAllTests() {
     children: 0,
     roomsCount: 1,
     guestName: 'Same Day',
-    guestPhone: '9830012345'
+    guestPhone: '7812027551'
   });
   assert('Server: Checkout date on or before check-in is rejected with 400', invalidCheckoutRes.status === 400 && invalidCheckoutRes.data?.message?.includes('after'));
 
@@ -646,8 +648,8 @@ async function runAllTests() {
     breakfastCount: 2,
     candlelightDinner: false,
     guestName: 'Priyanka Sen',
-    guestPhone: '9830099999',
-    guestEmail: 'priyanka@example.com',
+    guestPhone: '7812027559',
+    guestEmail: 'priyanka@testdomain.in',
     specialRequests: 'Quiet room near corner'
   };
 
@@ -665,7 +667,7 @@ async function runAllTests() {
   assert('Server: Room availability decremented by 1 for booked stay dates', whisperAfter === whisperInitial - 1, `Before: ${whisperInitial}, After: ${whisperAfter}`);
 
   // Test 7: Verify booking appears in Admin Bookings API / DB
-  const dbData = JSON.parse(fs.readFileSync('data/db.json', 'utf8'));
+  const dbData = JSON.parse(fs.readFileSync(testEnv.TEMP_DB_PATH, 'utf8'));
   const savedBooking = (dbData.bookings || []).find(b => createdBooking && b.bookingId === createdBooking.bookingId);
   assert('Database: Booking recorded in database with all itemized lines', Boolean(savedBooking && savedBooking.vehicleLines?.length === 1 && savedBooking.breakfastTotal === 800));
   assert('Database: Invoice token generated for PDF download', Boolean(savedBooking?.invoiceToken));

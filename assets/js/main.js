@@ -243,12 +243,24 @@ function initNavbarScrollSpy() {
 function initHeroParticles() {
   const canvas = document.getElementById('heroParticles');
   if (!canvas) return;
+
+  // Disable on mobile or reduced-motion to maximize performance
+  if (window.innerWidth <= 768 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    canvas.style.display = 'none';
+    return;
+  }
+
   const ctx = canvas.getContext('2d');
 
   let width = (canvas.width = canvas.offsetWidth);
   let height = (canvas.height = canvas.offsetHeight);
 
   window.addEventListener('resize', () => {
+    if (window.innerWidth <= 768) {
+      canvas.style.display = 'none';
+      return;
+    }
+    canvas.style.display = 'block';
     width = canvas.width = canvas.offsetWidth;
     height = canvas.height = canvas.offsetHeight;
   });
@@ -1755,6 +1767,7 @@ function initMobileExperience() {
 
   roomOptions.forEach(opt => {
     opt.addEventListener('click', () => {
+      if (opt.classList.contains('is-sold-out')) return;
       roomOptions.forEach(o => o.classList.remove('selected'));
       opt.classList.add('selected');
       const radio = opt.querySelector('.m-room-radio');
@@ -1925,6 +1938,16 @@ function initMobileExperience() {
   const continueBtn = document.getElementById('mSheetContinueBtn');
   if (continueBtn) {
     continueBtn.addEventListener('click', () => {
+      if (!dCheckIn?.value || !dCheckOut?.value) {
+        if (mCheckIn && !dCheckIn?.value) mCheckIn.focus();
+        else if (mCheckOut && !dCheckOut?.value) mCheckOut.focus();
+        return;
+      }
+      if (!dRoomSelect?.value) {
+        const firstOpt = document.querySelector('.m-room-option:not(.is-sold-out)');
+        if (firstOpt) firstOpt.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
       window.closeMobileBookingSheet();
       setTimeout(() => {
         if (typeof openCheckoutModal === 'function') {
@@ -1937,32 +1960,67 @@ function initMobileExperience() {
     });
   }
 
-  // 9. Rooms Swipe Carousel Indicator Dots
-  const roomsGrid = document.querySelector('.rooms-grid');
-  const dotsContainer = document.getElementById('roomCarouselDots');
-  if (roomsGrid && dotsContainer) {
-    const dots = dotsContainer.querySelectorAll('.dot');
-    const roomCards = roomsGrid.querySelectorAll('.room-card');
+  // 9. Mobile Swipe Carousels Dots and First Item Alignment
+  function setupCarouselDots(carouselSelector, dotsContainerId) {
+    const carousel = document.querySelector(carouselSelector);
+    const dotsContainer = document.getElementById(dotsContainerId);
+    if (!carousel || !dotsContainer) return;
 
-    roomsGrid.addEventListener('scroll', () => {
-      const scrollLeft = roomsGrid.scrollLeft;
-      const cardWidth = roomCards[0] ? roomCards[0].offsetWidth + 16 : 300;
-      const activeIdx = Math.round(scrollLeft / cardWidth);
+    // Carousels MUST start at the first item on load
+    carousel.scrollLeft = 0;
+
+    const cards = carousel.children;
+    if (!cards || cards.length === 0) return;
+
+    // Generate dots if container is empty
+    if (dotsContainer.children.length === 0) {
+      dotsContainer.innerHTML = '';
+      for (let i = 0; i < cards.length; i++) {
+        const dot = document.createElement('button');
+        dot.type = 'button';
+        dot.className = 'dot' + (i === 0 ? ' active' : '');
+        dot.setAttribute('aria-label', `Go to item ${i + 1}`);
+        dotsContainer.appendChild(dot);
+      }
+    }
+
+    const dots = dotsContainer.querySelectorAll('.dot');
+
+    carousel.addEventListener('scroll', () => {
+      const scrollLeft = carousel.scrollLeft;
+      const firstCard = cards[0];
+      const cardWidth = firstCard ? firstCard.offsetWidth + 14 : 280;
+      const activeIdx = Math.min(dots.length - 1, Math.max(0, Math.round(scrollLeft / cardWidth)));
 
       dots.forEach((dot, idx) => {
-        if (idx === activeIdx) dot.classList.add('active');
-        else dot.classList.remove('active');
+        dot.classList.toggle('active', idx === activeIdx);
       });
     }, { passive: true });
 
     dots.forEach((dot, idx) => {
       dot.addEventListener('click', () => {
-        if (roomCards[idx]) {
-          roomCards[idx].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        if (cards[idx]) {
+          cards[idx].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
         }
       });
     });
   }
+
+  // Initialize for all mobile carousels
+  setupCarouselDots('.rooms-grid', 'roomCarouselDots');
+  setupCarouselDots('.featured-dishes-grid', 'dishesCarouselDots');
+  setupCarouselDots('.gallery-showcase-grid', 'galleryCarouselDots');
+  setupCarouselDots('.places-grid', 'placesCarouselDots');
+
+  // Also re-run alignment and dots when window resizes
+  window.addEventListener('resize', () => {
+    if (window.innerWidth <= 768) {
+      setupCarouselDots('.rooms-grid', 'roomCarouselDots');
+      setupCarouselDots('.featured-dishes-grid', 'dishesCarouselDots');
+      setupCarouselDots('.gallery-showcase-grid', 'galleryCarouselDots');
+      setupCarouselDots('.places-grid', 'placesCarouselDots');
+    }
+  });
 
   // Helper to copy current desktop values into mobile sheet
   function syncDesktopToMobileSheet() {
@@ -2013,10 +2071,14 @@ window.syncMobileBookingDisplays = function(data) {
   if (!data) return;
   const mSummaryDates = document.getElementById('mSummaryDatesText');
   const mSummaryGuests = document.getElementById('mSummaryGuestsText');
-  if (mSummaryDates && data.checkIn && data.checkOut) {
-    const fIn = data.checkIn.split('-').slice(1).join('/');
-    const fOut = data.checkOut.split('-').slice(1).join('/');
-    mSummaryDates.textContent = `${fIn} – ${fOut} (${data.nights}n)`;
+  if (mSummaryDates) {
+    if (data.checkIn && data.checkOut && data.nights > 0) {
+      const fIn = data.checkIn.split('-').slice(1).join('/');
+      const fOut = data.checkOut.split('-').slice(1).join('/');
+      mSummaryDates.textContent = `${fIn} – ${fOut} (${data.nights}n)`;
+    } else {
+      mSummaryDates.textContent = 'Select Dates';
+    }
   }
   if (mSummaryGuests) {
     mSummaryGuests.textContent = `${data.adultsCount} Adult${data.adultsCount > 1 ? 's' : ''}${data.currentChildren > 0 ? ', ' + data.currentChildren + ' Ch' : ''} • ${data.roomsCount} Rm`;
@@ -2025,12 +2087,46 @@ window.syncMobileBookingDisplays = function(data) {
   const mSheetNights = document.getElementById('mSheetNightsCount');
   const mSheetTotal = document.getElementById('mSheetTotalAmount');
   const mSheetAdvance = document.getElementById('mSheetAdvanceBadge');
-  if (mSheetNights) mSheetNights.textContent = `${data.nights} Night${data.nights > 1 ? 's' : ''}`;
-  if (mSheetTotal && data.grandTotal !== undefined) {
-    mSheetTotal.textContent = `₹${data.grandTotal.toLocaleString('en-IN')}`;
+  if (mSheetNights) {
+    mSheetNights.textContent = data.nights > 0 ? `${data.nights} Night${data.nights > 1 ? 's' : ''}` : 'Select dates';
   }
-  if (mSheetAdvance && data.payNow !== undefined) {
-    mSheetAdvance.textContent = `Pay 20% Now: ₹${data.payNow.toLocaleString('en-IN')}`;
+  if (data.isComplete === false || data.grandTotal === null || data.grandTotal === undefined || isNaN(data.grandTotal)) {
+    if (mSheetTotal) mSheetTotal.textContent = 'Select dates and a suite to see your price';
+    if (mSheetAdvance) mSheetAdvance.textContent = 'Pay 20% Now: — • Pay at Hotel: —';
+  } else {
+    if (mSheetTotal) mSheetTotal.textContent = `₹${Number(data.grandTotal).toLocaleString('en-IN')}`;
+    if (mSheetAdvance) {
+      const payNowStr = `₹${Number(data.payNow || 0).toLocaleString('en-IN')}`;
+      const payHotelStr = data.payAtHotel !== null && data.payAtHotel !== undefined
+        ? `₹${Number(data.payAtHotel).toLocaleString('en-IN')}`
+        : '—';
+      mSheetAdvance.textContent = `Pay 20% Now: ${payNowStr} • Pay at Hotel: ${payHotelStr}`;
+    }
   }
+};
+
+// Toggle room inclusions & extras on mobile
+window.toggleRoomDetails = function(btn) {
+  if (!btn) return;
+  const collapsible = btn.nextElementSibling;
+  if (!collapsible) return;
+  const isOpen = collapsible.classList.toggle('open');
+  btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+  const icon = btn.querySelector('.toggle-icon');
+  if (icon) icon.textContent = isOpen ? 'expand_less' : 'expand_more';
+  const textSpan = btn.querySelector('span:first-child');
+  if (textSpan) textSpan.textContent = isOpen ? 'Fewer details & inclusions' : 'More details & inclusions';
+};
+
+// Toggle owner full welcome quote on mobile
+window.toggleOwnerQuote = function(btn) {
+  const container = document.getElementById('ownerQuoteContainer');
+  if (!container || !btn) return;
+  const isExpanded = container.classList.toggle('is-expanded');
+  btn.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+  const textSpan = btn.querySelector('span:first-child');
+  if (textSpan) textSpan.textContent = isExpanded ? 'Read less' : 'Read more';
+  const icon = btn.querySelector('.material-symbols-outlined');
+  if (icon) icon.textContent = isExpanded ? 'expand_less' : 'expand_more';
 };
 

@@ -10,8 +10,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-define('DB_FILE', dirname(__DIR__) . '/data/db.json');
-define('SESSION_FILE', dirname(__DIR__) . '/data/sessions.json');
+$dataDir = getenv('DATA_DIR') ?: (dirname(__DIR__) . '/data');
+$dbPath = getenv('DB_PATH') ?: (rtrim($dataDir, '/\\') . '/db.json');
+define('DB_FILE', $dbPath);
+define('SESSION_FILE', rtrim($dataDir, '/\\') . '/sessions.json');
 
 function getDB() {
     if (!file_exists(DB_FILE)) {

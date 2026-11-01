@@ -3,7 +3,7 @@
  * Argon2 password hashing, 6-digit email 2FA codes, rate limiting,
  * lockout, TOTP, session validation, audit trail, and alerts.
  */
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -11,9 +11,10 @@ const argon2 = require('argon2');
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const { z } = require('zod');
+const { getDbPath, getDataDir, readDB, writeDB } = require('./db_store');
 
-const DB_PATH = path.join(__dirname, 'data', 'db.json');
-const BACKUPS_DIR = path.join(__dirname, 'data', 'backups');
+const DB_PATH = getDbPath();
+const BACKUPS_DIR = path.join(getDataDir(), 'backups');
 const SESSION_SECRET = process.env.SESSION_SECRET || 'coastal-view-super-secure-session-key-2026';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15-minute idle logout
@@ -82,7 +83,7 @@ setInterval(() => {
   for (const [uId, u] of undoStore.entries()) {
     if (now > u.expiresAt) undoStore.delete(uId);
   }
-}, 60000);
+}, 60000).unref();
 
 // --- PASSWORD HASHING & VERIFICATION (ARGON2ID) ---
 async function hashPassword(plainPassword) {
@@ -110,7 +111,7 @@ async function verifyPassword(plainPassword, storedHash, user, db) {
       if (isMatch && user && db) {
         // Transparent auto-upgrade to Argon2id
         user.passwordHash = await hashPassword(plainPassword);
-        fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf8');
+        writeDB(db);
       }
     } catch (e) {
       isMatch = false;
@@ -120,7 +121,7 @@ async function verifyPassword(plainPassword, storedHash, user, db) {
     isMatch = (storedHash === plainPassword);
     if (isMatch && user && db) {
       user.passwordHash = await hashPassword(plainPassword);
-      fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf8');
+      writeDB(db);
     }
   }
   return isMatch;
@@ -149,9 +150,176 @@ function validatePasswordPolicy(password) {
   return { isValid: issues.length === 0, issues };
 }
 
-// --- RATE LIMITING & BRUTE-FORCE LOCKOUT ---
-function checkLockout(identifier, ip) {
+// --- PASSWORD HISTORY VERIFICATION (LAST 5 PASSWORDS) ---
+async function checkPasswordHistory(newPassword, user, limit = 5) {
+  if (!user) return { allowed: true };
+  if (user.passwordHash) {
+    const isCurrent = await verifyPassword(newPassword, user.passwordHash, null, null);
+    if (isCurrent) {
+      return {
+        allowed: false,
+        message: 'New password cannot be the same as your current password.'
+      };
+    }
+  }
+
+  if (Array.isArray(user.passwordHistory) && user.passwordHistory.length > 0) {
+    const recentHashes = user.passwordHistory.slice(-limit);
+    for (const oldHash of recentHashes) {
+      if (!oldHash) continue;
+      const isOldMatch = await verifyPassword(newPassword, oldHash, null, null);
+      if (isOldMatch) {
+        return {
+          allowed: false,
+          message: 'Password cannot be the same as any of your last 5 passwords.'
+        };
+      }
+    }
+  }
+
+  return { allowed: true };
+}
+
+// --- PASSWORD RESET RATE LIMITING & SECURITY ---
+const passwordResetLimiter = new Map(); // key -> [timestamp, timestamp]
+const resetFailures = new Map(); // key -> count
+
+function checkPasswordResetRateLimit(identifier, ip) {
   const now = Date.now();
+  const windowMs = 60 * 60 * 1000; // 1 hour
+
+  if (identifier) {
+    const key = 'user_' + identifier.toLowerCase().trim();
+    const timestamps = (passwordResetLimiter.get(key) || []).filter(t => now - t < windowMs);
+    passwordResetLimiter.set(key, timestamps);
+    if (timestamps.length >= 3) {
+      const waitMinutes = Math.ceil((windowMs - (now - timestamps[0])) / 60000);
+      return {
+        allowed: false,
+        message: `Too many password reset requests for this account. Please wait ${waitMinutes} minute(s).`
+      };
+    }
+  }
+
+  if (ip) {
+    const key = 'ip_' + ip.trim();
+    const timestamps = (passwordResetLimiter.get(key) || []).filter(t => now - t < windowMs);
+    passwordResetLimiter.set(key, timestamps);
+    if (timestamps.length >= 10) {
+      const waitMinutes = Math.ceil((windowMs - (now - timestamps[0])) / 60000);
+      return {
+        allowed: false,
+        message: `Too many password reset requests from this IP address. Please wait ${waitMinutes} minute(s).`
+      };
+    }
+  }
+
+  return { allowed: true };
+}
+
+function recordPasswordResetRequest(identifier, ip) {
+  const now = Date.now();
+  if (identifier) {
+    const key = 'user_' + identifier.toLowerCase().trim();
+    const timestamps = passwordResetLimiter.get(key) || [];
+    timestamps.push(now);
+    passwordResetLimiter.set(key, timestamps);
+  }
+  if (ip) {
+    const key = 'ip_' + ip.trim();
+    const timestamps = passwordResetLimiter.get(key) || [];
+    timestamps.push(now);
+    passwordResetLimiter.set(key, timestamps);
+  }
+}
+
+function recordResetFailure(identifier, ip, db, req) {
+  const key = identifier ? identifier.toLowerCase().trim() : ('ip_' + ip);
+  const cur = (resetFailures.get(key) || 0) + 1;
+  resetFailures.set(key, cur);
+  if (cur >= 3 && db) {
+    sendSuperAdminAlert(
+      `Repeated Password Reset Failures (${identifier || ip})`,
+      `<p>There have been <strong>${cur} consecutive failed password reset attempts</strong> for account/IP <strong>${identifier || ip}</strong>.</p><p>Please review audit logs immediately if this was unauthorized.</p>`,
+      db
+    );
+  }
+  return cur;
+}
+
+function clearResetFailure(identifier, ip) {
+  if (identifier) resetFailures.delete(identifier.toLowerCase().trim());
+  if (ip) resetFailures.delete('ip_' + ip);
+}
+
+// --- RATE LIMITING & BRUTE-FORCE LOCKOUT ---
+function syncUnlockStateFromDB(identifier, ip, dbOverride = null) {
+  try {
+    const db = dbOverride || readDB();
+    if (!db) return null;
+    const globalUnlockedAt = Number(db.adminUnlockedAt) || 0;
+    const cleanIdent = identifier ? identifier.toLowerCase().trim() : '';
+    const user = cleanIdent
+      ? (db.users || []).find(
+          u => u && (
+            (u.username && u.username.toLowerCase() === cleanIdent) ||
+            (u.email && u.email.toLowerCase() === cleanIdent)
+          )
+        )
+      : null;
+    const userUnlockedAt = Math.max(globalUnlockedAt, Number(user?.unlockedAt) || 0);
+
+    if (userUnlockedAt > 0) {
+      const keysToCheck = [];
+      if (cleanIdent) keysToCheck.push(cleanIdent);
+      if (user?.username) keysToCheck.push(user.username.toLowerCase());
+      if (user?.email) keysToCheck.push(user.email.toLowerCase());
+      if (ip) keysToCheck.push('ip_' + ip);
+
+      for (const k of keysToCheck) {
+        const rec = failedAttempts.get(k);
+        if (rec && (!rec.lastFailedAt || rec.lastFailedAt <= userUnlockedAt)) {
+          failedAttempts.delete(k);
+        }
+      }
+      if (cleanIdent) {
+        const rKey = 'user_' + cleanIdent;
+        const rTimes = (passwordResetLimiter.get(rKey) || []).filter(t => t > userUnlockedAt);
+        passwordResetLimiter.set(rKey, rTimes);
+        resetFailures.delete(cleanIdent);
+      }
+      if (ip) {
+        const ipRKey = 'ip_' + ip.trim();
+        const ipTimes = (passwordResetLimiter.get(ipRKey) || []).filter(t => t > userUnlockedAt);
+        passwordResetLimiter.set(ipRKey, ipTimes);
+        resetFailures.delete('ip_' + ip);
+      }
+    }
+    return { db, user };
+  } catch (e) {
+    return null;
+  }
+}
+
+function checkLockout(identifier, ip, dbOverride = null) {
+  const now = Date.now();
+  const synced = syncUnlockStateFromDB(identifier, ip, dbOverride);
+  const user = synced?.user;
+
+  if (user) {
+    const dbLockUntil = Number(user.lockedUntil || user.lockoutUntil) ||
+      (user.lockedUntil ? new Date(user.lockedUntil).getTime() : 0) ||
+      (user.lockoutUntil ? new Date(user.lockoutUntil).getTime() : 0);
+    if (dbLockUntil && now < dbLockUntil) {
+      const remainingMins = Math.ceil((dbLockUntil - now) / 60000);
+      return {
+        isLocked: true,
+        remainingMinutes: remainingMins,
+        message: `Account is temporarily locked due to 5 consecutive failed attempts. Please retry in ${remainingMins} minute(s).`
+      };
+    }
+  }
+
   if (identifier) {
     const record = failedAttempts.get(identifier.toLowerCase());
     if (record && record.lockedUntil && now < record.lockedUntil) {
@@ -185,8 +353,9 @@ function recordFailedAttempt(identifier, ip) {
 
   if (identifier) {
     const k = identifier.toLowerCase();
-    const cur = failedAttempts.get(k) || { count: 0, lockedUntil: null };
+    const cur = failedAttempts.get(k) || { count: 0, lockedUntil: null, lastFailedAt: now };
     cur.count += 1;
+    cur.lastFailedAt = now;
     if (cur.count >= 5) {
       cur.lockedUntil = now + LOCKOUT_DURATION_MS;
     }
@@ -196,8 +365,9 @@ function recordFailedAttempt(identifier, ip) {
 
   if (ip) {
     const ipKey = 'ip_' + ip;
-    const cur = failedAttempts.get(ipKey) || { count: 0, lockedUntil: null };
+    const cur = failedAttempts.get(ipKey) || { count: 0, lockedUntil: null, lastFailedAt: now };
     cur.count += 1;
+    cur.lastFailedAt = now;
     if (cur.count >= 20) {
       cur.lockedUntil = now + LOCKOUT_DURATION_MS;
     }
@@ -214,6 +384,7 @@ function resetFailedAttempts(identifier, ip) {
 
 // --- CAPTCHA (CLOUDFLARE TURNSTILE & SMART POLICY) ---
 function getFailedAttemptsCount(identifier, ip) {
+  syncUnlockStateFromDB(identifier, ip);
   let count = 0;
   if (identifier) {
     const rec = failedAttempts.get(identifier.toLowerCase());
@@ -229,6 +400,7 @@ function getFailedAttemptsCount(identifier, ip) {
 
 function isCaptchaRequired(identifier, ip, policy = 'smart') {
   if (policy === 'always') return true;
+  syncUnlockStateFromDB(identifier, ip);
   // Smart mode: show CAPTCHA only after 2 failed attempts for this account or when IP is rate-limited
   let userCount = 0;
   if (identifier) {
@@ -527,17 +699,10 @@ const {
 } = require('./email_service');
 
 // Deliver 2FA code via SMTP (or console in development)
-async function sendAuthCodeEmail({ to, code, ip, device, db }) {
+async function sendAuthCodeEmail({ to, name, code, ip, device, location, db }) {
   const isProduction = process.env.NODE_ENV === 'production';
   const timeStr = getISTTimestamp();
-  const template = templateLoginCode({ code, ip, device, timeStr });
-
-  // Terminal fallback: ONLY on localhost/development when not in production
-  if (!isProduction) {
-    console.log(`\n==================================================`);
-    console.log(`🔑 [DEV 2FA AUTHENTICATION CODE] ${code} (for ${to})`);
-    console.log(`==================================================\n`);
-  }
+  const template = templateLoginCode({ name, code, ip, device, location, timeStr });
 
   // Attempt real SMTP delivery via email_service
   const sendRes = await sendMailWithRetry({
@@ -553,8 +718,11 @@ async function sendAuthCodeEmail({ to, code, ip, device, db }) {
     return { success: true, deliveredVia: 'SMTP' };
   }
 
-  // In non-production development environments, allow login testing even if SMTP is unconfigured or network is offline
+  // Terminal fallback: ONLY on localhost/development when not in production and SMTP is unconfigured/failed
   if (!isProduction) {
+    console.log(`\n==================================================`);
+    console.log(`🔑 [DEV 2FA AUTHENTICATION CODE] ${code} (for ${to})`);
+    console.log(`==================================================\n`);
     return { success: true, deliveredVia: 'DevConsole', devCode: code };
   }
 
@@ -842,6 +1010,43 @@ function exportEncryptedDatabase(passphrase) {
   return Buffer.concat([salt, iv, authTag, encrypted]);
 }
 
+// --- STAFF INVITATION & RATE LIMITING HELPERS ---
+const staffActionLimiter = new Map(); // ip/key -> [timestamps]
+
+function checkStaffActionRateLimit(key, maxLimit = 20, windowMs = 15 * 60 * 1000) {
+  const now = Date.now();
+  const times = staffActionLimiter.get(key) || [];
+  const valid = times.filter(t => now - t < windowMs);
+  staffActionLimiter.set(key, valid);
+  return valid.length >= maxLimit;
+}
+
+function recordStaffAction(key) {
+  const now = Date.now();
+  const times = staffActionLimiter.get(key) || [];
+  times.push(now);
+  staffActionLimiter.set(key, times);
+}
+
+function hashToken(rawToken) {
+  if (!rawToken || typeof rawToken !== 'string') return '';
+  return crypto.createHash('sha256').update(rawToken.trim()).digest('hex');
+}
+
+function generateInviteToken() {
+  const rawToken = crypto.randomBytes(32).toString('hex'); // 64 hex chars = 32 bytes
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 24 hours single-use
+  return { token: rawToken, tokenHash, expiresAt };
+}
+
+function generateEmailChangeToken() {
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = Date.now() + 2 * 60 * 60 * 1000; // 2 hours
+  return { token: rawToken, tokenHash, expiresAt };
+}
+
 // Export module
 module.exports = {
   ADMIN_EMAIL,
@@ -879,5 +1084,16 @@ module.exports = {
   generateBackupCodes,
   sendSuperAdminAlert,
   performDailyBackup,
-  exportEncryptedDatabase
+  exportEncryptedDatabase,
+  checkPasswordHistory,
+  checkPasswordResetRateLimit,
+  recordPasswordResetRequest,
+  recordResetFailure,
+  clearResetFailure,
+  hashToken,
+  generateInviteToken,
+  generateEmailChangeToken,
+  checkStaffActionRateLimit,
+  recordStaffAction
 };
+
