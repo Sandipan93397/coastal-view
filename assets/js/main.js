@@ -2090,9 +2090,11 @@ window.syncMobileBookingDisplays = function(data) {
   if (mSheetNights) {
     mSheetNights.textContent = data.nights > 0 ? `${data.nights} Night${data.nights > 1 ? 's' : ''}` : 'Select dates';
   }
+  const payAtLabel = (typeof hotelSettings !== 'undefined' && hotelSettings.balancePayableAt) ? hotelSettings.balancePayableAt : 'Check-in';
+  const advPct = (typeof hotelSettings !== 'undefined' && hotelSettings.advancePercentage) ? hotelSettings.advancePercentage : 20;
   if (data.isComplete === false || data.grandTotal === null || data.grandTotal === undefined || isNaN(data.grandTotal)) {
     if (mSheetTotal) mSheetTotal.textContent = 'Select dates and a suite to see your price';
-    if (mSheetAdvance) mSheetAdvance.textContent = 'Pay 20% Now: — • Pay at Hotel: —';
+    if (mSheetAdvance) mSheetAdvance.textContent = `Pay ${advPct}% Now: — • Pay at ${payAtLabel}: —`;
   } else {
     if (mSheetTotal) mSheetTotal.textContent = `₹${Number(data.grandTotal).toLocaleString('en-IN')}`;
     if (mSheetAdvance) {
@@ -2100,7 +2102,7 @@ window.syncMobileBookingDisplays = function(data) {
       const payHotelStr = data.payAtHotel !== null && data.payAtHotel !== undefined
         ? `₹${Number(data.payAtHotel).toLocaleString('en-IN')}`
         : '—';
-      mSheetAdvance.textContent = `Pay 20% Now: ${payNowStr} • Pay at Hotel: ${payHotelStr}`;
+      mSheetAdvance.textContent = `Pay ${advPct}% Now: ${payNowStr} • Pay at ${payAtLabel}: ${payHotelStr}`;
     }
   }
 };

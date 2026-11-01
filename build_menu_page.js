@@ -172,7 +172,7 @@ const menuHtml = `<!DOCTYPE html>
           </div>
           <div class="footer-contact-item">
             <span class="material-symbols-outlined">mail</span>
-            <span>reservations@coastalviewmandarmani.com</span>
+            <span>coastalviewbyanis@gmail.com</span>
           </div>
         </div>
       </div>

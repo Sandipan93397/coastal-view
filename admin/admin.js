@@ -5379,7 +5379,8 @@ function renderSettingsForm() {
   const s = adminState.settings || {};
   if (document.getElementById('cfgPhone')) document.getElementById('cfgPhone').value = s.phone || '';
   if (document.getElementById('cfgWhatsapp')) document.getElementById('cfgWhatsapp').value = s.whatsapp || '';
-  if (document.getElementById('cfgEmail')) document.getElementById('cfgEmail').value = s.email || '';
+  const emailVal = (typeof s.email === 'string' ? s.email : (s.hotelEmail || s.email?.senderEmail)) || 'coastalviewbyanis@gmail.com';
+  if (document.getElementById('cfgEmail')) document.getElementById('cfgEmail').value = emailVal;
   if (document.getElementById('cfgAddress')) document.getElementById('cfgAddress').value = s.address || '';
   if (document.getElementById('cfgCheckIn')) document.getElementById('cfgCheckIn').value = s.checkInTime || '11:00 AM';
   if (document.getElementById('cfgCheckOut')) document.getElementById('cfgCheckOut').value = s.checkOutTime || '9:30 AM';

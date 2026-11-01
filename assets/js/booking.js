@@ -27,6 +27,9 @@ let hotelSettings = {
   },
   enableTax: false,
   taxPercentage: 12,
+  balancePayableAt: "Check-in",
+  paymentPolicySentence: "The remaining 80% is payable at the time of check-in at the hotel.",
+  paymentPolicyReceptionSentence: "The remaining 80% is payable at the time of check-in at the hotel reception.",
   advancePolicyNote: "The 20% advance is non-refundable."
 };
 
@@ -738,7 +741,9 @@ function updateRoomCardsStatus() {
       }
     }
     if (balanceNote) {
-      balanceNote.textContent = 'Remaining 80% at the hotel.';
+      const balPct = 100 - (Number(hotelSettings.advancePercentage) || 20);
+      const payAtLower = String(hotelSettings.balancePayableAt || 'Check-in').toLowerCase();
+      balanceNote.textContent = `Remaining ${balPct}% at ${payAtLower}.`;
     }
 
     // MakeMyTrip Style Inclusions Block
@@ -1016,6 +1021,38 @@ function updateCapacityPolicyNotes() {
       extraBedNote.innerHTML = '';
     }
   }
+
+  // Sync Payment Policy Wording across Booking Form, Room Cards, and FAQ
+  const advPct = Number(hotelSettings.advancePercentage) || 20;
+  const balPct = Math.max(0, 100 - advPct);
+  const rawPayAt = String(hotelSettings.balancePayableAt || 'Check-in').trim() || 'Check-in';
+  const payAtCap = rawPayAt.charAt(0).toUpperCase() + rawPayAt.slice(1);
+  const payAtLower = payAtCap.toLowerCase();
+  const fullSentence = hotelSettings.paymentPolicySentence || `The remaining ${balPct}% is payable at the time of ${payAtLower} at the hotel.`;
+  const recSentence = hotelSettings.paymentPolicyReceptionSentence || `The remaining ${balPct}% is payable at the time of ${payAtLower} at the hotel reception.`;
+  const advNote = hotelSettings.advancePolicyNote || `The ${advPct}% advance is non-refundable.`;
+
+  const payNowLabelEl = document.getElementById('livePayNowLabel');
+  if (payNowLabelEl) payNowLabelEl.textContent = `Pay Now (${advPct}% Advance)`;
+
+  const payHotelLabelEl = document.getElementById('livePayHotelLabel');
+  if (payHotelLabelEl) payHotelLabelEl.textContent = `Pay at ${payAtCap} (${balPct}%)`;
+
+  const subtextEl = document.getElementById('livePaymentPolicySubtext');
+  if (subtextEl) subtextEl.textContent = fullSentence;
+
+  const advPolicyTextEl = document.getElementById('bookingAdvancePolicyText');
+  if (advPolicyTextEl) advPolicyTextEl.textContent = advNote;
+
+  const balPolicyInlineEl = document.getElementById('bookingBalancePolicyInline');
+  if (balPolicyInlineEl) balPolicyInlineEl.textContent = fullSentence;
+
+  const faqSentEl = document.getElementById('faqPaymentPolicySentence');
+  if (faqSentEl) faqSentEl.textContent = recSentence;
+
+  document.querySelectorAll('.room-balance-note').forEach(el => {
+    el.textContent = `Remaining ${balPct}% at ${payAtLower}.`;
+  });
 }
 
 // Dynamic scaling of Adults and Children dropdown limits: N rooms => max adults = (room.maxAdults || 2) * N, max children = (room.maxChildren || 1) * N
@@ -2179,15 +2216,18 @@ function openCheckoutModal() {
       </div>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
         <div style="background: rgba(255, 107, 94, 0.15); border: 1px solid var(--sunset-coral); padding: 8px 12px; border-radius: 8px;">
-          <div style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: var(--sunset-coral);">Pay Now (20% Advance)</div>
+          <div style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: var(--sunset-coral);">Pay Now (${hotelSettings.advancePercentage || 20}% Advance)</div>
           <div style="font-size: 1.1rem; font-weight: 700; color: #333;">₹${calc.payNow.toLocaleString('en-IN')}</div>
         </div>
         <div style="background: rgba(6, 182, 176, 0.15); border: 1px solid var(--turquoise); padding: 8px 12px; border-radius: 8px;">
-          <div style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: var(--turquoise);">Pay at Hotel (80%)</div>
+          <div style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: var(--turquoise);">Pay at ${hotelSettings.balancePayableAt || 'Check-in'} (${100 - (Number(hotelSettings.advancePercentage) || 20)}%)</div>
           <div style="font-size: 1.1rem; font-weight: 700; color: #333;">₹${calc.payAtHotel.toLocaleString('en-IN')}</div>
         </div>
       </div>
-      <div style="font-size: 0.76rem; color: var(--sunset-coral); margin-top: 10px; font-weight: 600;">
+      <div style="font-size: 0.8rem; color: var(--ocean-blue); margin-top: 10px; font-weight: 600;">
+        ${hotelSettings.paymentPolicySentence || 'The remaining 80% is payable at the time of check-in at the hotel.'}
+      </div>
+      <div style="font-size: 0.76rem; color: var(--sunset-coral); margin-top: 4px; font-weight: 600;">
         * ${hotelSettings.advancePolicyNote}
       </div>
     </div>
@@ -2415,13 +2455,16 @@ function renderBookingVoucher(booking) {
           <span>Transport Subtotal:</span> <strong>₹${(booking.carTotal || 0).toLocaleString('en-IN')}</strong>
         </div>` : ''}
         <div style="display: flex; justify-content: space-between; color: var(--sunset-coral); font-weight: 700; margin-bottom: 4px;">
-          <span>20% Advance Due (Pay Now):</span> <span>₹${booking.payNowAdvance.toLocaleString('en-IN')}</span>
+          <span>${booking.advancePercentage || hotelSettings.advancePercentage || 20}% Advance Due (Pay Now):</span> <span>₹${booking.payNowAdvance.toLocaleString('en-IN')}</span>
         </div>
         <div style="display: flex; justify-content: space-between; color: var(--turquoise); font-weight: 700;">
-          <span>80% Balance Payable at Hotel:</span> <span>₹${booking.payAtHotelBalance.toLocaleString('en-IN')}</span>
+          <span>${100 - (Number(booking.advancePercentage || hotelSettings.advancePercentage) || 20)}% Balance Payable at ${booking.balancePayableAt || hotelSettings.balancePayableAt || 'Check-in'}:</span> <span>₹${booking.payAtHotelBalance.toLocaleString('en-IN')}</span>
         </div>
-        <div style="font-size: 0.72rem; color: var(--sunset-coral); margin-top: 6px;">
-          * ${booking.advancePolicyNote}
+        <div style="font-size: 0.78rem; color: var(--ocean-blue); margin-top: 6px; font-weight: 600;">
+          ${booking.paymentPolicySentence || hotelSettings.paymentPolicySentence || 'The remaining 80% is payable at the time of check-in at the hotel.'}
+        </div>
+        <div style="font-size: 0.72rem; color: var(--sunset-coral); margin-top: 4px;">
+          * ${booking.advancePolicyNote || hotelSettings.advancePolicyNote}
         </div>
       </div>
 

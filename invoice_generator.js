@@ -90,7 +90,7 @@ async function generateInvoicePDF(booking, db, options = {}) {
   const management = settings.management || "Managed By Ani's";
   const address = settings.address || '';
   const phone = settings.phone || '';
-  const email = (typeof settings.email === 'string' ? settings.email : settings.email?.senderEmail) || '';
+  const email = (typeof settings.email === 'string' ? settings.email : settings.email?.senderEmail) || settings.hotelEmail || 'coastalviewbyanis@gmail.com';
   const website = settings.website || 'https://coastalviewmandarmani.com';
   const checkInTime = settings.checkInTime || '11:00 AM';
   const checkOutTime = settings.checkOutTime || '9:30 AM';
@@ -627,8 +627,14 @@ async function generateInvoicePDF(booking, db, options = {}) {
     doc.font('Poppins-SemiBold').fontSize(7.5).fillColor('#06B6B0')
        .text('PAYMENT SUMMARY & SCHEDULE', payCol1X, payBoxY + 6);
 
+    const advancePct = Number(settings.advancePercentage || db?.websiteContent?.paymentPolicy?.advancePercentage || 20) || 20;
+    const balancePct = Math.max(0, 100 - advancePct);
+    const rawPayableAt = String(settings.balancePayableAt || db?.websiteContent?.paymentPolicy?.balancePayableAt || 'Check-in').trim() || 'Check-in';
+    const balancePayableAt = rawPayableAt.charAt(0).toUpperCase() + rawPayableAt.slice(1);
+    const balancePayableAtLower = balancePayableAt.toLowerCase();
+
     doc.font('Poppins').fontSize(7.5).fillColor('#475569')
-       .text('20% Advance Booking Fee:', payCol1X, payBoxY + 18);
+       .text(`${advancePct}% Advance Booking Fee:`, payCol1X, payBoxY + 18);
     doc.font('Poppins-Bold').fontSize(9.5).fillColor('#073B4C')
        .text(formatINR(payAdv), payCol1X + 120, payBoxY + 17);
 
@@ -646,9 +652,9 @@ async function generateInvoicePDF(booking, db, options = {}) {
        .text(payModeText, payCol1X, payBoxY + 31, { width: payColW });
 
     doc.font('Poppins').fontSize(6.2).fillColor('#94A3B8')
-       .text(`* ${settings.advancePolicyNote || 'The 20% advance is non-refundable.'}`, payCol1X, payBoxY + 43);
+       .text(`* ${settings.advancePolicyNote || `The ${advancePct}% advance is non-refundable.`}`, payCol1X, payBoxY + 43);
 
-    // Right column: 80% Balance Due at Hotel
+    // Right column: 80% Balance Due at Check-in
     const payCol2X = payCol1X + payColW + 12;
 
     doc.moveTo(payCol2X - 6, payBoxY + 6)
@@ -658,12 +664,12 @@ async function generateInvoicePDF(booking, db, options = {}) {
        .stroke();
 
     doc.font('Poppins').fontSize(7.5).fillColor('#475569')
-       .text('80% Balance Payable at Hotel:', payCol2X, payBoxY + 18);
+       .text(`${balancePct}% Balance Payable at ${balancePayableAt}:`, payCol2X, payBoxY + 18);
     doc.font('Poppins-Bold').fontSize(9.5).fillColor('#06B6B0')
-       .text(formatINR(payBal), payCol2X + 130, payBoxY + 17);
+       .text(formatINR(payBal), payCol2X + 145, payBoxY + 17);
 
     doc.font('Poppins').fontSize(6.8).fillColor('#475569')
-       .text('Payable upon check-in / check-out directly at resort desk.', payCol2X, payBoxY + 31);
+       .text(`Payable upon ${balancePayableAtLower} at the hotel reception desk.`, payCol2X, payBoxY + 31);
 
     if (paymentMethods) {
       doc.font('Poppins').fontSize(6.2).fillColor('#64748B')
@@ -677,22 +683,31 @@ async function generateInvoicePDF(booking, db, options = {}) {
     doc.font('Poppins-SemiBold').fontSize(7.2).fillColor('#073B4C')
        .text('TERMS & IMPORTANT RESORT POLICIES:', MARGIN, termsY);
 
-    const defaultTerms = [
-      `1. Advance Policy: The 20% advance is non-refundable upon cancellation.`,
-      `2. Remaining 80% balance is payable at check-in / check-out at the hotel desk.`,
-      `3. Check-In & Check-Out: Check-in from ${checkInTime}; Check-out until ${checkOutTime}. Early check-in subject to availability.`,
-      `4. Guest Identification: Valid Government photo ID (Aadhaar, Passport, Voter ID) is mandatory for all adult guests.`,
-      `5. Hotel Rules: Outside food and beverages are strictly not allowed inside hotel premises.`
+    const canonicalTerms = [
+      `The ${advancePct}% advance is non-refundable upon cancellation.`,
+      `The remaining ${balancePct}% is payable at the time of ${balancePayableAtLower} at the hotel reception.`,
+      `Check-in from ${checkInTime}; check-out by ${checkOutTime}.`,
+      `A valid government photo ID is mandatory for all adult guests at check-in.`,
+      `Outside food and beverages are not allowed inside the hotel premises.`
     ];
 
-    const termsToRender = (Array.isArray(settings.invoiceTerms) && settings.invoiceTerms.length > 0)
-      ? settings.invoiceTerms
-      : defaultTerms;
+    const customTermsRaw = (Array.isArray(db?.websiteContent?.termsAndConditions?.items) && db.websiteContent.termsAndConditions.items.length === 5)
+      ? db.websiteContent.termsAndConditions.items
+      : ((Array.isArray(settings.invoiceTerms) && settings.invoiceTerms.length === 5) ? settings.invoiceTerms : canonicalTerms);
+
+    const termsToRender = [
+      canonicalTerms[0],
+      canonicalTerms[1],
+      canonicalTerms[2],
+      String(customTermsRaw[3] || canonicalTerms[3]).replace(/^\d+\.\s*/, ''),
+      String(customTermsRaw[4] || canonicalTerms[4]).replace(/^\d+\.\s*/, '')
+    ];
 
     let termLineY = termsY + 10;
-    termsToRender.slice(0, 5).forEach(t => {
+    termsToRender.slice(0, 5).forEach((t, idx) => {
+      const cleanLine = String(t).replace(/^\d+\.\s*/, '');
       doc.font('Poppins').fontSize(6.5).fillColor('#475569')
-         .text(t, MARGIN, termLineY, { width: CONTENT_W });
+         .text(`${idx + 1}. ${cleanLine}`, MARGIN, termLineY, { width: CONTENT_W });
       termLineY += 8.5;
     });
 

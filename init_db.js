@@ -13,10 +13,25 @@ const db = readDB();
 
 // Settings update
 db.settings = db.settings || {};
+db.settings.hotelEmail = db.settings.hotelEmail || 'coastalviewbyanis@gmail.com';
 db.settings.taxPercentage = 12;
 db.settings.ipAllowlistEnabled = false;
 db.settings.allowedIps = ['127.0.0.1', '::1'];
 db.settings.loginAlerts = true;
+db.settings.advancePercentage = db.settings.advancePercentage || 20;
+db.settings.balancePercentage = 100 - db.settings.advancePercentage;
+db.settings.balancePayableAt = db.settings.balancePayableAt || 'Check-in';
+db.settings.advancePolicyNote = db.settings.advancePolicyNote || 'The 20% advance is non-refundable.';
+db.settings.paymentPolicySentence = 'The remaining 80% is payable at the time of check-in at the hotel.';
+db.settings.paymentPolicyReceptionSentence = 'The remaining 80% is payable at the time of check-in at the hotel reception.';
+db.settings.policyUpdatedAt = db.settings.policyUpdatedAt || '2026-11-01';
+db.settings.invoiceTerms = [
+  'The 20% advance is non-refundable upon cancellation.',
+  'The remaining 80% is payable at the time of check-in at the hotel reception.',
+  'Check-in from 11:00 AM; check-out by 9:30 AM.',
+  'A valid government photo ID is mandatory for all adult guests at check-in.',
+  'Outside food and beverages are not allowed inside the hotel premises.'
+];
 
 // Ensure rooms have soldOut, inventory quantity, and capacity fields
 const defaultQuantities = {
@@ -130,7 +145,7 @@ db.websiteContent = db.websiteContent || {
     {
       id: 'faq-2',
       question: 'What is your advance payment and refund policy?',
-      answer: 'To guarantee your reservation, a 20% advance payment is required via UPI or bank transfer. This advance is non-refundable. The remaining 80% balance is payable at hotel check-in/check-out.',
+      answer: 'To guarantee your reservation, a 20% advance payment is required via UPI or bank transfer (The 20% advance is non-refundable). The remaining 80% is payable at the time of check-in at the hotel reception.',
       category: 'Policy'
     },
     {

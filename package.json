@@ -1,11 +1,12 @@
 {
   "name": "mandarmaniproject",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
     "build": "node build_full_menu.js",
+    "build:prod": "node scripts/build_production_package.js",
     "test": "node test_endpoints.js",
     "create-super-admin": "node scripts/create_super_admin.js",
     "test-email": "node scripts/test_email.js",
@@ -29,7 +30,6 @@
     "chatbot/",
     "admin/",
     "assets/",
-    "api/",
     "index.html",
     "gallery.html",
     "menu.html",
@@ -37,13 +37,16 @@
     "sitemap.xml",
     "llms.txt",
     ".htaccess",
+    ".env.example",
+    "HOSTINGER_DEPLOYMENT.md",
+    "HOSTINGER_DEPLOYMENT_GUIDE.md",
+    "scripts/build_production_package.js",
     "scripts/create_super_admin.js",
     "scripts/reset_admin_password.js",
     "scripts/unlock_admin.js",
     "scripts/reset_admin_mfa.js",
     "scripts/recover_account.js",
-    "scripts/rotate_encryption_key.js",
-    "scripts/test_email.js"
+    "scripts/rotate_encryption_key.js"
   ],
   "engines": {
     "node": ">=18.0.0"

@@ -42,7 +42,7 @@ services:
       - key: SMTP_PASS
         sync: false
       - key: MAIL_FROM
-        value: reservations@coastalviewmandarmani.com
+        value: coastalviewbyanis@gmail.com
       - key: MAIL_FROM_NAME
         value: "Coastal View Mandarmani"
       - key: SMTP_DAILY_LIMIT

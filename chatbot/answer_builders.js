@@ -251,7 +251,7 @@ function buildRoomPriceReply(db, lang = 'en') {
 function buildContactReply(db, lang = 'en') {
   const phone = db.settings?.phone || '7812027551';
   const whatsapp = db.settings?.whatsapp || phone;
-  const email = db.settings?.email || 'stay@coastalviewmandarmani.com';
+  const email = (typeof db.settings?.email === 'string' ? db.settings.email : (db.settings?.hotelEmail || db.settings?.email?.senderEmail)) || 'coastalviewbyanis@gmail.com';
   const address = db.settings?.address || 'Mandarmani Beach Road, East Midnapore, West Bengal - 721455';
 
   const contactCard = {

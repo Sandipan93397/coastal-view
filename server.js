@@ -90,7 +90,7 @@ const {
 // Run daily database backup routine on server start and every 24 hours
 performDailyBackup();
 setInterval(() => {
-  try { performDailyBackup(); } catch (_) {}
+  try { performDailyBackup(); } catch (_) { }
 }, 24 * 60 * 60 * 1000).unref();
 const {
   generateInvoicePDF,
@@ -195,11 +195,154 @@ if (process.env.SMTP_HOST && process.env.SMTP_USER) {
   }
 }
 
+// Single Source of Truth: Payment Policy & Terms & Conditions Helper
+function getPaymentPolicyConfig(db) {
+  const s = (db && db.settings) || {};
+  const wc = (db && db.websiteContent) || {};
+  const pp = wc.paymentPolicy || {};
+  const tc = wc.termsAndConditions || {};
+
+  const advancePercentage = Number(s.advancePercentage !== undefined ? s.advancePercentage : (pp.advancePercentage !== undefined ? pp.advancePercentage : 20)) || 20;
+  const balancePercentage = Math.max(0, 100 - advancePercentage);
+  const rawPayableAt = String(s.balancePayableAt || pp.balancePayableAt || 'Check-in').trim() || 'Check-in';
+  const balancePayableAt = rawPayableAt.charAt(0).toUpperCase() + rawPayableAt.slice(1);
+  const balancePayableAtLower = balancePayableAt.toLowerCase();
+
+  const advancePolicyNote = s.advancePolicyNote || pp.advancePolicyNote || `The ${advancePercentage}% advance is non-refundable.`;
+  const checkInTime = s.checkInTime || wc.bookingPolicies?.checkInTime || '11:00 AM';
+  const checkOutTime = s.checkOutTime || wc.bookingPolicies?.checkOutTime || '9:30 AM';
+
+  const paymentPolicySentence = `The remaining ${balancePercentage}% is payable at the time of ${balancePayableAtLower} at the hotel.`;
+  const paymentPolicyReceptionSentence = `The remaining ${balancePercentage}% is payable at the time of ${balancePayableAtLower} at the hotel reception.`;
+  const payableUponLine = `Payable upon ${balancePayableAtLower} at the hotel reception desk.`;
+  const payAtLabel = `Pay at ${balancePayableAt} (${balancePercentage}%)`;
+  const payAtShortLabel = `Pay at ${balancePayableAt}`;
+  const balancePayableLabel = `${balancePercentage}% Balance Payable at ${balancePayableAt}`;
+  const balanceDueLabel = `${balancePercentage}% Balance Due at ${balancePayableAt}`;
+  const roomCardAdvanceText = `Pay ${advancePercentage}% to confirm.`;
+  const roomCardBalanceText = `Remaining ${balancePercentage}% payable at ${balancePayableAtLower}.`;
+  const policyUpdatedAt = s.policyUpdatedAt || pp.policyUpdatedAt || tc.updatedAt || '2026-11-01';
+
+  const canonicalTerms = [
+    `The ${advancePercentage}% advance is non-refundable upon cancellation.`,
+    paymentPolicyReceptionSentence,
+    `Check-in from ${checkInTime}; check-out by ${checkOutTime}.`,
+    `A valid government photo ID is mandatory for all adult guests at check-in.`,
+    `Outside food and beverages are not allowed inside the hotel premises.`
+  ];
+
+  let customTerms = Array.isArray(tc.items) && tc.items.length === 5
+    ? tc.items.slice()
+    : (Array.isArray(s.invoiceTerms) && s.invoiceTerms.length === 5 ? s.invoiceTerms.slice() : canonicalTerms.slice());
+
+  // Always ensure term #1, #2, #3 reflect live advancePercentage, balancePayableAt, and check-in/out times
+  customTerms[0] = `The ${advancePercentage}% advance is non-refundable upon cancellation.`;
+  customTerms[1] = paymentPolicyReceptionSentence;
+  customTerms[2] = `Check-in from ${checkInTime}; check-out by ${checkOutTime}.`;
+
+  return {
+    advancePercentage,
+    balancePercentage,
+    balancePayableAt,
+    balancePayableAtLower,
+    advancePolicyNote,
+    checkInTime,
+    checkOutTime,
+    paymentPolicySentence,
+    paymentPolicyReceptionSentence,
+    payableUponLine,
+    payAtLabel,
+    payAtShortLabel,
+    balancePayableLabel,
+    balanceDueLabel,
+    roomCardAdvanceText,
+    roomCardBalanceText,
+    policyUpdatedAt,
+    invoiceTerms: customTerms,
+    termsAndConditions: {
+      title: tc.title || 'Terms & Conditions',
+      updatedAt: policyUpdatedAt,
+      items: customTerms
+    }
+  };
+}
+
+function syncPaymentPolicyInDB(db, updates = {}) {
+  db.settings = db.settings || {};
+  db.websiteContent = db.websiteContent || {};
+  db.websiteContent.paymentPolicy = db.websiteContent.paymentPolicy || {};
+  db.websiteContent.termsAndConditions = db.websiteContent.termsAndConditions || {};
+
+  if (updates.balancePayableAt !== undefined) {
+    const cleanVal = String(updates.balancePayableAt).trim() || 'Check-in';
+    db.settings.balancePayableAt = cleanVal;
+    db.websiteContent.paymentPolicy.balancePayableAt = cleanVal;
+  }
+  if (updates.advancePercentage !== undefined) {
+    const pct = Number(updates.advancePercentage) || 20;
+    db.settings.advancePercentage = pct;
+    db.websiteContent.paymentPolicy.advancePercentage = pct;
+  }
+  if (updates.advancePolicyNote !== undefined) {
+    const note = String(updates.advancePolicyNote).trim() || 'The 20% advance is non-refundable.';
+    db.settings.advancePolicyNote = note;
+    db.websiteContent.paymentPolicy.advancePolicyNote = note;
+  }
+  if (updates.policyUpdatedAt !== undefined) {
+    db.settings.policyUpdatedAt = updates.policyUpdatedAt;
+  }
+  if (Array.isArray(updates.termsItems) && updates.termsItems.length > 0) {
+    db.websiteContent.termsAndConditions.items = updates.termsItems.map(t => String(t).trim()).filter(Boolean);
+    db.settings.invoiceTerms = db.websiteContent.termsAndConditions.items.slice();
+  }
+
+  const cfg = getPaymentPolicyConfig(db);
+  db.settings.balancePayableAt = cfg.balancePayableAt;
+  db.settings.advancePercentage = cfg.advancePercentage;
+  db.settings.advancePolicyNote = cfg.advancePolicyNote;
+  db.settings.paymentPolicySentence = cfg.paymentPolicySentence;
+  db.settings.paymentPolicyReceptionSentence = cfg.paymentPolicyReceptionSentence;
+  db.settings.policyUpdatedAt = cfg.policyUpdatedAt;
+  db.settings.invoiceTerms = cfg.invoiceTerms;
+
+  db.websiteContent.paymentPolicy = {
+    advancePercentage: cfg.advancePercentage,
+    balancePercentage: cfg.balancePercentage,
+    balancePayableAt: cfg.balancePayableAt,
+    advancePolicyNote: cfg.advancePolicyNote,
+    paymentPolicySentence: cfg.paymentPolicySentence,
+    paymentPolicyReceptionSentence: cfg.paymentPolicyReceptionSentence,
+    payableUponLine: cfg.payableUponLine,
+    payAtLabel: cfg.payAtLabel,
+    balancePayableLabel: cfg.balancePayableLabel,
+    balanceDueLabel: cfg.balanceDueLabel,
+    policyUpdatedAt: cfg.policyUpdatedAt
+  };
+
+  db.websiteContent.termsAndConditions = {
+    title: db.websiteContent.termsAndConditions.title || 'Terms & Conditions',
+    updatedAt: cfg.policyUpdatedAt,
+    items: cfg.invoiceTerms
+  };
+
+  // Sync payment FAQ in websiteContent.faqs if present
+  if (Array.isArray(db.websiteContent.faqs)) {
+    db.websiteContent.faqs.forEach(faq => {
+      if (faq && typeof faq.q === 'string' && /advance|payment|balance|pay/i.test(faq.q)) {
+        faq.a = `To confirm your booking at Coastal View, a ${cfg.advancePercentage}% advance payment is required at the time of reservation (${cfg.advancePolicyNote}). ${cfg.paymentPolicyReceptionSentence}`;
+      }
+    });
+  }
+
+  return cfg;
+}
+
 // Confirmation Email Generator & Dispatcher
 async function sendBookingConfirmationEmail(booking, db) {
   const settings = db.settings || {};
+  const policyCfg = getPaymentPolicyConfig(db);
   const recipientEmail = booking.guestEmail;
-  const hotelEmail = settings.email || 'coastalviewbyanis@gmail.com';
+  const hotelEmail = (typeof settings.email === 'string' ? settings.email : (settings.hotelEmail || settings.email?.senderEmail)) || 'coastalviewbyanis@gmail.com';
 
   let transportHtml = '';
   if (booking.needCar) {
@@ -347,15 +490,18 @@ async function sendBookingConfirmationEmail(booking, db) {
               <span style="color: #073B4C;">₹${booking.totalAmount.toLocaleString('en-IN')}</span>
             </div>
             <div style="display: flex; justify-content: space-between; font-size: 14px; color: #FF6B5E; font-weight: 700; margin-bottom: 4px;">
-              <span>20% Advance Payable Now:</span>
+              <span>${policyCfg.advancePercentage}% Advance Payable Now:</span>
               <span>₹${booking.payNowAdvance.toLocaleString('en-IN')}</span>
             </div>
             <div style="display: flex; justify-content: space-between; font-size: 14px; color: #06B6B0; font-weight: 700;">
-              <span>80% Balance at Hotel:</span>
+              <span>${policyCfg.balancePayableLabel}:</span>
               <span>₹${booking.payAtHotelBalance.toLocaleString('en-IN')}</span>
             </div>
-            <div style="font-size: 11px; color: #FF6B5E; margin-top: 8px; font-weight: 600;">
-              * ${booking.advancePolicyNote || 'The 20% advance is non-refundable.'}
+            <div style="font-size: 12px; color: #073B4C; margin-top: 6px; font-weight: 600;">
+              ${policyCfg.paymentPolicyReceptionSentence}
+            </div>
+            <div style="font-size: 11px; color: #FF6B5E; margin-top: 6px; font-weight: 600;">
+              * ${booking.advancePolicyNote || policyCfg.advancePolicyNote}
             </div>
           </div>
 
@@ -457,7 +603,7 @@ class AsyncLock {
     let resultPromise;
     this.queue = this.queue.then(() => {
       resultPromise = Promise.resolve().then(fn);
-      return resultPromise.catch(() => {});
+      return resultPromise.catch(() => { });
     });
     return this.queue.then(() => resultPromise);
   }
@@ -509,7 +655,7 @@ function getRoomAvailability(db, roomId, checkIn, checkOut, excludeBookingId = n
   const stayNights = getStayNightsList(checkIn, checkOut);
 
   // Active bookings overlapping this room (Cancelled bookings are excluded)
-  const activeBookings = (db.bookings || []).filter(b => 
+  const activeBookings = (db.bookings || []).filter(b =>
     b.roomId === roomId &&
     b.bookingId !== excludeBookingId &&
     ['Confirmed', 'Checked-in', 'Pending Advance', 'Pending'].includes(b.status)
@@ -653,7 +799,7 @@ app.use('/admin', express.static(path.join(__dirname, 'admin')));
 app.use('/uploads', imageOnlyGuard, express.static(UPLOADS_ROOT, uploadStaticOpts));
 // SECURITY: do NOT serve the whole project folder (it contained data/db.json with password hashes,
 // server.js, etc.). Only explicit public root files are exposed.
-const PUBLIC_ROOT_FILES = ['index.html', 'gallery.html', 'menu.html', 'robots.txt', 'sitemap.xml', 'llms.txt'];
+const PUBLIC_ROOT_FILES = ['index.html', 'gallery.html', 'menu.html', 'terms.html', 'robots.txt', 'sitemap.xml', 'llms.txt'];
 app.get(['/', ...PUBLIC_ROOT_FILES.map(f => '/' + f)], (req, res) => {
   const f = req.path === '/' ? 'index.html' : req.path.slice(1);
   res.sendFile(path.join(__dirname, f));
@@ -676,12 +822,15 @@ app.get('/gallery', (req, res) => {
 app.get('/menu', (req, res) => {
   res.sendFile(path.join(__dirname, 'menu.html'));
 });
+app.get('/terms', (req, res) => {
+  res.sendFile(path.join(__dirname, 'terms.html'));
+});
 
 // --- AUTHENTICATION & SESSION MIDDLEWARE ---
 
 // Middleware: Authenticate Session and update idle timer
 function requireAdmin(req, res, next) {
-  const token = req.cookies.admin_session || 
+  const token = req.cookies.admin_session ||
     (req.headers.authorization ? req.headers.authorization.replace(/^Bearer\s+/i, '').trim() : null);
 
   if (req.headers['x-admin-role'] && (!process.env.NODE_ENV || process.env.NODE_ENV !== 'production')) {
@@ -941,8 +1090,8 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     // Look up user by username or email
-    const user = (db.users || []).find(u => 
-      u.username.toLowerCase() === username.toLowerCase() || 
+    const user = (db.users || []).find(u =>
+      u.username.toLowerCase() === username.toLowerCase() ||
       (u.email && u.email.toLowerCase() === username.toLowerCase())
     );
 
@@ -1507,7 +1656,7 @@ app.post('/api/auth/reauth', requireAdmin, async (req, res) => {
 
 // 7. Logout Current Device
 app.post('/api/auth/logout', (req, res) => {
-  const token = req.cookies.admin_session || 
+  const token = req.cookies.admin_session ||
     (req.headers.authorization ? req.headers.authorization.replace(/^Bearer\s+/i, '').trim() : null);
 
   if (token) {
@@ -1659,8 +1808,8 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   recordPasswordResetRequest(targetIdentifier, clientIp);
 
   const cleanIdent = targetIdentifier.toLowerCase();
-  const user = (db.users || []).find(u => 
-    u.username.toLowerCase() === cleanIdent || 
+  const user = (db.users || []).find(u =>
+    u.username.toLowerCase() === cleanIdent ||
     (u.email && u.email.toLowerCase() === cleanIdent)
   );
 
@@ -1871,9 +2020,9 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
   const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
   // Support both hashed token lookup and legacy token lookup
-  const tokenIdx = db.passwordResetTokens.findIndex(t => 
-    (t.tokenHash === tokenHash || t.token === rawToken) && 
-    !t.used && 
+  const tokenIdx = db.passwordResetTokens.findIndex(t =>
+    (t.tokenHash === tokenHash || t.token === rawToken) &&
+    !t.used &&
     Date.now() < t.expiresAt
   );
 
@@ -2069,8 +2218,8 @@ const handleTotpSetup = async (req, res) => {
     console.error('TOTP setup error:', err);
     res.status(500).json({
       success: false,
-      message: err.message === 'MFA encryption key not configured' 
-        ? 'MFA encryption key not configured' 
+      message: err.message === 'MFA encryption key not configured'
+        ? 'MFA encryption key not configured'
         : 'Failed to generate authenticator setup: ' + err.message
     });
   }
@@ -2671,8 +2820,8 @@ app.post('/api/admin/settings/email', requireSuperAdmin, async (req, res) => {
   let passChanged = false;
 
   if (appPassword && typeof appPassword === 'string' && appPassword.trim().length > 0) {
-    const nextVersion = (prevEmailSettings.appPassword && prevEmailSettings.appPassword.keyVersion) 
-      ? prevEmailSettings.appPassword.keyVersion 
+    const nextVersion = (prevEmailSettings.appPassword && prevEmailSettings.appPassword.keyVersion)
+      ? prevEmailSettings.appPassword.keyVersion
       : 1;
     encryptedPassObj = encryptSettingSecret(appPassword.trim(), nextVersion);
     passChanged = true;
@@ -2736,7 +2885,7 @@ app.post('/api/admin/settings/email', requireSuperAdmin, async (req, res) => {
         html: alertTpl.html,
         text: alertTpl.text
       }).catch(e => console.warn('[Security Alert Mail Error]', e.message));
-    } catch (e) {}
+    } catch (e) { }
   }
 
   res.json({
@@ -2827,7 +2976,7 @@ app.delete('/api/admin/settings/email/password', requireSuperAdmin, async (req, 
         html: alertTpl.html,
         text: alertTpl.text
       }).catch(e => console.warn('[Security Alert Mail Error]', e.message));
-    } catch (e) {}
+    } catch (e) { }
   }
 
   res.json({
@@ -3261,8 +3410,8 @@ app.post('/api/rooms/:id/sold-out', requireManager, (req, res) => {
 
   const oldStatus = room.isSoldOut;
   const totalQty = parseInt(room.quantity, 10) || 1;
-  const numBlocked = (blockedQuantity !== null && blockedQuantity !== undefined && !isNaN(Number(blockedQuantity))) 
-    ? parseInt(blockedQuantity, 10) 
+  const numBlocked = (blockedQuantity !== null && blockedQuantity !== undefined && !isNaN(Number(blockedQuantity)))
+    ? parseInt(blockedQuantity, 10)
     : 0;
 
   if (numBlocked > 0) {
@@ -3281,19 +3430,19 @@ app.post('/api/rooms/:id/sold-out', requireManager, (req, res) => {
     startDate: dateRangeType === 'range' ? startDate : null,
     endDate: dateRangeType === 'range' ? endDate : null
   };
-  room.soldOutUntil = dateRangeType === 'range' && startDate && endDate 
-    ? `${startDate} to ${endDate}` 
+  room.soldOutUntil = dateRangeType === 'range' && startDate && endDate
+    ? `${startDate} to ${endDate}`
     : (room.isSoldOut || room.blockedQuantity > 0 ? 'Until further notice' : null);
   room.soldOutReason = (room.isSoldOut || room.blockedQuantity > 0) ? (reason || 'Inventory maintenance') : null;
 
   const isPartial = room.blockedQuantity > 0 && room.blockedQuantity < totalQty;
-  const statusLabel = room.isSoldOut 
-    ? 'SOLD OUT' 
+  const statusLabel = room.isSoldOut
+    ? 'SOLD OUT'
     : (isPartial ? `PARTIALLY BLOCKED (${room.blockedQuantity} of ${totalQty} rooms blocked/maintenance)` : 'AVAILABLE');
 
   logAudit(
-    db, 
-    req.user, 
+    db,
+    req.user,
     room.isSoldOut ? 'Room Marked Sold Out' : (isPartial ? 'Room Partially Blocked' : 'Room Marked Available'),
     `${req.user.role} ${req.user.name} set "${room.name}" to ${statusLabel}. Scope: ${room.soldOutUntil || 'Active'}. Reason: "${reason}".`,
     req
@@ -3326,7 +3475,7 @@ app.post('/api/rooms/:id', requireManager, (req, res) => {
   if (bed !== undefined) room.bed = bed.trim();
   if (size !== undefined) room.size = size.trim();
   if (description !== undefined) room.description = description.trim();
-  
+
   if (price !== undefined) {
     if (price === '' || price === null || price === 'null') {
       room.price = null;
@@ -3484,7 +3633,7 @@ app.post('/api/bookings', (req, res) => {
   // Date validations (no past dates, sensible max date, checkout strictly after checkin)
   const todayIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   const todayYMD = `${todayIST.getFullYear()}-${String(todayIST.getMonth() + 1).padStart(2, '0')}-${String(todayIST.getDate()).padStart(2, '0')}`;
-  
+
   const maxDateIST = new Date(todayIST);
   maxDateIST.setDate(maxDateIST.getDate() + 500);
   const maxYMD = `${maxDateIST.getFullYear()}-${String(maxDateIST.getMonth() + 1).padStart(2, '0')}-${String(maxDateIST.getDate()).padStart(2, '0')}`;
@@ -3672,10 +3821,10 @@ app.post('/api/bookings', (req, res) => {
       } else {
         // Fallback for legacy single-vehicle booking requests
         const vType = (vehicleType || 'car').toLowerCase();
-        selectedVehicle = (db.vehicles || []).find(v => 
-          v.id === vType || 
-          v.name.toLowerCase() === vType || 
-          vType.includes(v.id) || 
+        selectedVehicle = (db.vehicles || []).find(v =>
+          v.id === vType ||
+          v.name.toLowerCase() === vType ||
+          vType.includes(v.id) ||
           v.name.toLowerCase().includes(vType)
         );
         if (!selectedVehicle) {
@@ -3900,7 +4049,9 @@ app.post('/api/bookings', (req, res) => {
       advancePercentage,
       payNowAdvance,
       payAtHotelBalance,
-      advancePolicyNote: db.settings?.advancePolicyNote || 'The 20% advance is non-refundable.',
+      balancePayableAt: getPaymentPolicyConfig(db).balancePayableAt,
+      paymentPolicySentence: getPaymentPolicyConfig(db).paymentPolicySentence,
+      advancePolicyNote: getPaymentPolicyConfig(db).advancePolicyNote,
       guestName,
       guestPhone,
       guestEmail: guestEmail || '',
@@ -3908,6 +4059,11 @@ app.post('/api/bookings', (req, res) => {
       status: manualStaffBooking ? 'Confirmed' : 'Pending Advance',
       createdAt: new Date().toISOString()
     };
+
+    // Immediately record booking and persist under bookingMutex lock before async PDF/SMTP I/O
+    db.bookings = db.bookings || [];
+    db.bookings.push(newBooking);
+    writeDB(db);
 
     // Generate authoritative sequential invoice (PDF) & signed token before email dispatch
     try {
@@ -3928,11 +4084,8 @@ app.post('/api/bookings', (req, res) => {
       newBooking.emailStatus = 'Delivery Queued';
     }
 
-    db.bookings = db.bookings || [];
-    db.bookings.push(newBooking);
-
     logAudit(
-      db, 
+      db,
       manualStaffBooking ? 'Staff Walk-in' : 'Public Guest Booking',
       'Booking Created',
       `New booking ${bookingId} created for ${guestName} (${room.name} × ${parsedRoomsCount} room(s), ${checkIn} to ${checkOut}, Total: ₹${totalAmount}). Breakdown: ${breakdownLines.join(' | ')}. Invoice: ${newBooking.invoiceNumber || 'Pending'}.`,
@@ -4167,10 +4320,10 @@ app.put('/api/bookings/:id', requireAnyStaff, (req, res) => {
         }
       } else {
         const vType = (vehicleType || booking.vehicleType || 'car').toLowerCase();
-        selectedVehicle = (db.vehicles || []).find(v => 
-          v.id === vType || 
-          v.name.toLowerCase() === vType || 
-          vType.includes(v.id) || 
+        selectedVehicle = (db.vehicles || []).find(v =>
+          v.id === vType ||
+          v.name.toLowerCase() === vType ||
+          vType.includes(v.id) ||
           v.name.toLowerCase().includes(vType)
         );
         if (selectedVehicle && selectedVehicle.enabled) {
@@ -4385,8 +4538,9 @@ app.post('/api/bookings/:id/resend-email', requireAnyStaff, async (req, res) => 
 app.get('/api/admin/bookings/export-csv', requireManager, (req, res) => {
   const db = readDB();
   const bookings = db.bookings || [];
+  const policyCfg = getPaymentPolicyConfig(db);
 
-  let csv = 'Booking ID,Guest Name,Phone,Email,Room,Check In,Check Out,Nights,Total Amount (INR),20% Advance,80% Balance,Status,Need Car,Candlelight,Created At\n';
+  let csv = `Booking ID,Guest Name,Phone,Email,Room,Check In,Check Out,Nights,Total Amount (INR),${policyCfg.advancePercentage}% Advance,${policyCfg.balancePercentage}% Balance (At ${policyCfg.balancePayableAt}),Status,Need Car,Candlelight,Created At\n`;
   bookings.forEach(b => {
     csv += `"${b.bookingId}","${b.guestName}","${b.guestPhone}","${b.guestEmail}","${b.roomName}","${b.checkIn}","${b.checkOut}",${b.nights},${b.totalAmount},${b.payNowAdvance},${b.payAtHotelBalance},"${b.status}","${b.needCar ? b.vehicleName : 'No'}","${b.candlelightDinner ? b.dinnerSetup : 'No'}","${b.createdAt}"\n`;
   });
@@ -4413,10 +4567,8 @@ app.get('/api/invoices/public/view/:token', async (req, res) => {
   }
 
   const booking = verifyResult.booking;
-  if (!booking.invoicePdfPath || !fs.existsSync(booking.invoicePdfPath)) {
-    await getOrCreateBookingInvoice(booking, db, { baseUrl: `${req.protocol}://${req.get('host')}`, forceRegenerate: true });
-    writeDB(db);
-  }
+  await getOrCreateBookingInvoice(booking, db, { baseUrl: `${req.protocol}://${req.get('host')}`, forceRegenerate: true });
+  writeDB(db);
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="Invoice-${booking.invoiceNumber || booking.bookingId}.pdf"`);
@@ -4433,10 +4585,8 @@ app.get('/api/invoices/public/download/:token', async (req, res) => {
   }
 
   const booking = verifyResult.booking;
-  if (!booking.invoicePdfPath || !fs.existsSync(booking.invoicePdfPath)) {
-    await getOrCreateBookingInvoice(booking, db, { baseUrl: `${req.protocol}://${req.get('host')}`, forceRegenerate: true });
-    writeDB(db);
-  }
+  await getOrCreateBookingInvoice(booking, db, { baseUrl: `${req.protocol}://${req.get('host')}`, forceRegenerate: true });
+  writeDB(db);
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="Invoice-${booking.invoiceNumber || booking.bookingId}.pdf"`);
@@ -4453,6 +4603,7 @@ app.get('/api/invoices/public/info/:token', (req, res) => {
   }
 
   const b = verifyResult.booking;
+  const policyCfg = getPaymentPolicyConfig(db);
   res.json({
     success: true,
     bookingId: b.bookingId,
@@ -4465,6 +4616,8 @@ app.get('/api/invoices/public/info/:token', (req, res) => {
     totalAmount: b.totalAmount,
     payNowAdvance: b.payNowAdvance,
     payAtHotelBalance: b.payAtHotelBalance,
+    balancePayableAt: policyCfg.balancePayableAt,
+    paymentPolicySentence: policyCfg.paymentPolicySentence,
     status: b.status,
     invoiceToken: b.invoiceToken
   });
@@ -4477,10 +4630,7 @@ app.get('/api/admin/invoices/:id/pdf', requireAnyStaff, async (req, res) => {
   const booking = (db.bookings || []).find(b => b.bookingId === id || b.invoiceNumber === id);
   if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
 
-  if (!booking.invoicePdfPath || !fs.existsSync(booking.invoicePdfPath)) {
-    await getOrCreateBookingInvoice(booking, db, { baseUrl: `${req.protocol}://${req.get('host')}`, forceRegenerate: true });
-    writeDB(db);
-  }
+  await getOrCreateBookingInvoice(booking, db, { baseUrl: `${req.protocol}://${req.get('host')}`, forceRegenerate: true });
 
   logAudit(
     db,
@@ -4503,10 +4653,7 @@ app.get('/api/admin/invoices/:id/download', requireAnyStaff, async (req, res) =>
   const booking = (db.bookings || []).find(b => b.bookingId === id || b.invoiceNumber === id);
   if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
 
-  if (!booking.invoicePdfPath || !fs.existsSync(booking.invoicePdfPath)) {
-    await getOrCreateBookingInvoice(booking, db, { baseUrl: `${req.protocol}://${req.get('host')}`, forceRegenerate: true });
-    writeDB(db);
-  }
+  await getOrCreateBookingInvoice(booking, db, { baseUrl: `${req.protocol}://${req.get('host')}`, forceRegenerate: true });
 
   logAudit(
     db,
@@ -4680,6 +4827,7 @@ app.get('/api/admin/invoices/export-zip', requireSuperAdmin, (req, res) => {
 app.get('/api/admin/settings/invoice', requireAnyStaff, (req, res) => {
   const db = readDB();
   const s = db.settings || {};
+  const policyCfg = getPaymentPolicyConfig(db);
   res.json({
     success: true,
     settings: {
@@ -4689,7 +4837,10 @@ app.get('/api/admin/settings/invoice', requireAnyStaff, (req, res) => {
       invoicePrefix: s.invoicePrefix || 'CV',
       invoiceStartingNumber: s.invoiceStartingNumber || 1001,
       invoiceNextNumber: s.invoiceNextNumber || 1001,
-      invoiceTerms: s.invoiceTerms || [],
+      invoiceTerms: policyCfg.invoiceTerms,
+      balancePayableAt: policyCfg.balancePayableAt,
+      paymentPolicySentence: policyCfg.paymentPolicySentence,
+      policyUpdatedAt: policyCfg.policyUpdatedAt,
       gstEnabled: !!s.gstEnabled,
       gstin: s.gstin || '',
       gstRate: s.gstRate !== undefined ? s.gstRate : 12,
@@ -4740,7 +4891,12 @@ app.put('/api/admin/settings/invoice', requireManager, (req, res) => {
     db.settings.bookingNextNumber = parseInt(nextNum, 10) || 1001;
   }
   if (invoiceStartingNumber !== undefined) db.settings.invoiceStartingNumber = parseInt(invoiceStartingNumber, 10) || 1001;
-  if (invoiceTerms !== undefined && Array.isArray(invoiceTerms)) db.settings.invoiceTerms = invoiceTerms;
+  if (invoiceTerms !== undefined && Array.isArray(invoiceTerms)) {
+    syncPaymentPolicyInDB(db, {
+      termsItems: invoiceTerms,
+      policyUpdatedAt: new Date().toISOString().slice(0, 10)
+    });
+  }
   if (gstEnabled !== undefined) db.settings.gstEnabled = !!gstEnabled;
   if (gstin !== undefined) db.settings.gstin = (gstin || '').trim();
   if (gstRate !== undefined) db.settings.gstRate = Number(gstRate) || 12;
@@ -5086,7 +5242,7 @@ app.post('/api/menu/upload-image', requireManager, async (req, res) => {
     const matches = imageBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
     const rawData = matches ? matches[2] : imageBase64;
     const detectedMime = matches ? matches[1] : mimeType;
-    
+
     const allowedMimes = ['image/webp', 'image/jpeg', 'image/png', 'image/jpg'];
     if (!allowedMimes.includes(detectedMime.toLowerCase())) {
       return res.status(400).json({ success: false, message: 'Invalid image format. Supported formats: WebP, JPEG, PNG.' });
@@ -5196,19 +5352,86 @@ app.delete('/api/menu/:type/:id', requireManager, (req, res) => {
 // ============================================================================
 // PUBLIC & ADMIN SETTINGS APIS
 // ============================================================================
-app.get('/api/settings', (req, res) => {
+function handleGetSettings(req, res) {
   const db = readDB();
-  res.json({ success: true, settings: db?.settings || {} });
-});
+  const policyCfg = getPaymentPolicyConfig(db);
+  const emailStr = (typeof db?.settings?.email === 'string' ? db.settings.email : (db?.settings?.hotelEmail || db?.settings?.email?.senderEmail)) || 'coastalviewbyanis@gmail.com';
+  res.json({
+    success: true,
+    settings: {
+      ...(db?.settings || {}),
+      email: emailStr,
+      hotelEmail: emailStr,
+      advancePercentage: policyCfg.advancePercentage,
+      balancePercentage: policyCfg.balancePercentage,
+      balancePayableAt: policyCfg.balancePayableAt,
+      advancePolicyNote: policyCfg.advancePolicyNote,
+      paymentPolicySentence: policyCfg.paymentPolicySentence,
+      paymentPolicyReceptionSentence: policyCfg.paymentPolicyReceptionSentence,
+      payableUponLine: policyCfg.payableUponLine,
+      payAtLabel: policyCfg.payAtLabel,
+      balancePayableLabel: policyCfg.balancePayableLabel,
+      balanceDueLabel: policyCfg.balanceDueLabel,
+      policyUpdatedAt: policyCfg.policyUpdatedAt,
+      invoiceTerms: policyCfg.invoiceTerms
+    }
+  });
+}
 
-app.post('/api/settings', requireManager, (req, res) => {
+function handlePostSettings(req, res) {
   const db = readDB();
   if (!db) return res.status(500).json({ success: false, message: 'Database error' });
+  const prevPolicy = getPaymentPolicyConfig(db);
+
+  if (req.body && req.body.email && typeof req.body.email === 'string') {
+    db.settings.hotelEmail = req.body.email.trim();
+    if (typeof db.settings.email === 'object' && db.settings.email !== null) {
+      delete req.body.email;
+    }
+  }
+
   db.settings = { ...(db.settings || {}), ...(req.body || {}) };
-  logAudit(db, req.user, 'Settings Updated', `${req.user?.name || 'Staff'} updated hotel settings.`, req);
+  const hasPolicyChange = (
+    (req.body.balancePayableAt !== undefined && String(req.body.balancePayableAt).trim() !== prevPolicy.balancePayableAt) ||
+    (req.body.advancePercentage !== undefined && Number(req.body.advancePercentage) !== prevPolicy.advancePercentage) ||
+    (req.body.advancePolicyNote !== undefined && String(req.body.advancePolicyNote).trim() !== prevPolicy.advancePolicyNote)
+  );
+
+  const synced = syncPaymentPolicyInDB(db, {
+    balancePayableAt: req.body.balancePayableAt !== undefined ? req.body.balancePayableAt : db.settings.balancePayableAt,
+    advancePercentage: req.body.advancePercentage !== undefined ? req.body.advancePercentage : db.settings.advancePercentage,
+    advancePolicyNote: req.body.advancePolicyNote !== undefined ? req.body.advancePolicyNote : db.settings.advancePolicyNote,
+    policyUpdatedAt: hasPolicyChange ? new Date().toISOString().slice(0, 10) : db.settings.policyUpdatedAt
+  });
+
+  if (hasPolicyChange) {
+    logAudit(
+      db,
+      req.user,
+      'Payment Policy Updated',
+      `${req.user?.name || 'Staff'} updated payment policy setting: Balance payable at "${prevPolicy.balancePayableAt}" -> "${synced.balancePayableAt}", Advance: ${synced.advancePercentage}% ("${synced.paymentPolicySentence}"). Policy updated date: ${synced.policyUpdatedAt}.`,
+      req
+    );
+  } else {
+    logAudit(db, req.user, 'Settings Updated', `${req.user?.name || 'Staff'} updated hotel settings.`, req);
+  }
+
   writeDB(db);
-  res.json({ success: true, settings: db.settings, message: 'Hotel settings updated successfully.' });
-});
+  const emailStr = (typeof db.settings.email === 'string' ? db.settings.email : (db.settings.hotelEmail || db.settings.email?.senderEmail)) || 'coastalviewbyanis@gmail.com';
+  res.json({
+    success: true,
+    settings: {
+      ...db.settings,
+      email: emailStr,
+      hotelEmail: emailStr
+    },
+    paymentPolicy: synced,
+    message: 'Hotel settings updated successfully.'
+  });
+}
+
+app.get('/api/settings', handleGetSettings);
+app.post('/api/settings', requireManager, handlePostSettings);
 
 // Admin Get Add-ons settings (Breakfast, Vehicles, Candlelight)
 app.get('/api/admin/settings/addons', requireAnyStaff, (req, res) => {
@@ -5862,19 +6085,8 @@ app.get('/api/admin/chat/stats', requireAnyStaff, (req, res) => {
 // ============================================================================
 // SYSTEM SETTINGS APIS
 // ============================================================================
-app.get('/api/settings', (req, res) => {
-  const db = readDB();
-  res.json({ success: true, settings: db?.settings || {} });
-});
-
-app.post('/api/settings', requireManager, (req, res) => {
-  const db = readDB();
-  if (!db) return res.status(500).json({ success: false, message: 'Database error' });
-  db.settings = { ...(db.settings || {}), ...req.body };
-  logAudit(db, req.user, 'Settings Updated', `${req.user?.name || 'Staff'} updated hotel settings.`, req);
-  writeDB(db);
-  res.json({ success: true, settings: db.settings, message: 'Settings updated' });
-});
+app.get('/api/settings', handleGetSettings);
+app.post('/api/settings', requireManager, handlePostSettings);
 
 // ============================================================================
 // VEHICLES & TRANSPORT APIS (ANI'S TOUR AND TRAVELS PRICING MATRIX)
@@ -6720,7 +6932,7 @@ app.post('/api/admin/invite/complete-mfa', async (req, res) => {
         html: alertTpl.html,
         text: alertTpl.text
       }).catch(e => console.warn(e.message));
-    } catch (e) {}
+    } catch (e) { }
   }
 
   writeDB(db);
@@ -6766,7 +6978,7 @@ app.patch('/api/admin/users/:username', requireSuperAdmin, async (req, res) => {
   }
 
   // Safety Rule 3: You cannot remove/disable the last active Super Admin
-  const activeSuperAdmins = (db.users || []).filter(u => 
+  const activeSuperAdmins = (db.users || []).filter(u =>
     (normalizeRole(u.role) === ROLES.SUPER_ADMIN || u.is_superadmin) &&
     u.active !== false &&
     u.status !== 'Disabled' &&
@@ -6860,7 +7072,7 @@ app.patch('/api/admin/users/:username', requireSuperAdmin, async (req, res) => {
           html: verifyTpl.html,
           text: verifyTpl.text
         }).catch(e => console.warn(e.message));
-      } catch (e) {}
+      } catch (e) { }
 
       emailNotice = ' A verification link has been sent to the new email address to complete the email change.';
     }
@@ -6891,7 +7103,7 @@ app.patch('/api/admin/users/:username', requireSuperAdmin, async (req, res) => {
         html: alertTpl.html,
         text: alertTpl.text
       }).catch(e => console.warn(e.message));
-    } catch (e) {}
+    } catch (e) { }
   }
 
   writeDB(db);
@@ -6946,7 +7158,7 @@ app.delete('/api/admin/users/:username', requireSuperAdmin, (req, res) => {
   // Safety rule: Cannot delete last Super Admin
   const isTargetSuperAdmin = normalizeRole(user.role) === ROLES.SUPER_ADMIN || user.is_superadmin;
   if (isTargetSuperAdmin) {
-    const activeSuperAdmins = (db.users || []).filter(u => 
+    const activeSuperAdmins = (db.users || []).filter(u =>
       (normalizeRole(u.role) === ROLES.SUPER_ADMIN || u.is_superadmin) &&
       u.status !== 'Deleted' &&
       u.active !== false
@@ -7013,7 +7225,7 @@ app.post('/api/admin/users/:username/reset-password', requireSuperAdmin, async (
       text: tpl.text
     });
     sent = sRes.success;
-  } catch (e) {}
+  } catch (e) { }
 
   logAudit(db, req.user, 'Staff Password Reset Dispatched', `Super Admin ${req.user.name} sent password reset link to ${user.name} (${user.email}).`, req);
   writeDB(db);
@@ -7100,7 +7312,7 @@ app.post('/api/admin/users/:username/reset-2fa', requireSuperAdmin, async (req, 
       html: alertTpl.html,
       text: alertTpl.text
     }).catch(e => console.warn(e.message));
-  } catch (e) {}
+  } catch (e) { }
 
   writeDB(db);
 
@@ -7246,9 +7458,37 @@ app.post('/api/admin/amenities/reorder', requireManager, (req, res) => {
   res.json({ success: true, amenities: db.amenities, message: 'Amenities order updated.' });
 });
 
+function buildEnrichedWebsiteContent(db) {
+  const wc = (db && db.websiteContent) || {};
+  const policyCfg = getPaymentPolicyConfig(db);
+  return {
+    ...wc,
+    paymentPolicy: {
+      ...(wc.paymentPolicy || {}),
+      advancePercentage: policyCfg.advancePercentage,
+      balancePercentage: policyCfg.balancePercentage,
+      balancePayableAt: policyCfg.balancePayableAt,
+      advancePolicyNote: policyCfg.advancePolicyNote,
+      paymentPolicySentence: policyCfg.paymentPolicySentence,
+      paymentPolicyReceptionSentence: policyCfg.paymentPolicyReceptionSentence,
+      payableUponLine: policyCfg.payableUponLine,
+      payAtLabel: policyCfg.payAtLabel,
+      balancePayableLabel: policyCfg.balancePayableLabel,
+      balanceDueLabel: policyCfg.balanceDueLabel,
+      policyUpdatedAt: policyCfg.policyUpdatedAt
+    },
+    termsAndConditions: policyCfg.termsAndConditions
+  };
+}
+
+app.get('/api/content', (req, res) => {
+  const db = readDB();
+  res.json({ success: true, content: buildEnrichedWebsiteContent(db) });
+});
+
 app.get('/api/admin/content', requireAnyStaff, (req, res) => {
   const db = readDB();
-  res.json({ success: true, content: db?.websiteContent || {} });
+  res.json({ success: true, content: buildEnrichedWebsiteContent(db) });
 });
 
 app.post('/api/admin/content/:section', requireManager, (req, res) => {
@@ -7258,6 +7498,9 @@ app.post('/api/admin/content/:section', requireManager, (req, res) => {
   db.websiteContent = db.websiteContent || {};
 
   let dataToSave = req.body;
+  let customAuditAction = null;
+  let customAuditDetails = null;
+
   if (section === 'faqs' && req.body && Array.isArray(req.body.faqs)) {
     dataToSave = req.body.faqs;
   } else if (section === 'places' && req.body && Array.isArray(req.body.places)) {
@@ -7269,6 +7512,33 @@ app.post('/api/admin/content/:section', requireManager, (req, res) => {
     db.settings = db.settings || {};
     db.settings.reviewLink = rLink;
     dataToSave = { url: rLink };
+  } else if (section === 'paymentPolicy') {
+    const prevCfg = getPaymentPolicyConfig(db);
+    const updatedDate = req.body.policyUpdatedAt || new Date().toISOString().slice(0, 10);
+    const synced = syncPaymentPolicyInDB(db, {
+      balancePayableAt: req.body.balancePayableAt !== undefined ? req.body.balancePayableAt : prevCfg.balancePayableAt,
+      advancePercentage: req.body.advancePercentage !== undefined ? req.body.advancePercentage : prevCfg.advancePercentage,
+      advancePolicyNote: req.body.advancePolicyNote !== undefined ? req.body.advancePolicyNote : prevCfg.advancePolicyNote,
+      termsItems: Array.isArray(req.body.termsItems) ? req.body.termsItems : undefined,
+      policyUpdatedAt: updatedDate
+    });
+    dataToSave = db.websiteContent.paymentPolicy;
+    customAuditAction = 'Payment Policy Updated';
+    customAuditDetails = `${req.user?.name || 'Staff'} updated Website Content payment policy: Balance payable at "${prevCfg.balancePayableAt}" -> "${synced.balancePayableAt}", Advance: ${synced.advancePercentage}% ("${synced.paymentPolicySentence}"). Policy updated date: ${synced.policyUpdatedAt}.`;
+  } else if (section === 'termsAndConditions') {
+    const updatedDate = req.body.updatedAt || req.body.policyUpdatedAt || new Date().toISOString().slice(0, 10);
+    const items = Array.isArray(req.body.items) ? req.body.items : (Array.isArray(req.body.terms) ? req.body.terms : []);
+    const synced = syncPaymentPolicyInDB(db, {
+      balancePayableAt: req.body.balancePayableAt,
+      termsItems: items,
+      policyUpdatedAt: updatedDate
+    });
+    if (req.body.title) {
+      db.websiteContent.termsAndConditions.title = String(req.body.title).trim();
+    }
+    dataToSave = db.websiteContent.termsAndConditions;
+    customAuditAction = 'Terms & Conditions Updated';
+    customAuditDetails = `${req.user?.name || 'Staff'} updated Website Content Terms & Conditions (${synced.invoiceTerms.length} points, Policy updated: ${synced.policyUpdatedAt}).`;
   } else if (section === 'bookingPolicies') {
     db.settings = db.settings || {};
     if (req.body.checkInTime !== undefined) db.settings.checkInTime = String(req.body.checkInTime).trim() || '11:00 AM';
@@ -7280,6 +7550,7 @@ app.post('/api/admin/content/:section', requireManager, (req, res) => {
     }
     if (req.body.childPolicyRule !== undefined) db.settings.childPolicyRule = String(req.body.childPolicyRule).trim();
     if (req.body.extraBedNote !== undefined) db.settings.extraBedNote = String(req.body.extraBedNote).trim();
+    syncPaymentPolicyInDB(db, {});
     dataToSave = {
       checkInTime: db.settings.checkInTime,
       checkOutTime: db.settings.checkOutTime,
@@ -7291,9 +7562,20 @@ app.post('/api/admin/content/:section', requireManager, (req, res) => {
   }
 
   db.websiteContent[section] = dataToSave;
-  logAudit(db, req.user, 'Content Updated', `${req.user?.name || 'Staff'} updated website content section "${section}".`, req);
+  logAudit(
+    db,
+    req.user,
+    customAuditAction || 'Content Updated',
+    customAuditDetails || `${req.user?.name || 'Staff'} updated website content section "${section}".`,
+    req
+  );
   writeDB(db);
-  res.json({ success: true, message: `Website content "${section}" updated successfully.` });
+  res.json({
+    success: true,
+    content: buildEnrichedWebsiteContent(db),
+    paymentPolicy: getPaymentPolicyConfig(db),
+    message: `Website content "${section}" updated successfully.`
+  });
 });
 
 app.get('/api/admin/seo', requireAnyStaff, (req, res) => {
@@ -8027,7 +8309,60 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Promise Rejection caught:', reason);
 });
 
+// Production Startup Guard: Refuse to start in production if required env vars are missing or APP_URL contains localhost
+function validateProductionEnvironment(env = process.env) {
+  if (env.NODE_ENV !== 'production') return { valid: true, errors: [] };
+
+  const requiredVars = [
+    'APP_URL',
+    'ADMIN_EMAIL',
+    'SESSION_SECRET',
+    'SETTINGS_ENCRYPTION_KEY',
+    'MFA_ENCRYPTION_KEY',
+    'TURNSTILE_SITE_KEY',
+    'TURNSTILE_SECRET_KEY',
+    'DATA_DIR',
+    'UPLOADS_DIR'
+  ];
+
+  const errors = [];
+  for (const key of requiredVars) {
+    const val = String(env[key] || '').trim();
+    if (!val) {
+      errors.push(`Missing required production environment variable: ${key}`);
+    }
+  }
+
+  const appUrl = String(env.APP_URL || '').trim();
+  if (appUrl) {
+    if (/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/i.test(appUrl)) {
+      errors.push('Invalid APP_URL for production: APP_URL must not contain localhost or loopback addresses');
+    }
+    if (!/^https:\/\//i.test(appUrl)) {
+      errors.push('Invalid APP_URL for production: APP_URL must use https://');
+    }
+  }
+
+  if (String(env.TURNSTILE_SITE_KEY || '').trim() === '1x00000000000000000000AA') {
+    errors.push('Invalid TURNSTILE_SITE_KEY for production: test site key is forbidden in production');
+  }
+  if (String(env.TURNSTILE_SECRET_KEY || '').trim() === '1x0000000000000000000000000000000AA') {
+    errors.push('Invalid TURNSTILE_SECRET_KEY for production: test secret key is forbidden in production');
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+const prodEnvCheck = validateProductionEnvironment(process.env);
+if (!prodEnvCheck.valid) {
+  console.error('\n[FATAL STARTUP GUARD] Refusing to start server in NODE_ENV=production:');
+  for (const err of prodEnvCheck.errors) {
+    console.error(`  • ${err}`);
+  }
+  process.exit(1);
+}
+
 // Start Server
 app.listen(PORT, () => {
-  console.log(`Coastal View luxury hotel server running on http://localhost:${PORT}`);
+  console.log(`Coastal View luxury hotel server running on port ${PORT}`);
 });

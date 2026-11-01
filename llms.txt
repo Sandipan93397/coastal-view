@@ -70,8 +70,8 @@ Coastal View features 4 distinct boutique room and suite categories:
 
 ## Reservation & Payment Policy
 - **Occupancy Policy:** Each standard room accommodates up to 2 Adults and 1 Child (complimentary stay for children aged up to 5 years). Extra person/bed inquiries can be confirmed with the front desk. For larger parties, please reserve multiple rooms.
-- **Confirmation Advance:** 20% non-refundable advance deposit payable online via UPI / Cards / Net Banking to lock in live room dates.
-- **Balance Payment:** Remaining 80% balance is payable directly at hotel check-in or check-out.
+- **Confirmation Advance:** 20% non-refundable advance deposit payable online via UPI / Cards / Net Banking to lock in live room dates. (The 20% advance is non-refundable.)
+- **Balance Payment:** The remaining 80% is payable at the time of check-in at the hotel reception.
 - **Live Inventory:** Real-time sold-out toggling directly synced between front desk admin panel, website booking engine, and the Coastal Concierge AI.
 
 ## Dining & Add-On Experiences

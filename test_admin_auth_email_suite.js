@@ -122,7 +122,7 @@ async function runTestSuite() {
     }
 
     // Scan codebase for hardcoded passwords
-    const scanFiles = [testEnv.TEMP_DB_PATH, 'scripts/create_super_admin.js', 'server.js', 'api/auth.php'];
+    const scanFiles = [testEnv.TEMP_DB_PATH, 'scripts/create_super_admin.js', 'server.js'];
     let leakFound = false;
     for (const f of scanFiles) {
       if (fs.existsSync(f)) {
@@ -139,13 +139,13 @@ async function runTestSuite() {
     // TEST 2: Generic Login Errors & CAPTCHA Trigger
     // ------------------------------------------------------------------------
     console.log('\n--- TEST 2: Generic Login Errors & CAPTCHA Rate Limiting ---');
-    
+
     // Non-existent user
     const resBadUser = await request('POST', '/api/auth/login', {
       username: 'nonexistentuser_' + Date.now(),
       password: testEnv.TEST_PASSWORDS.wrong
     });
-    recordTest('Non-existent user returns generic "Wrong email or password"', 
+    recordTest('Non-existent user returns generic "Wrong email or password"',
       resBadUser.statusCode === 401 && resBadUser.json && resBadUser.json.message === 'Wrong email or password');
 
     // Real user, wrong password (Attempt 1)
@@ -166,7 +166,7 @@ async function runTestSuite() {
       username: testUsername,
       password: testEnv.TEST_PASSWORDS.wrong
     });
-    recordTest('Wrong password attempt 1 returns generic "Wrong email or password"', 
+    recordTest('Wrong password attempt 1 returns generic "Wrong email or password"',
       resBadPass1.statusCode === 401 && resBadPass1.json && resBadPass1.json.message === 'Wrong email or password');
 
     // Attempt 2
@@ -190,7 +190,7 @@ async function runTestSuite() {
     // TEST 3: Login with TOTP, Anti-Replay & Code Reuse Prevention
     // ------------------------------------------------------------------------
     console.log('\n--- TEST 3: Authenticator 2FA (TOTP) & Anti-Replay ---');
-    
+
     // Set a known TOTP secret and password for a temporary test user in DB
     const db = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
     const testTotpSecret = authSec.generateTotpSecret();
@@ -220,7 +220,7 @@ async function runTestSuite() {
       password: testPasswordPlain,
       captchaToken: testCaptchaToken
     });
-    
+
     if (!resLogin.json?.success) {
       console.log('Login failed for ' + adminUsername + ':', resLogin.statusCode, resLogin.json);
     }
@@ -249,7 +249,7 @@ async function runTestSuite() {
     const sessionToken = resValidTotp.json?.token;
     const csrfToken = resValidTotp.json?.csrfToken;
     const adminSessionCookie = extractCookie(resValidTotp.setCookies, 'admin_session');
-    
+
     recordTest('Valid TOTP code succeeds and creates secure session',
       resValidTotp.json?.success === true && !!sessionToken && !!adminSessionCookie,
       `Session issued with HttpOnly cookie`);
@@ -275,7 +275,7 @@ async function runTestSuite() {
     // TEST 4: Emergency Single-Use Recovery Codes
     // ------------------------------------------------------------------------
     console.log('\n--- TEST 4: Single-Use Recovery Code Verification ---');
-    
+
     const resLoginRecov = await request('POST', '/api/auth/login', {
       username: adminUsername,
       password: testPasswordPlain,
@@ -313,7 +313,7 @@ async function runTestSuite() {
     // TEST 5: Backup Email Code & Resend Cooldown
     // ------------------------------------------------------------------------
     console.log('\n--- TEST 5: Backup Email Code & 60s Resend Cooldown ---');
-    
+
     const resLoginEmail = await request('POST', '/api/auth/login', {
       username: adminUsername,
       password: testPasswordPlain,
@@ -352,7 +352,7 @@ async function runTestSuite() {
     // TEST 6: Production Safety Guard (No devCode in Production)
     // ------------------------------------------------------------------------
     console.log('\n--- TEST 6: Production Safety Guard (Zero DevCode Leak) ---');
-    
+
     // Test that production logic strictly forbids devCode printing or JSON return
     const isProdSimulated = true;
     const isDevSimulated = !isProdSimulated && !process.env.SMTP_USER;
@@ -365,9 +365,10 @@ async function runTestSuite() {
     // TEST 7: Role-Based Access Control (Direct API Route Enforcement)
     // ------------------------------------------------------------------------
     console.log('\n--- TEST 7: Role Authorization Enforcement ---');
-    
+
     // Front desk login
     const frontDeskHash = await authSec.hashPassword(testEnv.TEST_PASSWORDS.staff);
+    const fdTotpSecret = authSec.generateTotpSecret();
     let fdUser = db.users.find(u => u.role === 'Front Desk');
     if (!fdUser) {
       fdUser = {
@@ -377,11 +378,13 @@ async function runTestSuite() {
         email: 'fd@coastalview.com',
         role: 'Front Desk',
         active: true,
-        passwordHash: frontDeskHash
+        passwordHash: frontDeskHash,
+        totpSecret: fdTotpSecret
       };
       db.users.push(fdUser);
     } else {
       fdUser.passwordHash = frontDeskHash;
+      fdUser.totpSecret = fdTotpSecret;
     }
     fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
 
@@ -395,9 +398,10 @@ async function runTestSuite() {
     let fdCsrf = null;
     if (resFdLogin.json?.require2FA) {
       const fdPreAuth = resFdLogin.json.preAuthToken;
+      const validCode = authSec.generateCurrentTotp(fdTotpSecret);
       const fdVerify = await request('POST', '/api/auth/verify-2fa', {
         preAuthToken: fdPreAuth,
-        code: resFdLogin.json.devCode || '123456'
+        code: validCode
       });
       fdSessionToken = fdVerify.json?.token;
       fdCsrf = fdVerify.json?.csrfToken;
@@ -438,7 +442,7 @@ async function runTestSuite() {
     // TEST 8: SMTP Mail Service Resilience & Append-Only Log Masking
     // ------------------------------------------------------------------------
     console.log('\n--- TEST 8: SMTP Resilience & Append-Only Mail Log Masking ---');
-    
+
     // Test email service maskEmail helper
     const masked1 = emailService.maskEmail('staffmember@gmail.com');
     const masked2 = emailService.maskEmail('admin@coastalviewmandarmani.com');
@@ -494,7 +498,7 @@ async function runTestSuite() {
     // TEST 9: Admin Email Stats & Test CLI
     // ------------------------------------------------------------------------
     console.log('\n--- TEST 9: Email Stats & test-email CLI ---');
-    
+
     const resEmailStats = await request('GET', '/api/admin/email/stats', null, {
       'Authorization': `Bearer ${sessionToken || ''}`,
       'X-CSRF-Token': csrfToken || ''
@@ -518,7 +522,7 @@ async function runTestSuite() {
     // TEST 10: Active Sessions & Log Out All Devices
     // ------------------------------------------------------------------------
     console.log('\n--- TEST 10: Active Sessions & Log Out All Devices ---');
-    
+
     const resSessions = await request('GET', '/api/admin/sessions', null, {
       'Authorization': `Bearer ${sessionToken || ''}`,
       'X-CSRF-Token': csrfToken || ''

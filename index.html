@@ -1212,7 +1212,7 @@
       "name": "What is the payment policy for room reservations?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "To confirm your reservation, a 20% advance payment is required at the time of booking. The remaining 80% balance is payable at the hotel upon check-in or check-out. Please note: The 20% advance is non-refundable."
+        "text": "To confirm your reservation, a 20% advance payment is required at the time of booking. The remaining 80% is payable at the time of check-in at the hotel reception. Please note: The 20% advance is non-refundable."
       }
     },
     {
@@ -1683,6 +1683,9 @@
                 <span class="price-summary-label" id="liveTotalLabel">Estimated Total<span id="liveNightsWrap" style="display: none;"> (<span id="liveNightsCount">0 nights</span>)</span>:</span>
                 <span class="price-summary-amount neutral-message" id="liveTotalAmount">Select dates and a suite to see your price</span>
               </div>
+              <div class="booking-helper-text" id="livePaymentPolicySubtext" style="color: rgba(255,255,255,0.82); font-size: 0.78rem; margin-top: 4px;">
+                The remaining 80% is payable at the time of check-in at the hotel.
+              </div>
               <!-- Clear itemized breakdown directly under the total -->
               <div class="price-breakdown-container" id="priceBreakdownContainer" style="display: none;">
                 <div class="price-breakdown-line room-breakdown-line" id="liveRoomSummaryLine" style="display: none;"></div>
@@ -1695,11 +1698,11 @@
 
             <div class="split-payment-boxes">
               <div class="split-pill pay-now">
-                <span class="split-pill-label">Pay Now (20% Advance)</span>
+                <span class="split-pill-label" id="livePayNowLabel">Pay Now (20% Advance)</span>
                 <span class="split-pill-val" id="livePayNow">—</span>
               </div>
               <div class="split-pill pay-hotel">
-                <span class="split-pill-label">Pay at Hotel (80%)</span>
+                <span class="split-pill-label" id="livePayHotelLabel">Pay at Check-in (80%)</span>
                 <span class="split-pill-val" id="livePayHotel">—</span>
               </div>
             </div>
@@ -1712,7 +1715,10 @@
               </div>
               <div id="bookingFormErrorMsg" class="booking-form-error-msg" role="alert" aria-live="polite" style="display: none;"></div>
               <span class="policy-badge-note" id="bookingAdvancePolicyNote">
-                <span class="material-symbols-outlined" style="font-size: 15px;">info</span> The 20% advance is non-refundable.
+                <span class="material-symbols-outlined" style="font-size: 15px;">info</span> <span id="bookingAdvancePolicyText">The 20% advance is non-refundable.</span> <span id="bookingBalancePolicyInline">The remaining 80% is payable at the time of check-in at the hotel.</span>
+              </span>
+              <span class="policy-badge-note" style="font-size: 0.74rem; opacity: 0.9;">
+                By booking, you agree to the <a href="/terms" target="_blank" rel="noopener" style="color: var(--champagne-gold); text-decoration: underline; font-weight: 600;">Terms &amp; Conditions</a>.
               </span>
             </div>
           </div>
@@ -1966,7 +1972,7 @@
       <div class="m-footer-price-col">
         <div class="m-footer-total-label">Total Estimate</div>
         <div class="m-footer-total-amount" id="mSheetTotalAmount" style="font-size: 0.92rem;">Select dates and a suite to see your price</div>
-        <div class="m-footer-advance-badge" id="mSheetAdvanceBadge">Pay 20% Now: — • Pay at Hotel: —</div>
+        <div class="m-footer-advance-badge" id="mSheetAdvanceBadge">Pay 20% Now: — • Pay at Check-in: —</div>
       </div>
       <button type="button" class="btn btn-gold m-sheet-continue-btn" id="mSheetContinueBtn">
         <span>Continue</span>
@@ -2098,7 +2104,7 @@
               </div>
               <div class="pricing-payment-terms">
                 <span class="room-policy-note">Pay 20% to confirm (₹500)</span>
-                <span class="room-balance-note">Remaining 80% at the hotel.</span>
+                <span class="room-balance-note">Remaining 80% at check-in.</span>
               </div>
               <span class="room-avail-hint"></span>
             </div>
@@ -2178,7 +2184,7 @@
               </div>
               <div class="pricing-payment-terms">
                 <span class="room-policy-note">Pay 20% to confirm (₹440)</span>
-                <span class="room-balance-note">Remaining 80% at the hotel.</span>
+                <span class="room-balance-note">Remaining 80% at check-in.</span>
               </div>
               <span class="room-avail-hint"></span>
             </div>
@@ -2258,7 +2264,7 @@
               </div>
               <div class="pricing-payment-terms">
                 <span class="room-policy-note">Pay 20% to confirm (₹360)</span>
-                <span class="room-balance-note">Remaining 80% at the hotel.</span>
+                <span class="room-balance-note">Remaining 80% at check-in.</span>
               </div>
               <span class="room-avail-hint"></span>
             </div>
@@ -2338,7 +2344,7 @@
               </div>
               <div class="pricing-payment-terms">
                 <span class="room-policy-note">Pay 20% to confirm (₹540)</span>
-                <span class="room-balance-note">Remaining 80% at the hotel.</span>
+                <span class="room-balance-note">Remaining 80% at check-in.</span>
               </div>
               <span class="room-avail-hint"></span>
             </div>
@@ -3298,8 +3304,8 @@
             <span class="material-symbols-outlined faq-icon">expand_more</span>
           </button>
           <div class="faq-answer">
-            <p>
-              To confirm your reservation, a 20% advance payment is required at the time of booking. The remaining 80% balance is payable at the hotel upon check-in or check-out. Please note: The 20% advance is non-refundable.
+            <p id="faqPaymentPolicyParagraph">
+              To confirm your reservation, a 20% advance payment is required at the time of booking (The 20% advance is non-refundable.). <span id="faqPaymentPolicySentence">The remaining 80% is payable at the time of check-in at the hotel reception.</span>
             </p>
           </div>
         </div>
@@ -3425,6 +3431,7 @@
             <li><a href="#nearby">Nearby Mandarmani Attractions</a></li>
             <li><a href="#tours">Ani's Tour & Travels</a></li>
             <li><a href="#faq">Guest Policies & FAQs</a></li>
+            <li><a href="/terms">Terms &amp; Conditions (/terms)</a></li>
           </ul>
         </div>
 
@@ -3457,7 +3464,7 @@
 
       <div class="footer-bottom">
         <div>
-          © 2026 Coastal View, Managed By Ani's. All rights reserved. Rina Rd, Mandarmani.
+          © 2026 Coastal View, Managed By Ani's. All rights reserved. Rina Rd, Mandarmani. | <a href="/terms" style="color: var(--champagne-gold); text-decoration: underline;">Terms &amp; Conditions</a>
         </div>
         <div>
           Designed for Luxury Beachfront Hospitality • Built for Hostinger Business Web Hosting
@@ -3585,6 +3592,10 @@
 
           <div class="form-error-banner" id="checkoutFormErrorBanner" style="display:none; background:rgba(239,68,68,0.12); border:1px solid #EF4444; color:#F87171; border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.82rem; font-weight:500;"></div>
 
+          <div style="font-size: 0.78rem; color: #475569; margin-bottom: 14px;">
+            By booking, you agree to the <a href="/terms" target="_blank" rel="noopener" style="color: var(--ocean-blue); text-decoration: underline; font-weight: 700;">Terms &amp; Conditions</a>.
+          </div>
+
           <div style="display: flex; justify-content: flex-end; gap: 12px;">
             <button type="button" class="btn btn-outline-gold" onclick="document.getElementById('checkoutModal').classList.remove('open')">Cancel</button>
             <button type="submit" class="btn btn-coral">
@@ -3700,7 +3711,7 @@
         if (d.settings.address) document.getElementById('dispAddress').textContent = d.settings.address;
         if (d.settings.phone) document.getElementById('dispPhone').textContent = d.settings.phone;
         if (d.settings.whatsapp) document.getElementById('dispWhatsapp').textContent = d.settings.whatsapp;
-        if (d.settings.email) document.getElementById('dispEmail').textContent = d.settings.email;
+        if (d.settings.email) document.getElementById('dispEmail').textContent = typeof d.settings.email === 'string' ? d.settings.email : (d.settings.hotelEmail || d.settings.email?.senderEmail || 'coastalviewbyanis@gmail.com');
       }
     }).catch(()=>{});
   </script>

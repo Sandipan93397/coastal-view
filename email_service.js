@@ -97,7 +97,7 @@ function getSmtpConfig(db = null) {
     const secure = dbSettings.secure !== undefined ? Boolean(dbSettings.secure) : (port === 465);
     const user = (dbSettings.senderEmail || '').trim();
     const pass = decryptedPass;
-    const mailFrom = user || 'reservations@coastalviewmandarmani.com';
+    const mailFrom = user || 'coastalviewbyanis@gmail.com';
     const mailFromName = (dbSettings.senderName || 'Coastal View').trim();
     const adminAlertEmail = (dbSettings.adminAlertEmail || user || '').trim();
     const isConfigured = Boolean(host && user && pass);
@@ -129,7 +129,7 @@ function getSmtpConfig(db = null) {
   const port = parseInt(process.env.SMTP_PORT, 10) || 587;
   const user = (process.env.SMTP_USER || '').trim();
   const pass = (process.env.SMTP_PASS || '').trim();
-  const mailFrom = (process.env.MAIL_FROM || process.env.SMTP_FROM || user || 'reservations@coastalviewmandarmani.com').trim();
+  const mailFrom = (process.env.MAIL_FROM || process.env.SMTP_FROM || user || 'coastalviewbyanis@gmail.com').trim();
   const mailFromName = (process.env.MAIL_FROM_NAME || "Coastal View Mandarmani").trim();
   const adminEmail = (process.env.ADMIN_EMAIL || '').trim();
   const secureEnv = process.env.SMTP_SECURE;
@@ -779,6 +779,11 @@ Coastal View, Managed By Ani's · Rina Rd, Mandarmani, West Bengal 721455 · Thi
 function templateBookingConfirmation({ booking, invoiceNumber, hotelSettings }) {
   const subject = `Booking Confirmation: ${invoiceNumber || booking.bookingId} - Coastal View Mandarmani`;
   const preview = `Your reservation at Coastal View is confirmed! Invoice ${invoiceNumber || booking.bookingId}`;
+  const advancePct = Number(hotelSettings?.advancePercentage || 20) || 20;
+  const balancePct = Math.max(0, 100 - advancePct);
+  const rawPayableAt = String(hotelSettings?.balancePayableAt || 'Check-in').trim() || 'Check-in';
+  const balancePayableAt = rawPayableAt.charAt(0).toUpperCase() + rawPayableAt.slice(1);
+  const balancePayableAtLower = balancePayableAt.toLowerCase();
 
   const html = baseEmailWrapper({
     title: subject,
@@ -792,7 +797,7 @@ function templateBookingConfirmation({ booking, invoiceNumber, hotelSettings }) 
 
       <h2 style="margin: 0 0 10px 0; font-size: 22px; color: #073B4C; text-align: center;">Welcome to Coastal View, Mandarmani!</h2>
       <p style="font-size: 14px; color: #475569; text-align: center; margin: 0 0 24px 0;">
-        Dear <strong>${booking.customerName}</strong>, your reservation has been confirmed. Your official tax invoice PDF is attached to this email.
+        Dear <strong>${booking.customerName || booking.guestName}</strong>, your reservation has been confirmed. Your official tax invoice PDF is attached to this email.
       </p>
 
       <table width="100%" cellspacing="0" cellpadding="0" border="0" style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 18px; margin-bottom: 24px; font-size: 14px;">
@@ -814,43 +819,48 @@ function templateBookingConfirmation({ booking, invoiceNumber, hotelSettings }) 
         </tr>
         <tr>
           <td style="padding: 6px 0; color: #64748B;">Total Amount:</td>
-          <td style="padding: 6px 0; font-weight: 700; color: #073B4C; text-align: right;">₹${(booking.totalPrice || 0).toLocaleString('en-IN')}</td>
+          <td style="padding: 6px 0; font-weight: 700; color: #073B4C; text-align: right;">₹${(booking.totalPrice || booking.totalAmount || 0).toLocaleString('en-IN')}</td>
         </tr>
         <tr>
-          <td style="padding: 6px 0; color: #64748B;">Advance Paid (20%):</td>
-          <td style="padding: 6px 0; font-weight: 700; color: #06B6B0; text-align: right;">₹${(booking.advancePaid || 0).toLocaleString('en-IN')}</td>
+          <td style="padding: 6px 0; color: #64748B;">Advance Paid (${advancePct}%):</td>
+          <td style="padding: 6px 0; font-weight: 700; color: #06B6B0; text-align: right;">₹${(booking.advancePaid || booking.payNowAdvance || 0).toLocaleString('en-IN')}</td>
         </tr>
         <tr>
-          <td style="padding: 6px 0; color: #64748B;">Balance Due at Check-in:</td>
-          <td style="padding: 6px 0; font-weight: 700; color: #E8C77B; text-align: right;">₹${(booking.balanceDue || 0).toLocaleString('en-IN')}</td>
+          <td style="padding: 6px 0; color: #64748B;">${balancePct}% Balance Payable at ${balancePayableAt}:</td>
+          <td style="padding: 6px 0; font-weight: 700; color: #E8C77B; text-align: right;">₹${(booking.balanceDue || booking.payAtHotelBalance || 0).toLocaleString('en-IN')}</td>
         </tr>
       </table>
 
       <div style="background: #FAF6EE; border-left: 4px solid #E8C77B; padding: 14px 18px; border-radius: 6px; font-size: 13px; color: #475569; margin-bottom: 20px;">
-        <strong>Check-in Details:</strong><br>
-        • Check-in time: <strong>${hotelSettings?.checkInTime || '11:00 AM'}</strong> • Check-out time: <strong>${hotelSettings?.checkOutTime || '9:30 AM'}</strong><br>
-        • Please present a valid Government Photo ID at the front desk upon arrival.
+        <strong>Check-in & Payment Policy:</strong><br>
+        • The ${advancePct}% advance is non-refundable upon cancellation.<br>
+        • The remaining ${balancePct}% is payable at the time of ${balancePayableAtLower} at the hotel reception.<br>
+        • Check-in from <strong>${hotelSettings?.checkInTime || '11:00 AM'}</strong>; check-out by <strong>${hotelSettings?.checkOutTime || '9:30 AM'}</strong>.<br>
+        • A valid government photo ID is mandatory for all adult guests at check-in.
       </div>
     `
   });
 
   const text = `Booking Confirmation - Coastal View Mandarmani
 Booking ID: ${invoiceNumber || booking.bookingId}
-Guest: ${booking.customerName}
+Guest: ${booking.customerName || booking.guestName}
 Room: ${booking.roomName}
 Dates: ${booking.checkIn} to ${booking.checkOut}
-Total Price: ₹${booking.totalPrice}
-Advance Paid: ₹${booking.advancePaid}
-Balance Due: ₹${booking.balanceDue}
+Total Price: ₹${booking.totalPrice || booking.totalAmount}
+Advance Paid (${advancePct}%): ₹${booking.advancePaid || booking.payNowAdvance}
+${balancePct}% Balance Payable at ${balancePayableAt}: ₹${booking.balanceDue || booking.payAtHotelBalance}
+The remaining ${balancePct}% is payable at the time of ${balancePayableAtLower} at the hotel reception.
+The ${advancePct}% advance is non-refundable.
 Invoice attached.`;
 
   return { subject, html, text };
 }
 
 // 6. Template: Booking Cancellation
-function templateBookingCancellation({ booking, reason }) {
+function templateBookingCancellation({ booking, reason, hotelSettings }) {
   const subject = `Booking Cancellation: ${booking.invoiceNumber || booking.bookingId} - Coastal View Mandarmani`;
   const preview = `Your reservation ${booking.invoiceNumber || booking.bookingId} has been cancelled`;
+  const advancePct = Number(hotelSettings?.advancePercentage || 20) || 20;
 
   const html = baseEmailWrapper({
     title: subject,
@@ -864,27 +874,69 @@ function templateBookingCancellation({ booking, reason }) {
 
       <h2 style="margin: 0 0 10px 0; font-size: 22px; color: #073B4C; text-align: center;">Booking Cancellation Notice</h2>
       <p style="font-size: 14px; color: #475569; text-align: center; margin: 0 0 24px 0;">
-        Dear <strong>${booking.customerName}</strong>, your reservation for ${booking.roomName} has been cancelled.
+        Dear <strong>${booking.customerName || booking.guestName}</strong>, your reservation for ${booking.roomName} has been cancelled.
       </p>
 
       <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 16px; font-size: 13px; color: #334155; margin-bottom: 20px;">
         <div>• <strong>Booking ID:</strong> ${booking.invoiceNumber || booking.bookingId}</div>
         <div>• <strong>Dates:</strong> ${booking.checkIn} to ${booking.checkOut}</div>
         <div>• <strong>Cancellation Reason:</strong> ${reason || 'Per customer request / policy'}</div>
+        <div>• <strong>Advance Policy:</strong> The ${advancePct}% advance is non-refundable upon cancellation.</div>
       </div>
 
       <p style="font-size: 13px; color: #64748B;">
-        For any assistance, please contact our front desk at +91 7812027551 or email reservations@coastalviewmandarmani.com.
+        For any assistance, please contact our front desk at +91 7812027551 or email coastalviewbyanis@gmail.com.
       </p>
     `
   });
 
   const text = `Booking Cancellation - Coastal View Mandarmani
 Booking ID: ${booking.invoiceNumber || booking.bookingId}
-Guest: ${booking.customerName}
+Guest: ${booking.customerName || booking.guestName}
 Room: ${booking.roomName}
 Dates: ${booking.checkIn} to ${booking.checkOut}
-Reason: ${reason || 'Customer request'}`;
+Reason: ${reason || 'Customer request'}
+Note: The ${advancePct}% advance is non-refundable upon cancellation.`;
+
+  return { subject, html, text };
+}
+
+// 6B. Template: Booking Check-in Reminder
+function templateBookingReminder({ booking, hotelSettings }) {
+  const subject = `Stay Reminder: ${booking.invoiceNumber || booking.bookingId} - Coastal View Mandarmani`;
+  const preview = `We look forward to welcoming you at Coastal View on ${booking.checkIn}!`;
+  const advancePct = Number(hotelSettings?.advancePercentage || 20) || 20;
+  const balancePct = Math.max(0, 100 - advancePct);
+  const rawPayableAt = String(hotelSettings?.balancePayableAt || 'Check-in').trim() || 'Check-in';
+  const balancePayableAt = rawPayableAt.charAt(0).toUpperCase() + rawPayableAt.slice(1);
+  const balancePayableAtLower = balancePayableAt.toLowerCase();
+
+  const html = baseEmailWrapper({
+    title: subject,
+    previewText: preview,
+    contentHtml: `
+      <h2 style="margin: 0 0 10px 0; font-size: 22px; color: #073B4C; text-align: center;">Your Beachfront Stay Awaits!</h2>
+      <p style="font-size: 14px; color: #475569; text-align: center; margin: 0 0 24px 0;">
+        Dear <strong>${booking.customerName || booking.guestName}</strong>, this is a friendly reminder for your upcoming reservation at Coastal View (${booking.checkIn} to ${booking.checkOut}).
+      </p>
+
+      <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 16px; font-size: 13px; color: #334155; margin-bottom: 20px;">
+        <div>• <strong>Booking ID:</strong> ${booking.invoiceNumber || booking.bookingId}</div>
+        <div>• <strong>Room:</strong> ${booking.roomName}</div>
+        <div>• <strong>Check-in:</strong> ${booking.checkIn} from ${hotelSettings?.checkInTime || '11:00 AM'}</div>
+        <div>• <strong>Check-out:</strong> ${booking.checkOut} by ${hotelSettings?.checkOutTime || '9:30 AM'}</div>
+        <div>• <strong>${balancePct}% Balance Payable at ${balancePayableAt}:</strong> ₹${(booking.balanceDue || booking.payAtHotelBalance || 0).toLocaleString('en-IN')}</div>
+        <div style="margin-top: 6px; color: #073B4C; font-weight: 600;">The remaining ${balancePct}% is payable at the time of ${balancePayableAtLower} at the hotel reception.</div>
+      </div>
+    `
+  });
+
+  const text = `Stay Reminder - Coastal View Mandarmani
+Booking ID: ${booking.invoiceNumber || booking.bookingId}
+Guest: ${booking.customerName || booking.guestName}
+Check-in: ${booking.checkIn} (${hotelSettings?.checkInTime || '11:00 AM'})
+${balancePct}% Balance Payable at ${balancePayableAt}: ₹${booking.balanceDue || booking.payAtHotelBalance || 0}
+The remaining ${balancePct}% is payable at the time of ${balancePayableAtLower} at the hotel reception.`;
 
   return { subject, html, text };
 }
@@ -1219,6 +1271,7 @@ module.exports = {
   templatePasswordReset,
   templateBookingConfirmation,
   templateBookingCancellation,
+  templateBookingReminder,
   templateAdminNewBookingAlert,
   templateTestEmail,
   templateLockoutAlert,
